@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go-checks:
+    name: Go Checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - exporter/vendordbexporter
+          - examples/mockdb
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            ${{ matrix.module }}/go.sum
+
+      - name: Verify gofmt
+        run: |
+          unformatted="$(git ls-files '*.go' ':!:otelcol/_build/**' | xargs gofmt -l)"
+          if [[ -n "${unformatted}" ]]; then
+            echo "Unformatted Go files:"
+            echo "${unformatted}"
+            exit 1
+          fi
+
+      - name: Verify go mod tidy
+        working-directory: ${{ matrix.module }}
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Verify go work sync
+        run: |
+          go work sync
+          git diff --exit-code -- go.work.sum
+
+      - name: Run tests
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+
+  collector-build:
+    name: Collector Build
+    runs-on: ubuntu-latest
+    needs: go-checks
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            exporter/vendordbexporter/go.sum
+            examples/mockdb/go.sum
+
+      - name: Install OCB
+        run: make build-ocb
+
+      - name: Build collector
+        run: make build
+
+      - name: Validate demo config
+        run: make validate
+
+      - name: Validate deploy config
+        run: make validate-deploy
