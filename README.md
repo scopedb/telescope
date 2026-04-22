@@ -175,22 +175,49 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   ingest_ts timestamp,
   record_timestamp timestamp,
   observed_timestamp timestamp,
-  start_timestamp timestamp,
-  end_timestamp timestamp,
-  signal string,
   schema_version string,
   dataset string,
+  service_name string,
+  trace_id string,
+  span_id string,
+  severity_text string,
+  message string,
+  record object
+);
+
+CREATE TABLE IF NOT EXISTS scopedb.otel.traces (
+  ingest_ts timestamp,
+  start_timestamp timestamp,
+  end_timestamp timestamp,
+  duration_ns int,
+  schema_version string,
+  dataset string,
+  service_name string,
   trace_id string,
   span_id string,
   parent_span_id string,
+  span_name string,
+  span_kind string,
+  status_code string,
+  record object
+);
+
+CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
+  ingest_ts timestamp,
+  record_timestamp timestamp,
+  start_timestamp timestamp,
+  schema_version string,
+  dataset string,
   service_name string,
   metric_name string,
-  severity_text string,
+  metric_type string,
+  temporality string,
+  unit string,
+  number_value float,
+  distribution object,
   record object
 )
 ```
-
-Apply the same schema to `scopedb.otel.traces` and `scopedb.otel.metrics`, or override routing with `tables.default` / `tables.<signal>`.
 
 ## Local Development
 
@@ -282,8 +309,7 @@ The `vendordb` exporter supports these main fields:
 - `dataset`: logical dataset name
 - built-in defaults: `scopedb.otel.logs`, `scopedb.otel.traces`, `scopedb.otel.metrics`
 - table routes accept `table`, `schema.table`, or `database.schema.table`
-- `tables.default`: optional fallback ScopeDB table route for all signals
-- `tables.logs`, `tables.traces`, `tables.metrics`: optional per-signal table overrides
+- `tables.logs`, `tables.traces`, `tables.metrics`: required per-signal table routes, each pointing to a distinct table
 - `create_tables_if_not_exist`: automatically ensures the configured database, schema, and table exist for all configured routes on startup
 - `schema_version`: payload schema version
 - `compression`: `zstd`, `gzip`, or `none` (`zstd` is the default)

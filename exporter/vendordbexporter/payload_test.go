@@ -45,3 +45,96 @@ func TestUnixNanoStringToRFC3339(t *testing.T) {
 	assert.Equal(t, "", unixNanoStringToRFC3339(""))
 	assert.Equal(t, "", unixNanoStringToRFC3339("not-a-number"))
 }
+
+func TestScopeDBRowsProjectsTraceSchemaColumns(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalTraces,
+		Dataset:       "demo",
+		Records: []Record{
+			{
+				"name":                 "GET /checkout",
+				"kind":                 "server",
+				"status_code":          "error",
+				"duration_ns":          int64(1000),
+				"start_time_unix_nano": "1713835425123456789",
+				"end_time_unix_nano":   "1713835426123456789",
+			},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 1) {
+		assert.Equal(t, "GET /checkout", rows[0]["span_name"])
+		assert.Equal(t, "server", rows[0]["span_kind"])
+		assert.Equal(t, "error", rows[0]["status_code"])
+		assert.Equal(t, int64(1000), rows[0]["duration_ns"])
+	}
+}
+
+func TestScopeDBRowsProjectsMetricSchemaColumns(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalMetrics,
+		Dataset:       "demo",
+		Records: []Record{
+			{
+				"metric_name":               "cpu.utilization",
+				"type":                      "gauge",
+				"unit":                      "1",
+				"temporality":               "delta",
+				"number_value":              0.75,
+				"timestamp_unix_nano":       "1713835425123456789",
+				"start_timestamp_unix_nano": "1713835424123456789",
+			},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 1) {
+		assert.Equal(t, "gauge", rows[0]["metric_type"])
+		assert.Equal(t, "1", rows[0]["unit"])
+		assert.Equal(t, "delta", rows[0]["temporality"])
+		assert.Equal(t, 0.75, rows[0]["number_value"])
+	}
+}
+
+func TestScopeDBRowsProjectsLogMessage(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalLogs,
+		Dataset:       "demo",
+		Records: []Record{
+			{
+				"message": "hello world",
+			},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 1) {
+		assert.Equal(t, "hello world", rows[0]["message"])
+	}
+}
+
+func TestScopeDBRowsProjectsMetricDistribution(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalMetrics,
+		Dataset:       "demo",
+		Records: []Record{
+			{
+				"metric_name": "request.duration",
+				"type":        "histogram",
+				"distribution": map[string]any{
+					"count": uint64(3),
+				},
+			},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 1) {
+		assert.Equal(t, map[string]any{"count": uint64(3)}, rows[0]["distribution"])
+	}
+}

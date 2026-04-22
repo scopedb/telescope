@@ -66,6 +66,9 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
 		assert.Contains(t, request.Statement, "record_timestamp")
 		assert.Contains(t, request.Statement, "observed_timestamp")
+		assert.Contains(t, request.Statement, "severity_text")
+		assert.Contains(t, request.Statement, "message")
+		assert.NotContains(t, request.Statement, "metric_name")
 
 		lines := strings.Split(strings.TrimSpace(request.Data.Rows), "\n")
 		require.Len(t, lines, 1)
@@ -150,7 +153,7 @@ func TestClientEnsureTable(t *testing.T) {
 	require.NoError(t, err)
 	expectedStatements := []string{
 		"CREATE SCHEMA IF NOT EXISTS `public`",
-		"CREATE TABLE IF NOT EXISTS `public`.`vendor_otel_logs_test` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  start_timestamp timestamp,\n  end_timestamp timestamp,\n  signal string,\n  schema_version string,\n  dataset string,\n  trace_id string,\n  span_id string,\n  parent_span_id string,\n  service_name string,\n  metric_name string,\n  severity_text string,\n  record object\n)",
+		"CREATE TABLE IF NOT EXISTS `public`.`vendor_otel_logs_test` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  service_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
 	}
 	var statements []string
 
@@ -189,7 +192,7 @@ func TestClientEnsureTable(t *testing.T) {
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 
-	err = client.EnsureTable(context.Background(), ref)
+	err = client.EnsureTable(context.Background(), signalLogs, ref)
 	require.NoError(t, err)
 	assert.Equal(t, expectedStatements, statements)
 }
@@ -203,7 +206,7 @@ func TestClientEnsureTableCreatesDatabaseSchemaAndTable(t *testing.T) {
 	expectedStatements := []string{
 		"CREATE DATABASE IF NOT EXISTS `scopedb`",
 		"CREATE SCHEMA IF NOT EXISTS `scopedb`.`otel`",
-		"CREATE TABLE IF NOT EXISTS `scopedb`.`otel`.`logs` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  start_timestamp timestamp,\n  end_timestamp timestamp,\n  signal string,\n  schema_version string,\n  dataset string,\n  trace_id string,\n  span_id string,\n  parent_span_id string,\n  service_name string,\n  metric_name string,\n  severity_text string,\n  record object\n)",
+		"CREATE TABLE IF NOT EXISTS `scopedb`.`otel`.`logs` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  service_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
 	}
 	var statements []string
 
@@ -237,7 +240,7 @@ func TestClientEnsureTableCreatesDatabaseSchemaAndTable(t *testing.T) {
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 
-	err = client.EnsureTable(context.Background(), ref)
+	err = client.EnsureTable(context.Background(), signalLogs, ref)
 	require.NoError(t, err)
 	assert.Equal(t, expectedStatements, statements)
 }
@@ -265,7 +268,7 @@ func TestClientEnsureTableFailedStatement(t *testing.T) {
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 
-	err = client.EnsureTable(context.Background(), ref)
+	err = client.EnsureTable(context.Background(), signalLogs, ref)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "permission denied")
 }
@@ -279,7 +282,9 @@ func TestClientSendUsesSignalSpecificTable(t *testing.T) {
 		var request scopeDBIngestRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
-		assert.NotContains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_traces_test`")
+		assert.Contains(t, request.Statement, "severity_text")
+		assert.Contains(t, request.Statement, "message")
+		assert.NotContains(t, request.Statement, "parent_span_id")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -293,6 +298,80 @@ func TestClientSendUsesSignalSpecificTable(t *testing.T) {
 		SchemaVersion: "v1",
 		Dataset:       cfg.Dataset,
 		Records:       []Record{{"body": "hello"}},
+	})
+	require.NoError(t, err)
+}
+
+func TestClientSendUsesTraceSchema(t *testing.T) {
+	cfg := testClientConfig("http://example.invalid")
+	cfg.Compression = "none"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request scopeDBIngestRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_traces_test`")
+		assert.Contains(t, request.Statement, "span_name")
+		assert.Contains(t, request.Statement, "span_kind")
+		assert.Contains(t, request.Statement, "status_code")
+		assert.Contains(t, request.Statement, "duration_ns")
+		assert.NotContains(t, request.Statement, "severity_text")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg.Endpoint = server.URL
+
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+
+	err = client.Send(context.Background(), signalTraces, &IngestPayload{
+		SchemaVersion: "v1",
+		Dataset:       cfg.Dataset,
+		Records: []Record{{
+			"name":                 "GET /checkout",
+			"kind":                 "server",
+			"status_code":          "error",
+			"start_time_unix_nano": "1713835425123456789",
+			"end_time_unix_nano":   "1713835426123456789",
+		}},
+	})
+	require.NoError(t, err)
+}
+
+func TestClientSendUsesMetricSchema(t *testing.T) {
+	cfg := testClientConfig("http://example.invalid")
+	cfg.Compression = "none"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request scopeDBIngestRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_metrics_test`")
+		assert.Contains(t, request.Statement, "metric_type")
+		assert.Contains(t, request.Statement, "temporality")
+		assert.Contains(t, request.Statement, "unit")
+		assert.Contains(t, request.Statement, "number_value")
+		assert.Contains(t, request.Statement, "distribution")
+		assert.NotContains(t, request.Statement, "span_name")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg.Endpoint = server.URL
+
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+
+	err = client.Send(context.Background(), signalMetrics, &IngestPayload{
+		SchemaVersion: "v1",
+		Dataset:       cfg.Dataset,
+		Records: []Record{{
+			"metric_name":               "cpu.utilization",
+			"type":                      "gauge",
+			"unit":                      "1",
+			"temporality":               "delta",
+			"timestamp_unix_nano":       "1713835425123456789",
+			"start_timestamp_unix_nano": "1713835424123456789",
+		}},
 	})
 	require.NoError(t, err)
 }

@@ -39,8 +39,7 @@ Notes:
 - the exporter always sends `Authorization: Bearer <api_key>`
 - built-in defaults route signals to `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`
 - table routes accept `table`, `schema.table`, or `database.schema.table`
-- `tables.default` is an optional fallback route if you want all signals in one table
-- `tables.logs`, `tables.traces`, and `tables.metrics` control per-signal routing
+- `tables.logs`, `tables.traces`, and `tables.metrics` are required and must point to distinct tables
 - `create_tables_if_not_exist` ensures the configured database, schema, and table exist for every configured route during exporter startup
 - `zstd` is the default POST compression; use `gzip` only when talking to older ScopeDB deployments
 - startup table creation uses the official ScopeDB Go SDK `v0.5.0`
@@ -61,23 +60,19 @@ The exporter sends a ScopeDB ingest request like:
 }
 ```
 
-Each JSON row includes top-level ingest columns plus the full original mapped record:
+Each JSON row includes shared ingest columns plus the full original mapped record:
 
 - `ingest_ts`
-- `record_timestamp`
-- `observed_timestamp`
-- `start_timestamp`
-- `end_timestamp`
 - `signal`
 - `schema_version`
 - `dataset`
-- `trace_id`
-- `span_id`
-- `parent_span_id`
-- `service_name`
-- `metric_name`
-- `severity_text`
 - `record`
+
+The exporter also promotes signal-specific fields into top-level row columns so each table can use its own schema:
+
+- logs: `record_timestamp`, `observed_timestamp`, `service_name`, `trace_id`, `span_id`, `severity_text`, `message`
+- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `service_name`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`
+- metrics: `record_timestamp`, `start_timestamp`, `service_name`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
 
 The `record` object keeps the signal-specific body. Log records include fields such as:
 
@@ -127,29 +122,56 @@ Each metric record includes fields such as:
 - `scope`
 - `attributes`
 
-## Suggested Table Schema
+## Suggested Table Schemas
 
 ```sql
 CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   ingest_ts timestamp,
   record_timestamp timestamp,
   observed_timestamp timestamp,
-  start_timestamp timestamp,
-  end_timestamp timestamp,
-  signal string,
   schema_version string,
   dataset string,
+  service_name string,
+  trace_id string,
+  span_id string,
+  severity_text string,
+  message string,
+  record object
+)
+
+CREATE TABLE IF NOT EXISTS scopedb.otel.traces (
+  ingest_ts timestamp,
+  start_timestamp timestamp,
+  end_timestamp timestamp,
+  duration_ns int,
+  schema_version string,
+  dataset string,
+  service_name string,
   trace_id string,
   span_id string,
   parent_span_id string,
+  span_name string,
+  span_kind string,
+  status_code string,
+  record object
+)
+
+CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
+  ingest_ts timestamp,
+  record_timestamp timestamp,
+  start_timestamp timestamp,
+  schema_version string,
+  dataset string,
   service_name string,
   metric_name string,
-  severity_text string,
+  metric_type string,
+  temporality string,
+  unit string,
+  number_value float,
+  distribution object,
   record object
 )
 ```
-
-Use the same schema for `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`.
 
 ## Error Semantics
 

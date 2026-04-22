@@ -59,6 +59,7 @@ func TestMapTraces(t *testing.T) {
 	assert.Equal(t, "server", mapped["kind"])
 	assert.Equal(t, "100", mapped["start_time_unix_nano"])
 	assert.Equal(t, "200", mapped["end_time_unix_nano"])
+	assert.Equal(t, int64(100), mapped["duration_ns"])
 	assert.Equal(t, "error", mapped["status_code"])
 	assert.Equal(t, "boom", mapped["status_message"])
 	assert.Equal(t, map[string]any{"service.name": "checkout"}, mapped["resource"])

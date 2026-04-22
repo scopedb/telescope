@@ -62,6 +62,7 @@ func TestMapMetrics(t *testing.T) {
 	gaugeRecord := findMetricRecord(t, payload.Records, "cpu.utilization")
 	assert.Equal(t, "gauge", gaugeRecord["type"])
 	assert.Equal(t, 0.75, gaugeRecord["value"])
+	assert.Equal(t, 0.75, gaugeRecord["number_value"])
 	assert.Equal(t, map[string]any{"host": "api-1"}, gaugeRecord["attributes"])
 	assert.Equal(t, map[string]any{"service.name": "checkout"}, gaugeRecord["resource"])
 
@@ -70,15 +71,18 @@ func TestMapMetrics(t *testing.T) {
 	assert.Equal(t, "cumulative", sumRecord["temporality"])
 	assert.Equal(t, true, sumRecord["is_monotonic"])
 	assert.Equal(t, int64(42), sumRecord["value"])
+	assert.Equal(t, 42.0, sumRecord["number_value"])
 
 	histRecord := findMetricRecord(t, payload.Records, "request.duration")
 	assert.Equal(t, "histogram", histRecord["type"])
 	assert.Equal(t, "delta", histRecord["temporality"])
 	histogram := histRecord["histogram"].(map[string]any)
+	distribution := histRecord["distribution"].(map[string]any)
 	assert.Equal(t, uint64(3), histogram["count"])
 	assert.Equal(t, 12.5, histogram["sum"])
 	assert.Equal(t, []float64{0.5, 1.0}, histogram["explicit_bounds"])
 	assert.Equal(t, []uint64{1, 2, 0}, histogram["bucket_counts"])
+	assert.Equal(t, histogram, distribution)
 }
 
 func findMetricRecord(t *testing.T, records []Record, metricName string) Record {

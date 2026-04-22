@@ -29,13 +29,14 @@ func (e *dbExporter) ensureTable(ctx context.Context) error {
 		timeout = defaultTableInitTimeout
 	}
 
-	for _, table := range e.cfg.configuredTables() {
+	for _, signal := range []string{signalLogs, signalTraces, signalMetrics} {
+		table := e.cfg.tableForSignal(signal)
 		ref, err := parseTableRef(table)
 		if err != nil {
-			return fmt.Errorf("resolve table route %q: %w", table, err)
+			return fmt.Errorf("resolve table route for %s (%q): %w", signal, table, err)
 		}
 
-		key := e.cfg.Endpoint + "|" + ref.String()
+		key := e.cfg.Endpoint + "|" + signal + "|" + ref.String()
 		stateValue, _ := tableInitStates.LoadOrStore(key, &tableInitState{})
 		state := stateValue.(*tableInitState)
 
@@ -46,7 +47,7 @@ func (e *dbExporter) ensureTable(ctx context.Context) error {
 		}
 
 		ensureCtx, cancel := context.WithTimeout(ctx, timeout)
-		err = e.client.EnsureTable(ensureCtx, ref)
+		err = e.client.EnsureTable(ensureCtx, signal, ref)
 		cancel()
 		if err != nil {
 			state.mu.Unlock()
@@ -60,8 +61,12 @@ func (e *dbExporter) ensureTable(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) EnsureTable(ctx context.Context, table tableRef) error {
-	c.logger.Info("Ensuring ScopeDB table exists", zap.String("table", table.String()))
+func (c *Client) EnsureTable(ctx context.Context, signal string, table tableRef) error {
+	c.logger.Info(
+		"Ensuring ScopeDB table exists",
+		zap.String("signal", signal),
+		zap.String("table", table.String()),
+	)
 
 	sdkClient := scopedb.NewClient(&scopedb.Config{
 		Endpoint:    c.cfg.Endpoint,
@@ -82,11 +87,15 @@ func (c *Client) EnsureTable(ctx context.Context, table tableRef) error {
 		}
 	}
 
-	if _, err := sdkClient.Statement(c.createTableStatement(table)).Execute(ctx); err != nil {
-		return fmt.Errorf("ensure table %s: %w", table.String(), err)
+	if _, err := sdkClient.Statement(c.createTableStatement(signal, table)).Execute(ctx); err != nil {
+		return fmt.Errorf("ensure %s table %s: %w", signal, table.String(), err)
 	}
 
-	c.logger.Info("ScopeDB table is ready", zap.String("table", table.String()))
+	c.logger.Info(
+		"ScopeDB table is ready",
+		zap.String("signal", signal),
+		zap.String("table", table.String()),
+	)
 	return nil
 }
 
@@ -98,24 +107,8 @@ func (c *Client) createSchemaStatement(table tableRef) string {
 	return fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, table.SchemaIdentifier())
 }
 
-func (c *Client) createTableStatement(table tableRef) string {
-	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-  ingest_ts timestamp,
-  record_timestamp timestamp,
-  observed_timestamp timestamp,
-  start_timestamp timestamp,
-  end_timestamp timestamp,
-  signal string,
-  schema_version string,
-  dataset string,
-  trace_id string,
-  span_id string,
-  parent_span_id string,
-  service_name string,
-  metric_name string,
-  severity_text string,
-  record object
-)`, table.Identifier())
+func (c *Client) createTableStatement(signal string, table tableRef) string {
+	return createTableStatementForSignal(signal, table)
 }
 
 func sdkCompression(mode string) scopedb.Compression {

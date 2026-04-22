@@ -40,6 +40,7 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, resource
 			record := newMetricRecord(metric, resource, scope, point.Attributes(), point.Timestamp(), point.StartTimestamp())
 			record["type"] = "gauge"
 			record["value"] = numberDataPointValue(point)
+			record["number_value"] = numberDataPointFloat(point)
 			record["exemplars"] = exemplarsToSlice(point.Exemplars())
 			payload.Records = append(payload.Records, record)
 		}
@@ -53,6 +54,7 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, resource
 			record["temporality"] = strings.ToLower(sum.AggregationTemporality().String())
 			record["is_monotonic"] = sum.IsMonotonic()
 			record["value"] = numberDataPointValue(point)
+			record["number_value"] = numberDataPointFloat(point)
 			record["exemplars"] = exemplarsToSlice(point.Exemplars())
 			payload.Records = append(payload.Records, record)
 		}
@@ -61,10 +63,12 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, resource
 		points := histogram.DataPoints()
 		for i := 0; i < points.Len(); i++ {
 			point := points.At(i)
+			distribution := histogramDataPointToMap(point)
 			record := newMetricRecord(metric, resource, scope, point.Attributes(), point.Timestamp(), point.StartTimestamp())
 			record["type"] = "histogram"
 			record["temporality"] = strings.ToLower(histogram.AggregationTemporality().String())
-			record["histogram"] = histogramDataPointToMap(point)
+			record["histogram"] = distribution
+			record["distribution"] = distribution
 			record["exemplars"] = exemplarsToSlice(point.Exemplars())
 			payload.Records = append(payload.Records, record)
 		}
@@ -73,10 +77,12 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, resource
 		points := histogram.DataPoints()
 		for i := 0; i < points.Len(); i++ {
 			point := points.At(i)
+			distribution := exponentialHistogramDataPointToMap(point)
 			record := newMetricRecord(metric, resource, scope, point.Attributes(), point.Timestamp(), point.StartTimestamp())
 			record["type"] = "exponential_histogram"
 			record["temporality"] = strings.ToLower(histogram.AggregationTemporality().String())
-			record["histogram"] = exponentialHistogramDataPointToMap(point)
+			record["histogram"] = distribution
+			record["distribution"] = distribution
 			record["exemplars"] = exemplarsToSlice(point.Exemplars())
 			payload.Records = append(payload.Records, record)
 		}
@@ -85,9 +91,11 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, resource
 		points := summary.DataPoints()
 		for i := 0; i < points.Len(); i++ {
 			point := points.At(i)
+			distribution := summaryDataPointToMap(point)
 			record := newMetricRecord(metric, resource, scope, point.Attributes(), point.Timestamp(), point.StartTimestamp())
 			record["type"] = "summary"
-			record["summary"] = summaryDataPointToMap(point)
+			record["summary"] = distribution
+			record["distribution"] = distribution
 			payload.Records = append(payload.Records, record)
 		}
 	}
@@ -110,6 +118,17 @@ func numberDataPointValue(point pmetric.NumberDataPoint) any {
 	switch point.ValueType() {
 	case pmetric.NumberDataPointValueTypeInt:
 		return point.IntValue()
+	case pmetric.NumberDataPointValueTypeDouble:
+		return point.DoubleValue()
+	default:
+		return nil
+	}
+}
+
+func numberDataPointFloat(point pmetric.NumberDataPoint) any {
+	switch point.ValueType() {
+	case pmetric.NumberDataPointValueTypeInt:
+		return float64(point.IntValue())
 	case pmetric.NumberDataPointValueTypeDouble:
 		return point.DoubleValue()
 	default:

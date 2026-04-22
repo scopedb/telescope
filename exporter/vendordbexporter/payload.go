@@ -2,6 +2,7 @@ package vendordbexporter
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
-	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
 const (
@@ -89,9 +89,29 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 		if serviceName := recordServiceName(record); serviceName != "" {
 			row["service_name"] = serviceName
 		}
+		projectSignalColumns(row, p.Signal, record)
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func projectSignalColumns(row map[string]any, signal string, record Record) {
+	switch signal {
+	case signalLogs:
+		copyRecordField(row, record, "message")
+	case signalTraces:
+		copyRecordField(row, record, "parent_span_id")
+		copyRecordFieldAs(row, record, "name", "span_name")
+		copyRecordFieldAs(row, record, "kind", "span_kind")
+		copyRecordField(row, record, "status_code")
+		copyRecordField(row, record, "duration_ns")
+	case signalMetrics:
+		copyRecordField(row, record, "unit")
+		copyRecordField(row, record, "temporality")
+		copyRecordFieldAs(row, record, "type", "metric_type")
+		copyRecordField(row, record, "number_value")
+		copyRecordField(row, record, "distribution")
+	}
 }
 
 func timestampString(ts pcommon.Timestamp) string {
@@ -125,6 +145,21 @@ func recordEndTimestamp(record Record) string {
 func recordString(record Record, key string) string {
 	value, _ := record[key].(string)
 	return value
+}
+
+func copyRecordField(row map[string]any, record Record, key string) {
+	copyRecordFieldAs(row, record, key, key)
+}
+
+func copyRecordFieldAs(row map[string]any, record Record, sourceKey string, targetKey string) {
+	value, ok := record[sourceKey]
+	if !ok || value == nil {
+		return
+	}
+	if text, ok := value.(string); ok && text == "" {
+		return
+	}
+	row[targetKey] = value
 }
 
 func unixNanoStringToRFC3339(raw string) string {
@@ -219,19 +254,23 @@ func float64SliceToAny(slice pcommon.Float64Slice) []float64 {
 	return out
 }
 
-func metricTemporalityString(v pmetric.AggregationTemporality) string {
-	switch v {
-	case pmetric.AggregationTemporalityDelta:
-		return "delta"
-	case pmetric.AggregationTemporalityCumulative:
-		return "cumulative"
-	default:
-		return "unspecified"
-	}
-}
-
 func stringifyRaw(v any) string {
 	return fmt.Sprint(v)
+}
+
+func messageString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	default:
+		raw, err := json.Marshal(v)
+		if err == nil {
+			return string(raw)
+		}
+		return stringifyRaw(v)
+	}
 }
 
 func recordServiceName(record Record) string {

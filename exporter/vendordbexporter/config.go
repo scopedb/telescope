@@ -30,7 +30,6 @@ var typeStr = component.MustNewType("vendordb")
 var tablePartPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type TableRoutingConfig struct {
-	Default string `mapstructure:"default"`
 	Logs    string `mapstructure:"logs"`
 	Traces  string `mapstructure:"traces"`
 	Metrics string `mapstructure:"metrics"`
@@ -106,22 +105,31 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("dataset is required"))
 	}
 
-	if len(cfg.configuredTables()) == 0 {
-		errs = append(errs, errors.New("at least one table route must be configured"))
-	}
-
 	for name, table := range map[string]string{
-		"tables.default": cfg.Tables.Default,
 		"tables.logs":    cfg.Tables.Logs,
 		"tables.traces":  cfg.Tables.Traces,
 		"tables.metrics": cfg.Tables.Metrics,
 	} {
 		if strings.TrimSpace(table) == "" {
+			errs = append(errs, fmt.Errorf("%s is required", name))
 			continue
 		}
 		if _, err := parseTableRef(table); err != nil {
 			errs = append(errs, fmt.Errorf("%s %w", name, err))
 		}
+	}
+
+	if strings.TrimSpace(cfg.Tables.Logs) != "" &&
+		strings.TrimSpace(cfg.Tables.Logs) == strings.TrimSpace(cfg.Tables.Traces) {
+		errs = append(errs, errors.New("tables.logs and tables.traces must point to different tables"))
+	}
+	if strings.TrimSpace(cfg.Tables.Logs) != "" &&
+		strings.TrimSpace(cfg.Tables.Logs) == strings.TrimSpace(cfg.Tables.Metrics) {
+		errs = append(errs, errors.New("tables.logs and tables.metrics must point to different tables"))
+	}
+	if strings.TrimSpace(cfg.Tables.Traces) != "" &&
+		strings.TrimSpace(cfg.Tables.Traces) == strings.TrimSpace(cfg.Tables.Metrics) {
+		errs = append(errs, errors.New("tables.traces and tables.metrics must point to different tables"))
 	}
 
 	if strings.TrimSpace(cfg.SchemaVersion) == "" {
@@ -166,25 +174,18 @@ func (cfg *Config) compressionEnabled() bool {
 func (cfg *Config) tableForSignal(signal string) string {
 	switch signal {
 	case signalLogs:
-		if strings.TrimSpace(cfg.Tables.Logs) != "" {
-			return cfg.Tables.Logs
-		}
+		return cfg.Tables.Logs
 	case signalTraces:
-		if strings.TrimSpace(cfg.Tables.Traces) != "" {
-			return cfg.Tables.Traces
-		}
+		return cfg.Tables.Traces
 	case signalMetrics:
-		if strings.TrimSpace(cfg.Tables.Metrics) != "" {
-			return cfg.Tables.Metrics
-		}
+		return cfg.Tables.Metrics
 	}
 
-	return cfg.Tables.Default
+	return ""
 }
 
 func (cfg *Config) configuredTables() []string {
 	candidates := []string{
-		cfg.Tables.Default,
 		cfg.Tables.Logs,
 		cfg.Tables.Traces,
 		cfg.Tables.Metrics,

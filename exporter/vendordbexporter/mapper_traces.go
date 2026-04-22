@@ -3,6 +3,7 @@ package vendordbexporter
 import (
 	"strings"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
@@ -30,6 +31,7 @@ func mapTraces(cfg *Config, traces ptrace.Traces) (*IngestPayload, error) {
 					"kind":                 strings.ToLower(span.Kind().String()),
 					"start_time_unix_nano": timestampString(span.StartTimestamp()),
 					"end_time_unix_nano":   timestampString(span.EndTimestamp()),
+					"duration_ns":          durationNanos(span.StartTimestamp(), span.EndTimestamp()),
 					"status_code":          strings.ToLower(span.Status().Code().String()),
 					"status_message":       span.Status().Message(),
 					"resource":             resource,
@@ -57,6 +59,13 @@ func spanEventsToSlice(events ptrace.SpanEventSlice) []map[string]any {
 		})
 	}
 	return out
+}
+
+func durationNanos(start pcommon.Timestamp, end pcommon.Timestamp) any {
+	if start == 0 || end == 0 || end < start {
+		return nil
+	}
+	return int64(end - start)
 }
 
 func spanLinksToSlice(links ptrace.SpanLinkSlice) []map[string]any {

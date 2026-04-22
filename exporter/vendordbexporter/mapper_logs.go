@@ -18,6 +18,7 @@ func mapLogs(cfg *Config, logs plog.Logs) (*IngestPayload, error) {
 			logRecords := scopeLog.LogRecords()
 			for k := 0; k < logRecords.Len(); k++ {
 				record := logRecords.At(k)
+				body := valueToAny(record.Body())
 				payload.Records = append(payload.Records, Record{
 					"timestamp_unix_nano":          timestampString(record.Timestamp()),
 					"observed_timestamp_unix_nano": timestampString(record.ObservedTimestamp()),
@@ -25,7 +26,8 @@ func mapLogs(cfg *Config, logs plog.Logs) (*IngestPayload, error) {
 					"span_id":                      spanIDString(record.SpanID()),
 					"severity_text":                record.SeverityText(),
 					"severity_number":              int(record.SeverityNumber()),
-					"body":                         valueToAny(record.Body()),
+					"body":                         body,
+					"message":                      messageString(body),
 					"resource":                     resource,
 					"scope":                        scope,
 					"attributes":                   attributesToMap(record.Attributes()),

@@ -72,7 +72,6 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 	assert.Equal(t, defaultPath, cfg.Path)
 	assert.Equal(t, defaultDataset, cfg.Dataset)
-	assert.Empty(t, cfg.Tables.Default)
 	assert.Equal(t, defaultLogsTable, cfg.Tables.Logs)
 	assert.Equal(t, defaultTracesTable, cfg.Tables.Traces)
 	assert.Equal(t, defaultMetricsTable, cfg.Tables.Metrics)
@@ -100,26 +99,38 @@ func TestConfigValidateTableRefVariants(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "http://localhost:8080"
 	cfg.APIKey = configopaque.String("demo-key")
-	cfg.Tables.Default = "otel_default"
 	cfg.Tables.Logs = "otel.logs"
 	cfg.Tables.Traces = "scopedb.otel.traces"
-	cfg.Tables.Metrics = ""
+	cfg.Tables.Metrics = "metrics"
 
 	require.NoError(t, cfg.Validate())
 }
 
-func TestConfigValidateMissingTableRoutes(t *testing.T) {
+func TestConfigValidateMissingTableRoute(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "http://localhost:8080"
 	cfg.APIKey = configopaque.String("demo-key")
-	cfg.Tables.Default = ""
-	cfg.Tables.Logs = ""
+	cfg.Tables.Logs = "otel.logs"
 	cfg.Tables.Traces = ""
+	cfg.Tables.Metrics = "otel.metrics"
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "tables.traces is required")
+}
+
+func TestConfigValidateDuplicateTables(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Endpoint = "http://localhost:8080"
+	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Tables.Logs = "otel.shared"
+	cfg.Tables.Traces = "otel.shared"
 	cfg.Tables.Metrics = ""
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "at least one table route must be configured")
+	assert.ErrorContains(t, err, "tables.logs and tables.traces must point to different tables")
+	assert.ErrorContains(t, err, "tables.metrics is required")
 }
 
 func TestConfigTableRouting(t *testing.T) {

@@ -48,6 +48,7 @@ func TestMapLogs(t *testing.T) {
 	assert.Equal(t, "INFO", mapped["severity_text"])
 	assert.Equal(t, int(plog.SeverityNumberInfo), mapped["severity_number"])
 	assert.Equal(t, "hello world", mapped["body"])
+	assert.Equal(t, "hello world", mapped["message"])
 	assert.Equal(t, map[string]any{"service.name": "checkout"}, mapped["resource"])
 	assert.Equal(t, map[string]any{"name": "test-scope", "version": "1.2.3"}, mapped["scope"])
 	assert.Equal(t, map[string]any{"env": "dev"}, mapped["attributes"])
