@@ -1,0 +1,7 @@
+.git
+.DS_Store
+bin/
+deploy/.env
+examples/mockdb/__pycache__/
+exporter/vendordbexporter/__pycache__/
+otelcol/_build/

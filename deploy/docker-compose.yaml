@@ -1,0 +1,20 @@
+services:
+  scopedb-otel-gateway:
+    image: scopedb-otel-gateway:0.1.0
+    build:
+      context: ..
+      dockerfile: otelcol/Dockerfile
+    restart: unless-stopped
+    environment:
+      SCOPEDB_ENDPOINT: ${SCOPEDB_ENDPOINT}
+      SCOPEDB_API_KEY: ${SCOPEDB_API_KEY}
+      SCOPEDB_TABLE: ${SCOPEDB_TABLE}
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+    volumes:
+      - scopedb-otel-queue:/var/lib/vendor-otelcol/queue
+
+volumes:
+  scopedb-otel-queue:

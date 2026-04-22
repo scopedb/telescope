@@ -1,0 +1,22 @@
+dist:
+  module: github.com/your-org/vendor-otel-gateway/otelcol
+  name: vendor-otelcol
+  description: Vendor OTel Gateway
+  output_path: ./_build
+  version: 0.1.0
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.150.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.150.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.150.0
+
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0
+
+exporters:
+  - gomod: github.com/your-org/vendor-otel-gateway/exporter/vendordbexporter v0.0.0
+    path: ../exporter/vendordbexporter
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.150.0

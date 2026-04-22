@@ -1,0 +1,5 @@
+.DS_Store
+bin/
+deploy/.env
+otelcol/_build/
+__pycache__/
