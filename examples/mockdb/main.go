@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
@@ -163,14 +166,30 @@ func isAuthorized(r *http.Request) bool {
 }
 
 func readRequestBody(r *http.Request) ([]byte, error) {
-	var reader io.Reader = r.Body
-	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-		zr, err := gzip.NewReader(r.Body)
+	compressedBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var reader io.Reader = bytes.NewReader(compressedBody)
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
+	case "":
+	case "gzip":
+		zr, err := gzip.NewReader(bytes.NewReader(compressedBody))
 		if err != nil {
 			return nil, fmt.Errorf("create gzip reader: %w", err)
 		}
 		defer zr.Close()
 		reader = zr
+	case "zstd":
+		zr, err := zstd.NewReader(bytes.NewReader(compressedBody))
+		if err != nil {
+			return nil, fmt.Errorf("create zstd reader: %w", err)
+		}
+		defer zr.Close()
+		reader = zr
+	default:
+		return nil, fmt.Errorf("unsupported content encoding %q", r.Header.Get("Content-Encoding"))
 	}
 
 	return io.ReadAll(reader)

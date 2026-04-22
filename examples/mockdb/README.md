@@ -7,7 +7,7 @@ Behavior:
 
 - listens on `:8080`
 - accepts `Authorization: Bearer demo-key`
-- supports gzip and plain JSON request bodies
+- supports zstd, gzip, and plain JSON request bodies
 - stores all received ingest requests and decoded rows in memory
 - exposes `GET /debug/payloads` for inspection
 

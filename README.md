@@ -45,7 +45,7 @@ By default the deployed gateway exposes:
 
 The production-style config is [otelcol/config/deploy.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/otelcol/config/deploy.yaml:1).
 It enables `file_storage` and stores the persistent queue under `/var/lib/vendor-otelcol/queue`.
-It also enables `create_table_if_not_exists: true`, so the deployed gateway will create the target table on startup when the API key has DDL permission.
+It also enables `create_tables_if_not_exist: true`, so the deployed gateway will create every configured target table on startup when the API key has DDL permission.
 
 ## How It Integrates With OpenTelemetry Collector
 
@@ -98,7 +98,12 @@ cp deploy/.env.example deploy/.env
 
 - `SCOPEDB_ENDPOINT`
 - `SCOPEDB_API_KEY`
-- `SCOPEDB_TABLE`
+
+By default, the gateway writes to:
+
+- `scopedb.otel.logs`
+- `scopedb.otel.traces`
+- `scopedb.otel.metrics`
 
 3. Start the gateway.
 
@@ -130,7 +135,6 @@ docker run --rm \
   -p 13133:13133 \
   -e SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
   -e SCOPEDB_API_KEY=sk_... \
-  -e SCOPEDB_TABLE=public.vendor_otel_raw \
   -v scopedb-otel-queue:/var/lib/vendor-otelcol/queue \
   scopedb-otel-gateway:0.1.0
 ```
@@ -143,27 +147,36 @@ The deployment-facing config is environment-driven:
 
 - `SCOPEDB_ENDPOINT`: ScopeDB base URL
 - `SCOPEDB_API_KEY`: ScopeDB API key
-- `SCOPEDB_TABLE`: target ScopeDB table, for example `public.vendor_otel_raw`
 
 Auth is sent as `Authorization: Bearer <token>`, which matches the current ScopeDB client behavior.
 Tenant selection is handled by the ScopeDB SaaS auth gateway, so there is no separate tenant config.
-The deployment config creates the table automatically on startup.
+The deployment config creates the built-in OTel tables automatically on startup.
 
 ## Table Initialization
 
 The deployment config auto-creates the target table on startup with:
 
 ```yaml
-create_table_if_not_exists: true
+create_tables_if_not_exist: true
 ```
 
-That startup DDL path uses the official ScopeDB Go SDK `github.com/scopedb/scopedb-sdk/go v0.4.0`.
+That startup DDL path uses the official ScopeDB Go SDK `github.com/scopedb/scopedb-sdk/go v0.5.0`.
+
+By default the gateway routes signals to:
+
+- `scopedb.otel.logs`
+- `scopedb.otel.traces`
+- `scopedb.otel.metrics`
 
 If you prefer to manage schema yourself or your API key does not have DDL permission, disable that flag in a custom Collector config and create the table manually with:
 
 ```sql
-CREATE TABLE IF NOT EXISTS public.vendor_otel_raw (
+CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   ingest_ts timestamp,
+  record_timestamp timestamp,
+  observed_timestamp timestamp,
+  start_timestamp timestamp,
+  end_timestamp timestamp,
   signal string,
   schema_version string,
   dataset string,
@@ -176,6 +189,8 @@ CREATE TABLE IF NOT EXISTS public.vendor_otel_raw (
   record object
 )
 ```
+
+Apply the same schema to `scopedb.otel.traces` and `scopedb.otel.metrics`, or override routing with `tables.default` / `tables.<signal>`.
 
 ## Local Development
 
@@ -265,10 +280,13 @@ The `vendordb` exporter supports these main fields:
 - `path`: ingest path, default `/v1/ingest`
 - `api_key`: secret used for backend authentication
 - `dataset`: logical dataset name
-- `table`: ScopeDB table inserted into by the generated ingest statement
-- `create_table_if_not_exists`: automatically runs `CREATE TABLE IF NOT EXISTS` on startup
+- built-in defaults: `scopedb.otel.logs`, `scopedb.otel.traces`, `scopedb.otel.metrics`
+- table routes accept `table`, `schema.table`, or `database.schema.table`
+- `tables.default`: optional fallback ScopeDB table route for all signals
+- `tables.logs`, `tables.traces`, `tables.metrics`: optional per-signal table overrides
+- `create_tables_if_not_exist`: automatically ensures the configured database, schema, and table exist for all configured routes on startup
 - `schema_version`: payload schema version
-- `compression`: `gzip` or `none`
+- `compression`: `zstd`, `gzip`, or `none` (`zstd` is the default)
 - `timeout`: per-attempt exporter timeout
 - `retry_on_failure`: exporterhelper retry policy
 - `sending_queue`: exporterhelper queue policy, including optional `storage: file_storage`

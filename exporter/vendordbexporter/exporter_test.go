@@ -1,9 +1,11 @@
 package vendordbexporter
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,14 +115,15 @@ func TestExporterStartEnsuresTableWhenEnabled(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements":
 			sawCreateTable = true
-			assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
-			reader, err := gzip.NewReader(r.Body)
-			require.NoError(t, err)
-			defer reader.Close()
-
 			var request exporterTableInitStatementRequest
-			require.NoError(t, json.NewDecoder(reader).Decode(&request))
-			assert.Contains(t, request.Statement, "CREATE TABLE IF NOT EXISTS")
+			body, err := decodeExporterRequestBody(r)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(body, &request))
+			assert.True(t,
+				strings.HasPrefix(request.Statement, "CREATE DATABASE IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE SCHEMA IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE TABLE IF NOT EXISTS"),
+			)
 			w.Header().Set("Content-Type", "application/json")
 			require.NoError(t, json.NewEncoder(w).Encode(exporterTableInitStatementResponse{
 				StatementID: "33333333-3333-3333-3333-333333333333",
@@ -150,7 +154,7 @@ func TestExporterStartEnsuresTableWhenEnabled(t *testing.T) {
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.CreateTableIfNotExists = true
+	cfg.CreateTablesIfNotExist = true
 
 	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
@@ -196,8 +200,10 @@ func newCaptureServer(t *testing.T) (*payloadStore, *httptest.Server) {
 
 	store := &payloadStore{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := decodeExporterRequestBody(r)
+		require.NoError(t, err)
 		var request scopeDBIngestRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.NoError(t, json.Unmarshal(body, &request))
 		rows := splitRows(t, request.Data.Rows)
 		store.Add(receivedIngestRequest{
 			Type:      request.Type,
@@ -215,7 +221,11 @@ func testExporterConfig(endpoint string) *Config {
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String("demo-key")
 	cfg.Compression = "none"
-	cfg.Table = "public.vendor_otel_raw_test"
+	cfg.Tables = TableRoutingConfig{
+		Logs:    "public.vendor_otel_logs_test",
+		Traces:  "public.vendor_otel_traces_test",
+		Metrics: "public.vendor_otel_metrics_test",
+	}
 	cfg.Timeout.Timeout = 0
 	cfg.RetryOnFailure.Enabled = false
 	cfg.SendingQueue = configoptional.None[exporterhelper.QueueBatchConfig]()
@@ -269,4 +279,32 @@ func splitRows(t *testing.T, raw string) []map[string]any {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func decodeExporterRequestBody(r *http.Request) ([]byte, error) {
+	compressedBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
+	case "":
+		return compressedBody, nil
+	case "gzip":
+		gr, err := gzip.NewReader(bytes.NewReader(compressedBody))
+		if err != nil {
+			return nil, err
+		}
+		defer gr.Close()
+		return io.ReadAll(gr)
+	case "zstd":
+		zr, err := zstd.NewReader(bytes.NewReader(compressedBody))
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		return io.ReadAll(zr)
+	default:
+		return nil, io.ErrUnexpectedEOF
+	}
 }

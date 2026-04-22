@@ -3,7 +3,9 @@ package vendordbexporter
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -57,6 +59,18 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 			"dataset":        p.Dataset,
 			"record":         map[string]any(record),
 		}
+		if recordTimestamp := recordTimestamp(record); recordTimestamp != "" {
+			row["record_timestamp"] = recordTimestamp
+		}
+		if observedTimestamp := recordObservedTimestamp(record); observedTimestamp != "" {
+			row["observed_timestamp"] = observedTimestamp
+		}
+		if startTimestamp := recordStartTimestamp(record); startTimestamp != "" {
+			row["start_timestamp"] = startTimestamp
+		}
+		if endTimestamp := recordEndTimestamp(record); endTimestamp != "" {
+			row["end_timestamp"] = endTimestamp
+		}
 		if traceID, ok := record["trace_id"].(string); ok && traceID != "" {
 			row["trace_id"] = traceID
 		}
@@ -85,6 +99,46 @@ func timestampString(ts pcommon.Timestamp) string {
 		return ""
 	}
 	return strconv.FormatUint(uint64(ts), 10)
+}
+
+func recordTimestamp(record Record) string {
+	return unixNanoStringToRFC3339(recordString(record, "timestamp_unix_nano"))
+}
+
+func recordObservedTimestamp(record Record) string {
+	return unixNanoStringToRFC3339(recordString(record, "observed_timestamp_unix_nano"))
+}
+
+func recordStartTimestamp(record Record) string {
+	switch {
+	case recordString(record, "start_time_unix_nano") != "":
+		return unixNanoStringToRFC3339(recordString(record, "start_time_unix_nano"))
+	default:
+		return unixNanoStringToRFC3339(recordString(record, "start_timestamp_unix_nano"))
+	}
+}
+
+func recordEndTimestamp(record Record) string {
+	return unixNanoStringToRFC3339(recordString(record, "end_time_unix_nano"))
+}
+
+func recordString(record Record, key string) string {
+	value, _ := record[key].(string)
+	return value
+}
+
+func unixNanoStringToRFC3339(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	nanos, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || nanos > math.MaxInt64 {
+		return ""
+	}
+
+	return time.Unix(0, int64(nanos)).UTC().Format(time.RFC3339Nano)
 }
 
 func traceIDString(id pcommon.TraceID) string {

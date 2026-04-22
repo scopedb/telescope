@@ -12,4 +12,4 @@ validate:
 
 .PHONY: validate-deploy
 validate-deploy:
-	SCOPEDB_ENDPOINT=http://localhost:8080 SCOPEDB_API_KEY=demo-key SCOPEDB_TABLE=public.vendor_otel_raw ./_build/vendor-otelcol validate --config config/deploy.yaml
+	SCOPEDB_ENDPOINT=http://localhost:8080 SCOPEDB_API_KEY=demo-key ./_build/vendor-otelcol validate --config config/deploy.yaml

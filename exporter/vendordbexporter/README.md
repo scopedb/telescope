@@ -13,10 +13,13 @@ exporters:
     path: /v1/ingest
     api_key: ${env:VENDOR_API_KEY}
     dataset: default
-    table: public.vendor_otel_raw
-    create_table_if_not_exists: false
+    tables:
+      logs: scopedb.otel.logs
+      traces: scopedb.otel.traces
+      metrics: scopedb.otel.metrics
+    create_tables_if_not_exist: false
     schema_version: v1
-    compression: gzip
+    compression: zstd
     timeout: 10s
     retry_on_failure:
       enabled: true
@@ -34,9 +37,13 @@ Notes:
 
 - `api_key` uses `configopaque.String`, so it is redacted when config values are logged
 - the exporter always sends `Authorization: Bearer <api_key>`
-- `table` controls the ScopeDB table name used by the generated ingest statement
-- `create_table_if_not_exists` runs `CREATE TABLE IF NOT EXISTS` during exporter startup
-- startup table creation uses the official ScopeDB Go SDK `v0.4.0`
+- built-in defaults route signals to `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`
+- table routes accept `table`, `schema.table`, or `database.schema.table`
+- `tables.default` is an optional fallback route if you want all signals in one table
+- `tables.logs`, `tables.traces`, and `tables.metrics` control per-signal routing
+- `create_tables_if_not_exist` ensures the configured database, schema, and table exist for every configured route during exporter startup
+- `zstd` is the default POST compression; use `gzip` only when talking to older ScopeDB deployments
+- startup table creation uses the official ScopeDB Go SDK `v0.5.0`
 - the deployment config enables table creation automatically, while mock/demo configs leave it off
 
 ## Ingest Request Shape
@@ -50,13 +57,17 @@ The exporter sends a ScopeDB ingest request like:
     "format": "json",
     "rows": "{\"signal\":\"logs\",...}\n{\"signal\":\"logs\",...}"
   },
-  "statement": "SELECT ... INSERT INTO public.vendor_otel_raw (...)"
+  "statement": "SELECT ... INSERT INTO scopedb.otel.logs (...)"
 }
 ```
 
 Each JSON row includes top-level ingest columns plus the full original mapped record:
 
 - `ingest_ts`
+- `record_timestamp`
+- `observed_timestamp`
+- `start_timestamp`
+- `end_timestamp`
 - `signal`
 - `schema_version`
 - `dataset`
@@ -116,11 +127,15 @@ Each metric record includes fields such as:
 - `scope`
 - `attributes`
 
-## Suggested Table
+## Suggested Table Schema
 
 ```sql
-CREATE TABLE IF NOT EXISTS public.vendor_otel_raw (
+CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   ingest_ts timestamp,
+  record_timestamp timestamp,
+  observed_timestamp timestamp,
+  start_timestamp timestamp,
+  end_timestamp timestamp,
   signal string,
   schema_version string,
   dataset string,
@@ -133,6 +148,8 @@ CREATE TABLE IF NOT EXISTS public.vendor_otel_raw (
   record object
 )
 ```
+
+Use the same schema for `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`.
 
 ## Error Semantics
 

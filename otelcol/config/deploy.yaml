@@ -27,10 +27,9 @@ exporters:
     path: /v1/ingest
     api_key: ${env:SCOPEDB_API_KEY}
     dataset: default
-    table: ${env:SCOPEDB_TABLE}
-    create_table_if_not_exists: true
+    create_tables_if_not_exist: true
     schema_version: v1
-    compression: gzip
+    compression: zstd
     timeout: 10s
     retry_on_failure:
       enabled: true

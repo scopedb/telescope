@@ -27,9 +27,12 @@ exporters:
     path: /v1/ingest
     api_key: ${env:VENDOR_API_KEY}
     dataset: demo
-    table: public.vendor_otel_raw
+    tables:
+      logs: scopedb.otel.logs
+      traces: scopedb.otel.traces
+      metrics: scopedb.otel.metrics
     schema_version: v1
-    compression: gzip
+    compression: zstd
     timeout: 10s
     retry_on_failure:
       enabled: true

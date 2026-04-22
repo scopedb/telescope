@@ -5,7 +5,8 @@ go 1.25.0
 toolchain go1.25.3
 
 require (
-	github.com/scopedb/scopedb-sdk/go v0.4.0
+	github.com/klauspost/compress v1.18.5
+	github.com/scopedb/scopedb-sdk/go v0.5.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.56.0
 	go.opentelemetry.io/collector/component/componenttest v0.150.0

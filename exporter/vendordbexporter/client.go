@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/klauspost/compress/zstd"
 	"go.opentelemetry.io/collector/exporter"
 	"go.uber.org/zap"
 )
@@ -58,17 +60,19 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 		payload.Dataset = c.cfg.Dataset
 	}
 
-	rawBody, err := c.marshalScopeDBRequest(payload)
+	table, err := parseTableRef(c.cfg.tableForSignal(signal))
+	if err != nil {
+		return fmt.Errorf("resolve table for %s: %w", signal, err)
+	}
+
+	rawBody, err := c.marshalScopeDBRequest(payload, table)
 	if err != nil {
 		return fmt.Errorf("marshal ingest request: %w", err)
 	}
 
-	requestBody := rawBody
-	if c.cfg.compressionEnabled() {
-		requestBody, err = gzipBytes(rawBody)
-		if err != nil {
-			return fmt.Errorf("gzip ingest payload: %w", err)
-		}
+	requestBody, contentEncoding, err := compressRequestBody(rawBody, c.cfg.compressionMode())
+	if err != nil {
+		return fmt.Errorf("compress ingest payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.ingestURL(), bytes.NewReader(requestBody))
@@ -82,8 +86,9 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	if c.cfg.Dataset != "" {
 		req.Header.Set("X-Vendor-Dataset", c.cfg.Dataset)
 	}
-	if c.cfg.compressionEnabled() {
-		req.Header.Set("Content-Encoding", "gzip")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+		req.Header.Set("X-ScopeDB-Uncompressed-Content-Length", strconv.Itoa(len(rawBody)))
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -96,6 +101,7 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 		c.logger.Debug(
 			"Sent ingest request",
 			zap.String("signal", signal),
+			zap.String("table", table.String()),
 			zap.Int("records", len(payload.Records)),
 			zap.Int("status_code", resp.StatusCode),
 		)
@@ -126,7 +132,7 @@ func (c *Client) formattedAPIKey() string {
 	return raw
 }
 
-func (c *Client) marshalScopeDBRequest(payload *IngestPayload) ([]byte, error) {
+func (c *Client) marshalScopeDBRequest(payload *IngestPayload, table tableRef) ([]byte, error) {
 	rowsBody, err := marshalJSONLines(payload.scopeDBRows())
 	if err != nil {
 		return nil, err
@@ -138,15 +144,19 @@ func (c *Client) marshalScopeDBRequest(payload *IngestPayload) ([]byte, error) {
 			Format: "json",
 			Rows:   rowsBody,
 		},
-		Statement: c.defaultIngestStatement(),
+		Statement: c.defaultIngestStatement(table),
 	}
 
 	return json.Marshal(request)
 }
 
-func (c *Client) defaultIngestStatement() string {
+func (c *Client) defaultIngestStatement(table tableRef) string {
 	return fmt.Sprintf(`SELECT
   $0["ingest_ts"]::timestamp AS ingest_ts,
+  $0["record_timestamp"]::timestamp AS record_timestamp,
+  $0["observed_timestamp"]::timestamp AS observed_timestamp,
+  $0["start_timestamp"]::timestamp AS start_timestamp,
+  $0["end_timestamp"]::timestamp AS end_timestamp,
   $0["signal"]::string AS signal,
   $0["schema_version"]::string AS schema_version,
   $0["dataset"]::string AS dataset,
@@ -159,6 +169,10 @@ func (c *Client) defaultIngestStatement() string {
   $0["record"]::object AS record
 INSERT INTO %s (
   ingest_ts,
+  record_timestamp,
+  observed_timestamp,
+  start_timestamp,
+  end_timestamp,
   signal,
   schema_version,
   dataset,
@@ -169,7 +183,7 @@ INSERT INTO %s (
   metric_name,
   severity_text,
   record
-)`, c.cfg.Table)
+)`, table.Identifier())
 }
 
 func marshalJSONLines(rows []map[string]any) (string, error) {
@@ -194,4 +208,35 @@ func gzipBytes(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func zstdBytes(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw, err := zstd.NewWriter(&buf)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := zw.Write(raw); err != nil {
+		zw.Close()
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func compressRequestBody(raw []byte, compression string) ([]byte, string, error) {
+	switch compression {
+	case "none":
+		return raw, "", nil
+	case "gzip":
+		body, err := gzipBytes(raw)
+		return body, "gzip", err
+	case "zstd":
+		body, err := zstdBytes(raw)
+		return body, "zstd", err
+	default:
+		return nil, "", fmt.Errorf("unsupported compression %q", compression)
+	}
 }

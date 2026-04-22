@@ -72,8 +72,11 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 	assert.Equal(t, defaultPath, cfg.Path)
 	assert.Equal(t, defaultDataset, cfg.Dataset)
-	assert.Equal(t, defaultTable, cfg.Table)
-	assert.False(t, cfg.CreateTableIfNotExists)
+	assert.Empty(t, cfg.Tables.Default)
+	assert.Equal(t, defaultLogsTable, cfg.Tables.Logs)
+	assert.Equal(t, defaultTracesTable, cfg.Tables.Traces)
+	assert.Equal(t, defaultMetricsTable, cfg.Tables.Metrics)
+	assert.False(t, cfg.CreateTablesIfNotExist)
 	assert.Equal(t, defaultSchemaVersion, cfg.SchemaVersion)
 	assert.Equal(t, defaultCompression, cfg.Compression)
 	assert.True(t, cfg.RetryOnFailure.Enabled)
@@ -86,9 +89,45 @@ func TestConfigValidateInvalidTable(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "http://localhost:8080"
 	cfg.APIKey = configopaque.String("demo-key")
-	cfg.Table = "bad-table-name"
+	cfg.Tables.Logs = "bad-table-name"
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "table must be a simple identifier")
+	assert.ErrorContains(t, err, "tables.logs table route must be table, schema.table, or database.schema.table")
+}
+
+func TestConfigValidateTableRefVariants(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Endpoint = "http://localhost:8080"
+	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Tables.Default = "otel_default"
+	cfg.Tables.Logs = "otel.logs"
+	cfg.Tables.Traces = "scopedb.otel.traces"
+	cfg.Tables.Metrics = ""
+
+	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidateMissingTableRoutes(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Endpoint = "http://localhost:8080"
+	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Tables.Default = ""
+	cfg.Tables.Logs = ""
+	cfg.Tables.Traces = ""
+	cfg.Tables.Metrics = ""
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "at least one table route must be configured")
+}
+
+func TestConfigTableRouting(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Tables.Logs = "public.vendor_otel_logs"
+
+	assert.Equal(t, "public.vendor_otel_logs", cfg.tableForSignal(signalLogs))
+	assert.Equal(t, defaultTracesTable, cfg.tableForSignal(signalTraces))
+	assert.Equal(t, defaultMetricsTable, cfg.tableForSignal(signalMetrics))
+	assert.Equal(t, []string{"public.vendor_otel_logs", defaultTracesTable, defaultMetricsTable}, cfg.configuredTables())
 }
