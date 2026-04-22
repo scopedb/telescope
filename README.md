@@ -3,10 +3,10 @@
 `scopedb-otel` is a deployable custom OpenTelemetry Collector daemon for ScopeDB.
 It accepts OTLP logs, traces, and metrics over gRPC or HTTP, then writes them into ScopeDB through the public `/v1/ingest` API.
 
-This repository contains two deliverables:
+This repository is organized around the current gateway service, while leaving room for additional services later:
 
-- `vendor-otelcol`: a custom Collector distribution built with OCB
-- `vendordbexporter`: a standalone Collector exporter module under `exporter/vendordbexporter`
+- `services/gateway`: the deployable OTel gateway service
+- `packages/vendordbexporter`: the reusable Collector exporter module used by the gateway
 
 Contribution rules live in [CONTRIBUTING.md](/Users/leiysky/work/scopedb-workspace/scopedb-otel/CONTRIBUTING.md:1).
 Pull requests use semantic PR titles such as `feat: ...` or `fix: ...`.
@@ -43,7 +43,7 @@ By default the deployed gateway exposes:
 - `4318` for OTLP HTTP
 - `13133` for health checks
 
-The production-style config is [otelcol/config/deploy.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/otelcol/config/deploy.yaml:1).
+The production-style config is [services/gateway/collector/config/deploy.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/collector/config/deploy.yaml:1).
 It enables `file_storage` and stores the persistent queue under `/var/lib/vendor-otelcol/queue`.
 It also enables `create_tables_if_not_exist: true`, so the deployed gateway will create every configured target table on startup when the API key has DDL permission.
 
@@ -81,7 +81,7 @@ service:
 
 ### 3. Rebuild It Into Your Own Custom Distribution
 
-If you already maintain your own OCB build, you can import the exporter module from `exporter/vendordbexporter` into your own `builder-config.yaml`.
+If you already maintain your own OCB build, you can import the exporter module from `packages/vendordbexporter` into your own `builder-config.yaml`.
 
 Important: this exporter is linked at build time.
 You cannot take a stock Collector binary and add `vendordb` at runtime through config alone.
@@ -91,10 +91,10 @@ You cannot take a stock Collector binary and add `vendordb` at runtime through c
 1. Copy the example environment file.
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp services/gateway/deploy/.env.example services/gateway/deploy/.env
 ```
 
-2. Edit `deploy/.env` and set:
+2. Edit `services/gateway/deploy/.env` and set:
 
 - `SCOPEDB_ENDPOINT`
 - `SCOPEDB_API_KEY`
@@ -108,7 +108,7 @@ By default, the gateway writes to:
 3. Start the gateway.
 
 ```bash
-docker compose -f deploy/docker-compose.yaml up -d --build
+docker compose -f services/gateway/deploy/docker-compose.yaml up -d --build
 ```
 
 4. Send OTLP data to:
@@ -116,7 +116,7 @@ docker compose -f deploy/docker-compose.yaml up -d --build
 - `localhost:4317` for gRPC
 - `localhost:4318` for HTTP
 
-The Compose definition lives at [deploy/docker-compose.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/deploy/docker-compose.yaml:1).
+The Compose definition lives at [services/gateway/deploy/docker-compose.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/deploy/docker-compose.yaml:1).
 
 ## Run The Container Directly
 
@@ -139,7 +139,7 @@ docker run --rm \
   scopedb-otel-gateway:0.1.0
 ```
 
-The image entrypoint and default config are defined in [otelcol/Dockerfile](/Users/leiysky/work/scopedb-workspace/scopedb-otel/otelcol/Dockerfile:1).
+The image entrypoint and default config are defined in [services/gateway/collector/Dockerfile](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/collector/Dockerfile:1).
 
 ## Environment Variables
 
@@ -226,32 +226,17 @@ Build and validate the custom Collector locally:
 ```bash
 make build-ocb
 make build
+SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
+SCOPEDB_API_KEY=sk_... \
 make validate
+
+SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
+SCOPEDB_API_KEY=sk_... \
 make validate-deploy
 ```
 
 The workspace pins Go `1.25` via `toolchain go1.25.3`.
 If your default Go is older, `GOTOOLCHAIN=go1.25.3` is already wired into the Makefile.
-
-## Run With The Mock Backend
-
-Start the mock backend:
-
-```bash
-export VENDOR_API_KEY=demo-key
-make mockdb
-```
-
-Then start the local demo Collector:
-
-```bash
-export VENDOR_DB_ENDPOINT=http://localhost:8080
-export VENDOR_API_KEY=demo-key
-./otelcol/_build/vendor-otelcol --config otelcol/config/demo.yaml
-```
-
-The mock backend accepts `Authorization: Bearer demo-key`.
-If `:8080` is busy, run it with `MOCKDB_LISTEN_ADDR=:18080 make mockdb`.
 
 ## Send Test Telemetry
 
@@ -278,18 +263,11 @@ GOTOOLCHAIN=go1.25.3 go run github.com/open-telemetry/opentelemetry-collector-co
   --metrics 3
 ```
 
-When using the mock backend, inspect received payloads with:
-
-```bash
-curl http://localhost:8080/debug/payloads
-```
-
 ## Repository Layout
 
-- `exporter/vendordbexporter`: standalone exporter Go module
-- `otelcol`: OCB distribution, configs, and container build
-- `deploy`: deployment examples
-- `examples/mockdb`: mock ingest backend for local testing
+- `services/gateway/collector`: OCB distribution, configs, and container build for the gateway service
+- `services/gateway/deploy`: Docker Compose and environment examples for the gateway service
+- `packages/vendordbexporter`: standalone exporter Go module that can also be reused by other Collector builds
 
 ## Reliability Semantics
 

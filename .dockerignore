@@ -1,7 +1,6 @@
 .git
 .DS_Store
 bin/
-deploy/.env
-examples/mockdb/__pycache__/
-exporter/vendordbexporter/__pycache__/
-otelcol/_build/
+services/gateway/deploy/.env
+packages/vendordbexporter/__pycache__/
+services/gateway/collector/_build/

@@ -1,5 +1,5 @@
 dist:
-  module: github.com/your-org/vendor-otel-gateway/otelcol
+  module: github.com/your-org/vendor-otel-gateway/services/gateway/collector
   name: vendor-otelcol
   description: Vendor OTel Gateway
   output_path: ./_build
@@ -17,6 +17,6 @@ extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0
 
 exporters:
-  - gomod: github.com/your-org/vendor-otel-gateway/exporter/vendordbexporter v0.0.0
-    path: ../exporter/vendordbexporter
+  - gomod: github.com/your-org/vendor-otel-gateway/packages/vendordbexporter v0.0.0
+    path: ../../../packages/vendordbexporter
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.150.0

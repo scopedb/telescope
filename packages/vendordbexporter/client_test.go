@@ -52,7 +52,7 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, defaultPath, r.URL.Path)
-		assert.Equal(t, "Bearer demo-key", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
 		assert.Equal(t, "demo", r.Header.Get("X-Vendor-Dataset"))
 		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
@@ -115,7 +115,7 @@ func TestClientSendGzipAndBearer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, defaultPath, r.URL.Path)
-		assert.Equal(t, "Bearer demo-key", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
 		assert.Equal(t, "demo", r.Header.Get("X-Vendor-Dataset"))
 		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
@@ -158,7 +158,7 @@ func TestClientEnsureTable(t *testing.T) {
 	var statements []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer demo-key", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements":
@@ -421,7 +421,7 @@ func TestClientSendPermanentStatus(t *testing.T) {
 func testClientConfig(endpoint string) *Config {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Dataset = "demo"
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",
@@ -433,7 +433,7 @@ func testClientConfig(endpoint string) *Config {
 }
 
 func TestNewClientUsesNopSettings(t *testing.T) {
-	cfg := testClientConfig("http://localhost:8080")
+	cfg := testClientConfig("https://scopedb.invalid")
 	settings := exportertest.NewNopSettings(typeStr)
 	settings.TelemetrySettings = componenttest.NewNopTelemetrySettings()
 

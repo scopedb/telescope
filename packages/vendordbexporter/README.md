@@ -9,9 +9,9 @@ It accepts logs, traces, and metrics in Collector pdata form, maps them into JSO
 ```yaml
 exporters:
   vendordb:
-    endpoint: http://localhost:8080
+    endpoint: https://your-workspace.scopedb.cloud
     path: /v1/ingest
-    api_key: ${env:VENDOR_API_KEY}
+    api_key: ${env:SCOPEDB_API_KEY}
     dataset: default
     tables:
       logs: scopedb.otel.logs
@@ -43,7 +43,7 @@ Notes:
 - `create_tables_if_not_exist` ensures the configured database, schema, and table exist for every configured route during exporter startup
 - `zstd` is the default POST compression; use `gzip` only when talking to older ScopeDB deployments
 - startup table creation uses the official ScopeDB Go SDK `v0.5.0`
-- the deployment config enables table creation automatically, while mock/demo configs leave it off
+- the deployment config enables table creation automatically, while the local demo configs leave it off
 
 ## Ingest Request Shape
 

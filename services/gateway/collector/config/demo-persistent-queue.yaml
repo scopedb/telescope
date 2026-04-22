@@ -23,9 +23,9 @@ processors:
 
 exporters:
   vendordb:
-    endpoint: ${env:VENDOR_DB_ENDPOINT}
+    endpoint: ${env:SCOPEDB_ENDPOINT}
     path: /v1/ingest
-    api_key: ${env:VENDOR_API_KEY}
+    api_key: ${env:SCOPEDB_API_KEY}
     dataset: demo
     tables:
       logs: scopedb.otel.logs

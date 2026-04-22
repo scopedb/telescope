@@ -13,8 +13,8 @@ import (
 
 func TestMapTraces(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 
 	traces := ptrace.NewTraces()
 	resourceSpans := traces.ResourceSpans().AppendEmpty()

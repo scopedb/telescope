@@ -3,15 +3,15 @@ FROM golang:1.25-bookworm AS builder
 WORKDIR /src
 COPY . .
 
-WORKDIR /src/otelcol
+WORKDIR /src/services/gateway/collector
 RUN GOTOOLCHAIN=go1.25.3 go install go.opentelemetry.io/collector/cmd/builder@v0.150.0
 RUN GOWORK=off /go/bin/builder --config builder-config.yaml
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /src/otelcol/_build/vendor-otelcol /usr/local/bin/vendor-otelcol
-COPY --from=builder /src/otelcol/config/deploy.yaml /etc/vendor-otelcol/config.yaml
+COPY --from=builder /src/services/gateway/collector/_build/vendor-otelcol /usr/local/bin/vendor-otelcol
+COPY --from=builder /src/services/gateway/collector/config/deploy.yaml /etc/vendor-otelcol/config.yaml
 
 VOLUME ["/var/lib/vendor-otelcol/queue"]
 

@@ -2,8 +2,8 @@ services:
   scopedb-otel-gateway:
     image: scopedb-otel-gateway:0.1.0
     build:
-      context: ..
-      dockerfile: otelcol/Dockerfile
+      context: ../../..
+      dockerfile: services/gateway/collector/Dockerfile
     restart: unless-stopped
     environment:
       SCOPEDB_ENDPOINT: ${SCOPEDB_ENDPOINT}

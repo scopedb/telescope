@@ -1,4 +1,4 @@
-module github.com/your-org/vendor-otel-gateway/exporter/vendordbexporter
+module github.com/your-org/vendor-otel-gateway/packages/vendordbexporter
 
 go 1.25.0
 

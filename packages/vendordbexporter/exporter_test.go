@@ -219,7 +219,7 @@ func newCaptureServer(t *testing.T) (*payloadStore, *httptest.Server) {
 func testExporterConfig(endpoint string) *Config {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Compression = "none"
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",

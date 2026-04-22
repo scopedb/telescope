@@ -17,8 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - exporter/vendordbexporter
-          - examples/mockdb
+          - packages/vendordbexporter
     defaults:
       run:
         shell: bash
@@ -36,7 +35,7 @@ jobs:
 
       - name: Verify gofmt
         run: |
-          unformatted="$(git ls-files '*.go' ':!:otelcol/_build/**' | xargs gofmt -l)"
+          unformatted="$(git ls-files '*.go' ':!:services/gateway/collector/_build/**' | xargs gofmt -l)"
           if [[ -n "${unformatted}" ]]; then
             echo "Unformatted Go files:"
             echo "${unformatted}"
@@ -75,17 +74,10 @@ jobs:
           go-version-file: go.work
           cache-dependency-path: |
             go.work.sum
-            exporter/vendordbexporter/go.sum
-            examples/mockdb/go.sum
+            packages/vendordbexporter/go.sum
 
       - name: Install OCB
         run: make build-ocb
 
       - name: Build collector
         run: make build
-
-      - name: Validate demo config
-        run: make validate
-
-      - name: Validate deploy config
-        run: make validate-deploy

@@ -11,15 +11,15 @@ import (
 
 func TestConfigValidate(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 
 	require.NoError(t, cfg.Validate())
 }
 
 func TestConfigValidateEmptyEndpoint(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.APIKey = configopaque.String("test-api-key")
 
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -29,7 +29,7 @@ func TestConfigValidateEmptyEndpoint(t *testing.T) {
 func TestConfigValidateInvalidEndpoint(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "://bad"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.APIKey = configopaque.String("test-api-key")
 
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -38,7 +38,7 @@ func TestConfigValidateInvalidEndpoint(t *testing.T) {
 
 func TestConfigValidateEmptyAPIKey(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
+	cfg.Endpoint = "https://scopedb.invalid"
 
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -47,8 +47,8 @@ func TestConfigValidateEmptyAPIKey(t *testing.T) {
 
 func TestConfigValidateInvalidCompression(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Compression = "brotli"
 
 	err := cfg.Validate()
@@ -58,8 +58,8 @@ func TestConfigValidateInvalidCompression(t *testing.T) {
 
 func TestConfigValidatePathWithoutLeadingSlash(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Path = "v1/otel/ingest"
 
 	err := cfg.Validate()
@@ -86,8 +86,8 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 func TestConfigValidateInvalidTable(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables.Logs = "bad-table-name"
 
 	err := cfg.Validate()
@@ -97,8 +97,8 @@ func TestConfigValidateInvalidTable(t *testing.T) {
 
 func TestConfigValidateTableRefVariants(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables.Logs = "otel.logs"
 	cfg.Tables.Traces = "scopedb.otel.traces"
 	cfg.Tables.Metrics = "metrics"
@@ -108,8 +108,8 @@ func TestConfigValidateTableRefVariants(t *testing.T) {
 
 func TestConfigValidateMissingTableRoute(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables.Logs = "otel.logs"
 	cfg.Tables.Traces = ""
 	cfg.Tables.Metrics = "otel.metrics"
@@ -121,8 +121,8 @@ func TestConfigValidateMissingTableRoute(t *testing.T) {
 
 func TestConfigValidateDuplicateTables(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "http://localhost:8080"
-	cfg.APIKey = configopaque.String("demo-key")
+	cfg.Endpoint = "https://scopedb.invalid"
+	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables.Logs = "otel.shared"
 	cfg.Tables.Traces = "otel.shared"
 	cfg.Tables.Metrics = ""
