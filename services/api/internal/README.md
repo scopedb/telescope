@@ -7,6 +7,7 @@ This directory will hold the implementation details for the API service, includi
 - semantic relation definitions
 - Go registry definitions and validation
 - ScopeQL query compilation
+- reusable API service layer for HTTP, MCP, and CLI adapters
 - Echo HTTP handlers
 - ScopeDB SDK-backed query execution
 

@@ -163,6 +163,38 @@ func (f *FilterExpr) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("empty filter expression")
 }
 
+func (f *FilterExpr) MarshalJSON() ([]byte, error) {
+	if f == nil {
+		return []byte("null"), nil
+	}
+	switch f.kind {
+	case FilterKindAnd, FilterKindOr:
+		return json.Marshal(map[string]any{string(f.kind): f.children})
+	case FilterKindNot:
+		if len(f.children) == 0 {
+			return json.Marshal(map[string]any{string(f.kind): nil})
+		}
+		return json.Marshal(map[string]any{string(f.kind): f.children[0]})
+	case FilterKindEq, FilterKindGt, FilterKindGte, FilterKindLt, FilterKindLte, FilterKindSearch, FilterKindContains:
+		return json.Marshal(map[string]any{string(f.kind): []any{f.field, f.value}})
+	case FilterKindIn:
+		return json.Marshal(map[string]any{string(f.kind): []any{f.field, f.values}})
+	case FilterKindExists:
+		return json.Marshal(map[string]any{string(f.kind): f.field})
+	case FilterKindRegexpLike:
+		arg := map[string]any{
+			"field":   f.field,
+			"pattern": f.pattern,
+		}
+		if f.flags != "" {
+			arg["flags"] = f.flags
+		}
+		return json.Marshal(map[string]any{string(f.kind): arg})
+	default:
+		return nil, fmt.Errorf("unsupported filter kind %q", f.kind)
+	}
+}
+
 func decodeFieldValueTuple(data json.RawMessage) (string, any, error) {
 	var parts []json.RawMessage
 	if err := json.Unmarshal(data, &parts); err != nil {

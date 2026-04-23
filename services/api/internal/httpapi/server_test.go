@@ -123,7 +123,7 @@ func TestPostSearchUsesTimeTopByDefault(t *testing.T) {
 	if !strings.Contains(runner.statements[0], "ORDER BY ts DESC, row_id DESC") {
 		t.Fatalf("missing default ordering in statement: %s", runner.statements[0])
 	}
-	if !strings.Contains(runner.statements[0], "LIMIT 100") {
+	if !strings.Contains(runner.statements[0], "LIMIT 101") {
 		t.Fatalf("missing default limit in statement: %s", runner.statements[0])
 	}
 
@@ -134,8 +134,14 @@ func TestPostSearchUsesTimeTopByDefault(t *testing.T) {
 	if response.Page.HasMore {
 		t.Fatalf("unexpected page: %#v", response.Page)
 	}
-	if len(response.Meta.AppliedSort) != 2 || response.Meta.AppliedSort[1].Field != "row_id" {
-		t.Fatalf("unexpected applied sort: %#v", response.Meta.AppliedSort)
+	if len(response.Meta.AppliedQuery.Sort) != 2 || response.Meta.AppliedQuery.Sort[1].Field != "row_id" {
+		t.Fatalf("unexpected applied sort: %#v", response.Meta.AppliedQuery.Sort)
+	}
+	if response.Meta.Debug != nil {
+		t.Fatalf("unexpected debug meta: %#v", response.Meta.Debug)
+	}
+	if response.Meta.AppliedQuery.Source != "events_v1" || response.Meta.AppliedQuery.Limit != 100 {
+		t.Fatalf("unexpected applied query: %#v", response.Meta.AppliedQuery)
 	}
 }
 
@@ -145,7 +151,8 @@ func TestPostSearchReturnsCursorWhenPageIsFull(t *testing.T) {
 			{
 				rows: []map[string]any{
 					{"ts": "2026-04-23T00:00:10Z", "row_id": "abcd000000000001"},
-					{"ts": "2026-04-23T00:00:09Z", "row_id": "abcd000000000002"},
+					{"ts": timeMustParse(t, "2026-04-23T00:00:09Z"), "row_id": "abcd000000000002"},
+					{"ts": "2026-04-23T00:00:08Z", "row_id": "abcd000000000003"},
 				},
 			},
 		},
@@ -177,6 +184,12 @@ func TestPostSearchReturnsCursorWhenPageIsFull(t *testing.T) {
 	}
 	if !response.Page.HasMore || response.Page.NextCursor == "" {
 		t.Fatalf("unexpected page: %#v", response.Page)
+	}
+	if len(response.Rows) != 2 {
+		t.Fatalf("expected trimmed rows, got %#v", response.Rows)
+	}
+	if !strings.Contains(runner.statements[0], "LIMIT 3") {
+		t.Fatalf("expected lookahead limit in statement: %s", runner.statements[0])
 	}
 }
 
@@ -228,6 +241,53 @@ func TestPostAggregate(t *testing.T) {
 	}
 	if len(response.Rows) != 1 || response.Rows[0]["operation"] != "GET /checkout" {
 		t.Fatalf("unexpected rows: %#v", response.Rows)
+	}
+	if response.Meta.Debug != nil {
+		t.Fatalf("unexpected debug meta: %#v", response.Meta.Debug)
+	}
+	if response.Meta.AppliedQuery.Source != "executions_v1" || len(response.Meta.AppliedQuery.GroupBy) != 1 {
+		t.Fatalf("unexpected applied query: %#v", response.Meta.AppliedQuery)
+	}
+}
+
+func TestPostSearchReturnsScopeQLWhenDebugRequested(t *testing.T) {
+	runner := &fakeRunner{
+		results: []fakeResult{
+			{rows: []map[string]any{{"ts": "2026-04-23T00:00:00Z", "row_id": "abcd000000000001"}}},
+		},
+	}
+	server := newTestServer(t, runner, "test")
+
+	body := []byte(`{
+	  "source": "events_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "filter": {"eq":["service_name","checkout"]},
+	  "debug": {"scopeql": true},
+	  "limit": 1
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response SearchResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Meta.Debug == nil || !strings.Contains(response.Meta.Debug.GeneratedScopeQL, "FROM scopedb.otel.logs") {
+		t.Fatalf("missing debug scopeql: %#v", response.Meta.Debug)
+	}
+	if response.Meta.AppliedQuery.Filter == nil {
+		t.Fatalf("missing applied filter: %#v", response.Meta.AppliedQuery)
 	}
 }
 

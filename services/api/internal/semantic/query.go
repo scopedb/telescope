@@ -81,32 +81,45 @@ func (r Registry) BuildQuery(spec QuerySpec) (*scopeql.Query, error) {
 		query.Where(scopeql.And(whereExprs...))
 	}
 
-	groupSelections, groupExprs, err := r.compileGroupBy(relation, spec.GroupBy)
+	groupSelections, err := r.compileGroupBy(relation, spec.GroupBy)
 	if err != nil {
 		return nil, err
 	}
 
 	selectedFields := selectFieldsForQuery(relation, spec)
-	for _, fieldName := range selectedFields {
-		fieldExpr, fieldErr := r.compileFieldExpr(relation.Name, fieldName)
-		if fieldErr != nil {
-			return nil, fieldErr
+	if len(spec.Aggregates) > 0 {
+		for _, selection := range groupSelections {
+			query.GroupBy(selection)
 		}
-		query.Select(scopeql.Select(fieldExpr, fieldName))
-	}
-	for _, selection := range groupSelections {
-		query.Select(selection)
-	}
-	for _, expr := range groupExprs {
-		query.GroupBy(expr)
-	}
-
-	for _, aggregate := range spec.Aggregates {
-		aggregateSelection, aggregateErr := r.compileAggregate(relation, aggregate)
-		if aggregateErr != nil {
-			return nil, aggregateErr
+		for _, aggregate := range spec.Aggregates {
+			aggregateSelection, aggregateErr := r.compileAggregate(relation, aggregate)
+			if aggregateErr != nil {
+				return nil, aggregateErr
+			}
+			query.Aggregate(aggregateSelection)
 		}
-		query.Aggregate(aggregateSelection)
+		for _, selection := range groupSelections {
+			query.Select(scopeql.Select(scopeql.Ref(selection.Alias), ""))
+		}
+		for _, aggregate := range spec.Aggregates {
+			alias := strings.TrimSpace(aggregate.Alias)
+			if alias == "" {
+				alias = defaultAggregateAlias(aggregate)
+			}
+			query.Select(scopeql.Select(scopeql.Ref(alias), ""))
+		}
+	} else {
+		for _, fieldName := range selectedFields {
+			fieldExpr, fieldErr := r.compileFieldExpr(relation.Name, fieldName)
+			if fieldErr != nil {
+				return nil, fieldErr
+			}
+			query.Select(scopeql.Select(fieldExpr, fieldName))
+		}
+		for _, selection := range groupSelections {
+			query.Select(selection)
+			query.GroupBy(scopeql.Ref(selection.Alias))
+		}
 	}
 
 	for _, order := range spec.OrderBy {
@@ -215,6 +228,9 @@ func (r Registry) compileOrderExpr(relation RelationSpec, selectedFields []strin
 	for _, selection := range groupSelections {
 		if selection.Alias == fieldName {
 			return scopeql.Ref(fieldName), nil
+		}
+		if strings.HasPrefix(selection.Alias, fieldName+"_") {
+			return scopeql.Ref(selection.Alias), nil
 		}
 	}
 	for _, aggregate := range aggregates {

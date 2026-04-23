@@ -40,25 +40,28 @@ func defaultAggregateAlias(aggregate AggregateSpec) string {
 	return aggregate.Op + "_" + aggregate.Field
 }
 
-func (r Registry) compileGroupBy(relation RelationSpec, groups []GroupBySpec) ([]scopeql.Selection, []scopeql.Expr, error) {
+func (r Registry) compileGroupBy(relation RelationSpec, groups []GroupBySpec) ([]scopeql.Selection, error) {
 	selections := make([]scopeql.Selection, 0, len(groups))
-	exprs := make([]scopeql.Expr, 0, len(groups))
 	for _, group := range groups {
 		switch {
 		case strings.TrimSpace(group.Field) != "":
-			exprs = append(exprs, scopeql.Ref(group.Field))
+			fieldName := strings.TrimSpace(group.Field)
+			fieldExpr, err := r.compileFieldExpr(relation.Name, fieldName)
+			if err != nil {
+				return nil, err
+			}
+			selections = append(selections, scopeql.Select(fieldExpr, fieldName))
 		case group.TimeBucket != nil:
 			bucket, err := compileTimeBucket(relation, r, *group.TimeBucket)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			selections = append(selections, bucket.Selection)
-			exprs = append(exprs, scopeql.Ref(bucket.Alias))
 		default:
-			return nil, nil, fmt.Errorf("group_by entry must contain field or time_bucket")
+			return nil, fmt.Errorf("group_by entry must contain field or time_bucket")
 		}
 	}
-	return selections, exprs, nil
+	return selections, nil
 }
 
 type bucketSelection struct {

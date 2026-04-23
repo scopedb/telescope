@@ -65,12 +65,13 @@ func TestBuildAggregateQuery(t *testing.T) {
 	want := "" +
 		"FROM scopedb.otel.traces\n" +
 		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (service_name = 'checkout')\n" +
-		"SELECT\n" +
-		"  span_name AS operation,\n" +
-		"  status_code AS status_code\n" +
-		"GROUP BY operation, status_code\n" +
+		"GROUP BY span_name AS operation, status_code AS status_code\n" +
 		"AGGREGATE\n" +
 		"  count() AS count\n" +
+		"SELECT\n" +
+		"  operation,\n" +
+		"  status_code,\n" +
+		"  count\n" +
 		"ORDER BY count DESC\n" +
 		"LIMIT 20"
 
@@ -143,7 +144,7 @@ func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 
 	want := "" +
 		"FROM scopedb.otel.logs\n" +
-		"WHERE (service_name = 'checkout') AND (search(message, 'payment timeout')) AND (regexp_like(message, 'timeout|deadline', 'i'))\n" +
+		"WHERE (service_name = 'checkout') AND (search(message, 'payment timeout')) AND (regexp_like(message, '(?i)timeout|deadline'))\n" +
 		"SELECT\n" +
 		"  record_timestamp AS ts,\n" +
 		"  row_id AS row_id,\n" +
@@ -160,7 +161,7 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 	filter := mustFilter(t, `{"eq":["service_name","checkout"]}`)
 
 	query, err := Default.BuildQuery(QuerySpec{
-		Relation: "events_v1",
+		Relation: "executions_v1",
 		TimeRange: &TimeRange{
 			Start: ptrTime(time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)),
 			End:   ptrTime(time.Date(2026, 4, 23, 1, 0, 0, 0, time.UTC)),
@@ -172,9 +173,10 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 		},
 		Aggregates: []AggregateSpec{
 			{Op: "count", Alias: "count"},
+			{Op: "avg", Field: "duration_ns", Alias: "avg_duration_ns"},
 		},
 		OrderBy: []OrderSpec{
-			{Field: "ts_5m", Direction: "desc"},
+			{Field: "ts", Direction: "desc"},
 		},
 		Limit: 10,
 	})
@@ -183,14 +185,17 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 	}
 
 	want := "" +
-		"FROM scopedb.otel.logs\n" +
-		"WHERE (service_name = 'checkout') AND (record_timestamp >= '2026-04-23T00:00:00Z'::timestamp) AND (record_timestamp < '2026-04-23T01:00:00Z'::timestamp)\n" +
-		"SELECT\n" +
-		"  service_name AS service_name,\n" +
-		"  floor(record_timestamp, n => 5, unit => 'minute') AS ts_5m\n" +
-		"GROUP BY ts_5m, service_name\n" +
+		"FROM scopedb.otel.traces\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (service_name = 'checkout') AND (start_timestamp >= '2026-04-23T00:00:00Z'::timestamp) AND (start_timestamp < '2026-04-23T01:00:00Z'::timestamp)\n" +
+		"GROUP BY floor(start_timestamp, n => 5, unit => 'minute') AS ts_5m, service_name AS service_name\n" +
 		"AGGREGATE\n" +
-		"  count() AS count\n" +
+		"  count() AS count,\n" +
+		"  avg(duration_ns) AS avg_duration_ns\n" +
+		"SELECT\n" +
+		"  ts_5m,\n" +
+		"  service_name,\n" +
+		"  count,\n" +
+		"  avg_duration_ns\n" +
 		"ORDER BY ts_5m DESC\n" +
 		"LIMIT 10"
 

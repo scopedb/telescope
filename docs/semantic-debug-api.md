@@ -175,6 +175,7 @@ Optional request fields:
 - `sort`
 - `limit`
 - `cursor`
+- `debug.scopeql`
 
 ### Default behavior
 
@@ -201,8 +202,21 @@ Search returns:
 - `page.limit`
 - `page.has_more`
 - `page.next_cursor`
-- `meta.applied_sort`
-- `meta.generated_scopeql`
+- `meta.applied_query`
+- `meta.warnings`
+- `meta.debug.generated_scopeql` when `debug.scopeql` is `true`
+
+`generated_scopeql` is intentionally opt-in. General developer agents should rely on `applied_query`, rows, pagination, and evidence fields instead of coupling to ScopeQL execution details.
+
+`meta.applied_query` summarizes the effective API-level query:
+
+- `source`
+- `time_range`
+- `filter`
+- `project`
+- `sort`
+- `limit`
+- `has_cursor`
 
 ## Aggregate
 
@@ -220,6 +234,7 @@ Optional request fields:
 - `measures`
 - `sort`
 - `limit`
+- `debug.scopeql`
 
 This single primitive covers:
 
@@ -228,6 +243,16 @@ This single primitive covers:
 - trends by time bucket
 
 There is no separate `series` endpoint in v1.
+
+Aggregate responses use the same `meta.applied_query` envelope. For aggregate requests it may include:
+
+- `source`
+- `time_range`
+- `filter`
+- `group_by`
+- `measures`
+- `sort`
+- `limit`
 
 ### Grouping
 

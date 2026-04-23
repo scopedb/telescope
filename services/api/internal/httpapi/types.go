@@ -45,6 +45,7 @@ type SearchRequest struct {
 	Sort      []SortRequest        `json:"sort,omitempty"`
 	Limit     int                  `json:"limit,omitempty"`
 	Cursor    string               `json:"cursor,omitempty"`
+	Debug     DebugRequest         `json:"debug,omitempty"`
 }
 
 type AggregateRequest struct {
@@ -55,6 +56,11 @@ type AggregateRequest struct {
 	Measures  []MeasureRequest     `json:"measures,omitempty"`
 	Sort      []SortRequest        `json:"sort,omitempty"`
 	Limit     int                  `json:"limit,omitempty"`
+	Debug     DebugRequest         `json:"debug,omitempty"`
+}
+
+type DebugRequest struct {
+	ScopeQL bool `json:"scopeql,omitempty"`
 }
 
 type SortRequest struct {
@@ -163,8 +169,9 @@ type SearchPage struct {
 }
 
 type SearchMeta struct {
-	AppliedSort      []SortResponse `json:"applied_sort"`
-	GeneratedScopeQL string         `json:"generated_scopeql"`
+	AppliedQuery AppliedQuery `json:"applied_query"`
+	Warnings     []string     `json:"warnings,omitempty"`
+	Debug        *DebugMeta   `json:"debug,omitempty"`
 }
 
 type AggregateResponse struct {
@@ -173,7 +180,25 @@ type AggregateResponse struct {
 }
 
 type AggregateMeta struct {
-	GeneratedScopeQL string `json:"generated_scopeql"`
+	AppliedQuery AppliedQuery `json:"applied_query"`
+	Warnings     []string     `json:"warnings,omitempty"`
+	Debug        *DebugMeta   `json:"debug,omitempty"`
+}
+
+type AppliedQuery struct {
+	Source    string               `json:"source"`
+	TimeRange *TimeRangeRequest    `json:"time_range,omitempty"`
+	Filter    *semantic.FilterExpr `json:"filter,omitempty"`
+	Project   []string             `json:"project,omitempty"`
+	Sort      []SortResponse       `json:"sort,omitempty"`
+	GroupBy   []GroupByRequest     `json:"group_by,omitempty"`
+	Measures  []MeasureRequest     `json:"measures,omitempty"`
+	Limit     int                  `json:"limit"`
+	HasCursor bool                 `json:"has_cursor,omitempty"`
+}
+
+type DebugMeta struct {
+	GeneratedScopeQL string `json:"generated_scopeql,omitempty"`
 }
 
 type SortResponse struct {

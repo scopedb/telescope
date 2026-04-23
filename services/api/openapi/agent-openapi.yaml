@@ -564,6 +564,16 @@ components:
         cursor:
           type: string
           description: Opaque cursor for detail pagination. Currently guaranteed only for the default `ts DESC, row_id DESC` ordering.
+        debug:
+          $ref: "#/components/schemas/DebugRequest"
+    DebugRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scopeql:
+          type: boolean
+          default: false
+          description: When true, include the generated ScopeQL under `meta.debug.generated_scopeql`. Intended for ScopeDB power users and API debugging, not normal agent planning.
     SearchPage:
       type: object
       additionalProperties: false
@@ -581,15 +591,57 @@ components:
       type: object
       additionalProperties: false
       required:
-        - applied_sort
-        - generated_scopeql
+        - applied_query
       properties:
-        applied_sort:
+        applied_query:
+          $ref: "#/components/schemas/AppliedQuery"
+        warnings:
+          type: array
+          items:
+            type: string
+        debug:
+          $ref: "#/components/schemas/DebugMeta"
+    AppliedQuery:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - limit
+      properties:
+        source:
+          $ref: "#/components/schemas/RelationName"
+        time_range:
+          $ref: "#/components/schemas/TimeRange"
+        filter:
+          $ref: "#/components/schemas/FilterExpr"
+        project:
+          type: array
+          items:
+            type: string
+        sort:
           type: array
           items:
             $ref: "#/components/schemas/SortSpec"
+        group_by:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupBySpec"
+        measures:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeasureSpec"
+        limit:
+          type: integer
+        has_cursor:
+          type: boolean
+          description: True when the request used an opaque cursor.
+    DebugMeta:
+      type: object
+      additionalProperties: false
+      properties:
         generated_scopeql:
           type: string
+          description: Generated ScopeQL, returned only when the request sets `debug.scopeql` to true.
     SearchResponse:
       type: object
       additionalProperties: false
@@ -636,14 +688,22 @@ components:
           type: integer
           minimum: 1
           maximum: 5000
+        debug:
+          $ref: "#/components/schemas/DebugRequest"
     AggregateMeta:
       type: object
       additionalProperties: false
       required:
-        - generated_scopeql
+        - applied_query
       properties:
-        generated_scopeql:
-          type: string
+        applied_query:
+          $ref: "#/components/schemas/AppliedQuery"
+        warnings:
+          type: array
+          items:
+            type: string
+        debug:
+          $ref: "#/components/schemas/DebugMeta"
     AggregateResponse:
       type: object
       additionalProperties: false

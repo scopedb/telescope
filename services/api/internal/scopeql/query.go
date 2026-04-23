@@ -103,14 +103,21 @@ func (q *Query) ScopeQL() string {
 	if q.where != nil {
 		lines = append(lines, "WHERE "+q.where.ScopeQL())
 	}
-	if len(q.selects) > 0 {
-		lines = append(lines, "SELECT\n  "+joinSelections(q.selects))
-	}
-	if len(q.groupBy) > 0 {
-		lines = append(lines, "GROUP BY "+joinExprs(q.groupBy))
-	}
 	if len(q.aggregates) > 0 {
+		if len(q.groupBy) > 0 {
+			lines = append(lines, "GROUP BY "+joinExprs(q.groupBy))
+		}
 		lines = append(lines, "AGGREGATE\n  "+joinSelections(q.aggregates))
+		if len(q.selects) > 0 {
+			lines = append(lines, "SELECT\n  "+joinSelections(q.selects))
+		}
+	} else {
+		if len(q.selects) > 0 {
+			lines = append(lines, "SELECT\n  "+joinSelections(q.selects))
+		}
+		if len(q.groupBy) > 0 {
+			lines = append(lines, "GROUP BY "+joinExprs(q.groupBy))
+		}
 	}
 	if len(q.orderBy) > 0 {
 		lines = append(lines, "ORDER BY "+joinOrders(q.orderBy))

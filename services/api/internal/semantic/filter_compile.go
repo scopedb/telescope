@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/your-org/vendor-otel-gateway/services/api/internal/scopeql"
 )
@@ -72,7 +73,11 @@ func (r Registry) compileFilterExpr(relation RelationSpec, filter *FilterExpr) (
 	case FilterKindContains:
 		return r.compileStringPredicate(relation, "contains", filter.Field(), filter.Value(), "")
 	case FilterKindRegexpLike:
-		return r.compileStringPredicate(relation, "regexp_like", filter.Field(), filter.Pattern(), filter.Flags())
+		pattern := filter.Pattern()
+		if flags := strings.TrimSpace(filter.Flags()); flags != "" {
+			pattern = "(?" + flags + ")" + pattern
+		}
+		return r.compileStringPredicate(relation, "regexp_like", filter.Field(), pattern, "")
 	}
 
 	return nil, fmt.Errorf("unsupported filter kind %q", filter.Kind())

@@ -34,25 +34,30 @@ func TestAggregateQueryScopeQL(t *testing.T) {
 	query := New().
 		From("scopedb.otel.logs").
 		Where(Eq(Ref("service_name"), String("checkout"))).
-		Select(
+		GroupBy(
 			Select(Call("trunc", Ref("record_timestamp"), Raw("unit => 'minute'")), "bucket"),
 			Select(Ref("severity_text"), "severity_text"),
 		).
-		GroupBy(Ref("bucket"), Ref("severity_text")).
 		Aggregate(
 			Select(Call("count"), "count"),
+		).
+		Select(
+			Select(Ref("bucket"), ""),
+			Select(Ref("severity_text"), ""),
+			Select(Ref("count"), ""),
 		).
 		OrderBy(OrderBy(Ref("bucket"), false))
 
 	want := "" +
 		"FROM scopedb.otel.logs\n" +
 		"WHERE service_name = 'checkout'\n" +
-		"SELECT\n" +
-		"  trunc(record_timestamp, unit => 'minute') AS bucket,\n" +
-		"  severity_text AS severity_text\n" +
-		"GROUP BY bucket, severity_text\n" +
+		"GROUP BY trunc(record_timestamp, unit => 'minute') AS bucket, severity_text AS severity_text\n" +
 		"AGGREGATE\n" +
 		"  count() AS count\n" +
+		"SELECT\n" +
+		"  bucket,\n" +
+		"  severity_text,\n" +
+		"  count\n" +
 		"ORDER BY bucket ASC"
 
 	if got := query.ScopeQL(); got != want {
