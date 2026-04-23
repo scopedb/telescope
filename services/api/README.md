@@ -1,0 +1,62 @@
+# API Service
+
+This directory is reserved for the next service in this repository: an agent-facing observability API built on top of the ScopeDB OTel landing schema.
+
+The semantic design for this service lives in [../../docs/semantic-debug-api.md](../../docs/semantic-debug-api.md).
+
+## Purpose
+
+The service is expected to:
+
+- expose agent-oriented observability tools over the current OTel landing tables
+- compile semantic API requests into ScopeQL
+- keep the landing schema as the evidence layer
+- evolve through a small semantic field registry and relation registry
+- expose both canonical JSON schema introspection and a Markdown schema guide for agent planning
+
+The semantic registry source of truth currently lives in Go code under `internal/semantic/`.
+
+## Planned Layout
+
+- `cmd/`: service entrypoints
+- `internal/`: query compiler, semantic registry, ScopeDB execution, and Echo handlers
+- `openapi/`: hand-written OpenAPI contracts for the Echo HTTP surface, with the agent contract as source of truth
+
+## Expected First Milestones
+
+1. Define the semantic field registry and relation registry.
+2. Implement `GET /v1/schema`.
+3. Implement `POST /v1/search`.
+4. Implement `POST /v1/aggregate`.
+
+## HTTP Contract
+
+The primary HTTP contract should stay hand-written and live under `openapi/agent-openapi.yaml`.
+
+- the contract is intended to be implemented with Echo
+- request and response shapes should stay close to the current semantic query compiler
+- the public surface should stay limited to `schema`, `schema/guide.md`, `search`, and `aggregate`
+- generated artifacts can be added later if the service adopts them
+
+## Binary
+
+The initial runnable binary lives at `cmd/scopedb-otel-debug-api`.
+
+The current implementation exposes the agent-oriented routes described in `openapi/agent-openapi.yaml`.
+
+Required environment variables:
+
+- `SCOPEDB_ENDPOINT`
+- `SCOPEDB_API_KEY`
+
+Optional environment variables:
+
+- `HTTP_ADDR`: listen address, default `:8080`
+- `PORT`: alternate way to set the listen port when `HTTP_ADDR` is unset
+- `SCOPEDB_QUERY_TIMEOUT`: per-query timeout, default `15s`
+
+Example:
+
+```bash
+go run ./cmd/scopedb-otel-debug-api
+```

@@ -1,0 +1,660 @@
+openapi: 3.1.0
+info:
+  title: ScopeDB OTel Agent API
+  version: 0.1.0
+  summary: Draft agent-facing observability tools over the semantic OTel layer.
+  description: |
+    This contract defines a small agent-first API surface for developer agents.
+
+    It exposes three primitives:
+    - schema introspection
+    - detail search
+    - grouped or bucketed aggregation
+
+    Higher-level investigation workflows are intentionally left to the caller.
+servers:
+  - url: /
+tags:
+  - name: schema
+    description: Semantic schema discovery.
+  - name: query
+    description: Agent-facing search and aggregate primitives.
+security:
+  - bearerAuth: []
+paths:
+  /v1/schema:
+    get:
+      tags:
+        - schema
+      summary: Return the semantic schema visible to the agent
+      operationId: getSchema
+      responses:
+        "200":
+          description: Semantic relations, fields, and measure capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaResponse"
+  /v1/schema/guide.md:
+    get:
+      tags:
+        - schema
+      summary: Return a Markdown schema guide rendered from the canonical schema
+      operationId: getSchemaGuide
+      responses:
+        "200":
+          description: Agent-friendly Markdown guide for schema discovery and common patterns.
+          content:
+            text/markdown:
+              schema:
+                type: string
+  /v1/search:
+    post:
+      tags:
+        - query
+      summary: Return detail rows from one semantic relation
+      operationId: postSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Detail rows plus cursor and execution metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/aggregate:
+    post:
+      tags:
+        - query
+      summary: Return grouped or time-bucketed aggregate results
+      operationId: postAggregate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AggregateRequest"
+      responses:
+        "200":
+          description: Aggregate rows plus execution metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AggregateResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+    RelationName:
+      type: string
+      enum:
+        - events_v1
+        - executions_v1
+        - measurements_v1
+    Direction:
+      type: string
+      enum:
+        - asc
+        - desc
+    FieldType:
+      type: string
+      enum:
+        - string
+        - int
+        - float
+        - bool
+        - timestamp
+        - object
+        - array
+        - any
+    FieldRole:
+      type: string
+      enum:
+        - time
+        - tie_breaker
+        - dimension
+        - measure
+        - value
+        - object
+    SortSpec:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - direction
+      properties:
+        field:
+          type: string
+        direction:
+          $ref: "#/components/schemas/Direction"
+    TimeRange:
+      type: object
+      additionalProperties: false
+      required:
+        - start
+        - end
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+    Value:
+      oneOf:
+        - type: string
+        - type: integer
+        - type: number
+        - type: boolean
+    SearchPredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - search
+      properties:
+        search:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: string
+            - type: string
+    ContainsPredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - contains
+      properties:
+        contains:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: string
+            - type: string
+    RegexpLikePredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - regexp_like
+      properties:
+        regexp_like:
+          type: object
+          additionalProperties: false
+          required:
+            - field
+            - pattern
+          properties:
+            field:
+              type: string
+            pattern:
+              type: string
+            flags:
+              type: string
+    EqPredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - eq
+      properties:
+        eq:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: string
+            - $ref: "#/components/schemas/Value"
+    InPredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - in
+      properties:
+        in:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: string
+            - type: array
+              items:
+                $ref: "#/components/schemas/Value"
+    ExistsPredicate:
+      type: object
+      additionalProperties: false
+      required:
+        - exists
+      properties:
+        exists:
+          type: string
+    BinaryPredicate:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - gt
+          properties:
+            gt:
+              type: array
+              minItems: 2
+              maxItems: 2
+              prefixItems:
+                - type: string
+                - $ref: "#/components/schemas/Value"
+        - type: object
+          additionalProperties: false
+          required:
+            - gte
+          properties:
+            gte:
+              type: array
+              minItems: 2
+              maxItems: 2
+              prefixItems:
+                - type: string
+                - $ref: "#/components/schemas/Value"
+        - type: object
+          additionalProperties: false
+          required:
+            - lt
+          properties:
+            lt:
+              type: array
+              minItems: 2
+              maxItems: 2
+              prefixItems:
+                - type: string
+                - $ref: "#/components/schemas/Value"
+        - type: object
+          additionalProperties: false
+          required:
+            - lte
+          properties:
+            lte:
+              type: array
+              minItems: 2
+              maxItems: 2
+              prefixItems:
+                - type: string
+                - $ref: "#/components/schemas/Value"
+    FilterExpr:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - and
+          properties:
+            and:
+              type: array
+              items:
+                $ref: "#/components/schemas/FilterExpr"
+        - type: object
+          additionalProperties: false
+          required:
+            - or
+          properties:
+            or:
+              type: array
+              items:
+                $ref: "#/components/schemas/FilterExpr"
+        - type: object
+          additionalProperties: false
+          required:
+            - not
+          properties:
+            not:
+              $ref: "#/components/schemas/FilterExpr"
+        - $ref: "#/components/schemas/EqPredicate"
+        - $ref: "#/components/schemas/InPredicate"
+        - $ref: "#/components/schemas/BinaryPredicate"
+        - $ref: "#/components/schemas/ExistsPredicate"
+        - $ref: "#/components/schemas/SearchPredicate"
+        - $ref: "#/components/schemas/ContainsPredicate"
+        - $ref: "#/components/schemas/RegexpLikePredicate"
+    MeasureOp:
+      type: string
+      enum:
+        - count
+        - count_distinct
+        - sum
+        - avg
+        - min
+        - max
+        - p50
+        - p95
+        - p99
+    MeasureSpec:
+      type: object
+      additionalProperties: false
+      required:
+        - op
+      properties:
+        op:
+          $ref: "#/components/schemas/MeasureOp"
+        field:
+          type: string
+        as:
+          type: string
+    GroupBySpec:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - field
+          properties:
+            field:
+              type: string
+        - type: object
+          additionalProperties: false
+          required:
+            - time_bucket
+          properties:
+            time_bucket:
+              type: object
+              additionalProperties: false
+              required:
+                - field
+                - interval
+              properties:
+                field:
+                  type: string
+                interval:
+                  type: string
+                  description: Duration string compiled into ScopeQL time bucketing, for example `30s`, `5m`, `15m`, `2h`, `24h`, or `1d`.
+    FieldSchema:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - type
+        - role
+        - filterable
+        - searchable
+        - patternable
+        - groupable
+      properties:
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/FieldType"
+        role:
+          $ref: "#/components/schemas/FieldRole"
+        filterable:
+          type: boolean
+        searchable:
+          type: boolean
+        patternable:
+          type: boolean
+        groupable:
+          type: boolean
+    MeasureSchema:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    RelationSchema:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - kind
+        - time_field
+        - default_sort
+        - default_limit
+        - max_limit
+        - supports_search
+        - supports_aggregate
+        - advisory
+        - fields
+        - measures
+      properties:
+        name:
+          $ref: "#/components/schemas/RelationName"
+        kind:
+          type: string
+        time_field:
+          type: string
+        default_sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortSpec"
+        default_limit:
+          type: integer
+        max_limit:
+          type: integer
+        supports_search:
+          type: boolean
+        supports_aggregate:
+          type: boolean
+        advisory:
+          $ref: "#/components/schemas/RelationAdvisory"
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldSchema"
+        measures:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeasureSchema"
+    RelationAdvisory:
+      type: object
+      additionalProperties: false
+      required:
+        - identity_fields
+        - anchor_fields
+        - default_project
+        - preferred_filters
+        - preferred_group_by
+        - preferred_measures
+        - common_patterns
+        - notes
+      properties:
+        identity_fields:
+          type: array
+          items:
+            type: string
+        anchor_fields:
+          type: array
+          items:
+            type: string
+        default_project:
+          type: array
+          items:
+            type: string
+        preferred_filters:
+          type: array
+          items:
+            type: string
+        preferred_group_by:
+          type: array
+          items:
+            type: string
+        preferred_measures:
+          type: array
+          items:
+            type: string
+        common_patterns:
+          type: array
+          items:
+            type: string
+        notes:
+          type: array
+          items:
+            type: string
+    SchemaResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - relations
+      properties:
+        relations:
+          type: array
+          items:
+            $ref: "#/components/schemas/RelationSchema"
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - time_range
+      properties:
+        source:
+          $ref: "#/components/schemas/RelationName"
+        time_range:
+          $ref: "#/components/schemas/TimeRange"
+        filter:
+          $ref: "#/components/schemas/FilterExpr"
+        project:
+          type: array
+          items:
+            type: string
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortSpec"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        cursor:
+          type: string
+          description: Opaque cursor for detail pagination. Currently guaranteed only for the default `ts DESC, row_id DESC` ordering.
+    SearchPage:
+      type: object
+      additionalProperties: false
+      required:
+        - limit
+        - has_more
+      properties:
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+    SearchMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - applied_sort
+        - generated_scopeql
+      properties:
+        applied_sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortSpec"
+        generated_scopeql:
+          type: string
+    SearchResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+        - page
+        - meta
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        page:
+          $ref: "#/components/schemas/SearchPage"
+        meta:
+          $ref: "#/components/schemas/SearchMeta"
+    AggregateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - time_range
+      properties:
+        source:
+          $ref: "#/components/schemas/RelationName"
+        time_range:
+          $ref: "#/components/schemas/TimeRange"
+        filter:
+          $ref: "#/components/schemas/FilterExpr"
+        group_by:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupBySpec"
+        measures:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeasureSpec"
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortSpec"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 5000
+    AggregateMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - generated_scopeql
+      properties:
+        generated_scopeql:
+          type: string
+    AggregateResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+        - meta
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        meta:
+          $ref: "#/components/schemas/AggregateMeta"
