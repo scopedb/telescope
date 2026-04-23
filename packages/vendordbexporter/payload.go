@@ -1,7 +1,10 @@
 package vendordbexporter
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -50,14 +53,16 @@ func newPayload(cfg *Config, signal string) *IngestPayload {
 
 func (p *IngestPayload) scopeDBRows() []map[string]any {
 	ingestTS := time.Now().UTC().Format(time.RFC3339Nano)
+	ingestID := newIngestID()
 	rows := make([]map[string]any, 0, len(p.Records))
-	for _, record := range p.Records {
+	for i, record := range p.Records {
 		row := map[string]any{
 			"ingest_ts":      ingestTS,
 			"signal":         p.Signal,
 			"schema_version": p.SchemaVersion,
 			"dataset":        p.Dataset,
 			"record":         map[string]any(record),
+			"row_id":         deriveRowID(ingestID, uint32(i)),
 		}
 		if recordTimestamp := recordTimestamp(record); recordTimestamp != "" {
 			row["record_timestamp"] = recordTimestamp
@@ -89,6 +94,7 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 		if serviceName := recordServiceName(record); serviceName != "" {
 			row["service_name"] = serviceName
 		}
+		projectResourceColumns(row, record)
 		projectSignalColumns(row, p.Signal, record)
 		rows = append(rows, row)
 	}
@@ -274,11 +280,85 @@ func messageString(value any) string {
 }
 
 func recordServiceName(record Record) string {
-	resource, ok := record["resource"].(map[string]any)
-	if !ok {
+	resource := recordResource(record)
+	if resource == nil {
 		return ""
 	}
 
 	serviceName, _ := resource["service.name"].(string)
 	return serviceName
+}
+
+func projectResourceColumns(row map[string]any, record Record) {
+	if instanceID := recordResourceString(record, "service.instance.id"); instanceID != "" {
+		row["instance_id"] = instanceID
+	}
+	if podName := recordResourceString(record, "k8s.pod.name"); podName != "" {
+		row["pod_name"] = podName
+	}
+	if hostIP := recordResourceFirstString(record, "host.ip"); hostIP != "" {
+		row["host_ip"] = hostIP
+	}
+	if hostName := recordResourceString(record, "host.name"); hostName != "" {
+		row["host_name"] = hostName
+	}
+}
+
+func recordResource(record Record) map[string]any {
+	resource, ok := record["resource"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return resource
+}
+
+func recordResourceString(record Record, key string) string {
+	resource := recordResource(record)
+	if resource == nil {
+		return ""
+	}
+	return firstString(resource[key])
+}
+
+func recordResourceFirstString(record Record, key string) string {
+	resource := recordResource(record)
+	if resource == nil {
+		return ""
+	}
+	return firstString(resource[key])
+}
+
+func newIngestID() uint32 {
+	var bytes [4]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return uint32(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint32(bytes[:])
+}
+
+func deriveRowID(ingestID uint32, rowOrdinal uint32) string {
+	var bytes [8]byte
+	binary.BigEndian.PutUint32(bytes[:4], ingestID)
+	binary.BigEndian.PutUint32(bytes[4:], rowOrdinal)
+	return hex.EncodeToString(bytes[:])
+}
+
+func firstString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []string:
+		for _, item := range v {
+			if item != "" {
+				return item
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if text, ok := item.(string); ok && text != "" {
+				return text
+			}
+		}
+	}
+	return ""
 }

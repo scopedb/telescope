@@ -78,6 +78,7 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 		assert.Equal(t, signalLogs, row["signal"])
 		assert.Equal(t, "v1", row["schema_version"])
 		assert.Equal(t, "demo", row["dataset"])
+		assert.NotEmpty(t, row["row_id"])
 		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", row["record_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", row["observed_timestamp"])
 		assert.Equal(t, map[string]any{
@@ -153,7 +154,7 @@ func TestClientEnsureTable(t *testing.T) {
 	require.NoError(t, err)
 	expectedStatements := []string{
 		"CREATE SCHEMA IF NOT EXISTS `public`",
-		"CREATE TABLE IF NOT EXISTS `public`.`vendor_otel_logs_test` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  service_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
+		"CREATE TABLE IF NOT EXISTS `public`.`vendor_otel_logs_test` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  row_id string,\n  service_name string,\n  instance_id string,\n  pod_name string,\n  host_ip string,\n  host_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
 	}
 	var statements []string
 
@@ -206,7 +207,7 @@ func TestClientEnsureTableCreatesDatabaseSchemaAndTable(t *testing.T) {
 	expectedStatements := []string{
 		"CREATE DATABASE IF NOT EXISTS `scopedb`",
 		"CREATE SCHEMA IF NOT EXISTS `scopedb`.`otel`",
-		"CREATE TABLE IF NOT EXISTS `scopedb`.`otel`.`logs` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  service_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
+		"CREATE TABLE IF NOT EXISTS `scopedb`.`otel`.`logs` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  row_id string,\n  service_name string,\n  instance_id string,\n  pod_name string,\n  host_ip string,\n  host_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
 	}
 	var statements []string
 

@@ -1,6 +1,7 @@
 package vendordbexporter
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,11 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 				"timestamp_unix_nano":          "1713835425123456789",
 				"observed_timestamp_unix_nano": "1713835426123456789",
 				"resource": map[string]any{
-					"service.name": "collector-a",
+					"service.name":        "collector-a",
+					"service.instance.id": "collector-a-1",
+					"k8s.pod.name":        "collector-a-pod",
+					"host.ip":             []any{"10.0.0.10", "127.0.0.1"},
+					"host.name":           "collector-a-node",
 				},
 			},
 			{
@@ -31,13 +36,30 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 
 	rows := payload.scopeDBRows()
 	if assert.Len(t, rows, 3) {
+		assert.NotEmpty(t, rows[0]["row_id"])
+		assert.Len(t, rows[0]["row_id"], 16)
+		assert.Len(t, rows[1]["row_id"], 16)
+		assert.NotEqual(t, rows[0]["row_id"], rows[1]["row_id"])
+		assert.Equal(t, rows[0]["row_id"].(string)[:8], rows[1]["row_id"].(string)[:8])
 		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", rows[0]["record_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", rows[0]["observed_timestamp"])
 		assert.Equal(t, "collector-a", rows[0]["service_name"])
+		assert.Equal(t, "collector-a-1", rows[0]["instance_id"])
+		assert.Equal(t, "collector-a-pod", rows[0]["pod_name"])
+		assert.Equal(t, "10.0.0.10", rows[0]["host_ip"])
+		assert.Equal(t, "collector-a-node", rows[0]["host_name"])
 		assert.Equal(t, "2024-04-23T01:23:47.123456789Z", rows[1]["start_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:48.123456789Z", rows[1]["end_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:49.123456789Z", rows[2]["start_timestamp"])
 	}
+}
+
+func TestDeriveRowIDEncodesIngestIDAndOrdinal(t *testing.T) {
+	rowID := deriveRowID(0x01020304, 0x0000000a)
+
+	assert.Equal(t, "010203040000000a", rowID)
+	_, err := hex.DecodeString(rowID)
+	assert.NoError(t, err)
 }
 
 func TestUnixNanoStringToRFC3339(t *testing.T) {

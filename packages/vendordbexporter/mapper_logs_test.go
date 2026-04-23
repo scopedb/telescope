@@ -20,6 +20,10 @@ func TestMapLogs(t *testing.T) {
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
 	resourceLogs.Resource().Attributes().PutStr("service.name", "checkout")
+	resourceLogs.Resource().Attributes().PutStr("service.instance.id", "checkout-1")
+	resourceLogs.Resource().Attributes().PutStr("k8s.pod.name", "checkout-pod")
+	resourceLogs.Resource().Attributes().PutStr("host.name", "checkout-node")
+	resourceLogs.Resource().Attributes().PutEmptySlice("host.ip").AppendEmpty().SetStr("10.0.0.10")
 
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
 	scopeLogs.Scope().SetName("test-scope")
@@ -49,7 +53,13 @@ func TestMapLogs(t *testing.T) {
 	assert.Equal(t, int(plog.SeverityNumberInfo), mapped["severity_number"])
 	assert.Equal(t, "hello world", mapped["body"])
 	assert.Equal(t, "hello world", mapped["message"])
-	assert.Equal(t, map[string]any{"service.name": "checkout"}, mapped["resource"])
+	assert.Equal(t, map[string]any{
+		"service.name":        "checkout",
+		"service.instance.id": "checkout-1",
+		"k8s.pod.name":        "checkout-pod",
+		"host.name":           "checkout-node",
+		"host.ip":             []any{"10.0.0.10"},
+	}, mapped["resource"])
 	assert.Equal(t, map[string]any{"name": "test-scope", "version": "1.2.3"}, mapped["scope"])
 	assert.Equal(t, map[string]any{"env": "dev"}, mapped["attributes"])
 }

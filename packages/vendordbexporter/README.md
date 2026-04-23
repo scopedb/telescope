@@ -66,13 +66,15 @@ Each JSON row includes shared ingest columns plus the full original mapped recor
 - `signal`
 - `schema_version`
 - `dataset`
+- `row_id`
 - `record`
 
 The exporter also promotes signal-specific fields into top-level row columns so each table can use its own schema:
 
-- logs: `record_timestamp`, `observed_timestamp`, `service_name`, `trace_id`, `span_id`, `severity_text`, `message`
-- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `service_name`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`
-- metrics: `record_timestamp`, `start_timestamp`, `service_name`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
+- shared resource columns: `service_name`, `instance_id`, `pod_name`, `host_ip`, `host_name`
+- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `severity_text`, `message`
+- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`
+- metrics: `record_timestamp`, `start_timestamp`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
 
 The `record` object keeps the signal-specific body. Log records include fields such as:
 
@@ -131,7 +133,12 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   observed_timestamp timestamp,
   schema_version string,
   dataset string,
+  row_id string,
   service_name string,
+  instance_id string,
+  pod_name string,
+  host_ip string,
+  host_name string,
   trace_id string,
   span_id string,
   severity_text string,
@@ -146,7 +153,12 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.traces (
   duration_ns int,
   schema_version string,
   dataset string,
+  row_id string,
   service_name string,
+  instance_id string,
+  pod_name string,
+  host_ip string,
+  host_name string,
   trace_id string,
   span_id string,
   parent_span_id string,
@@ -162,7 +174,12 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
   start_timestamp timestamp,
   schema_version string,
   dataset string,
+  row_id string,
   service_name string,
+  instance_id string,
+  pod_name string,
+  host_ip string,
+  host_name string,
   metric_name string,
   metric_type string,
   temporality string,

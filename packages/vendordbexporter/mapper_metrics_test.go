@@ -19,6 +19,10 @@ func TestMapMetrics(t *testing.T) {
 	metrics := pmetric.NewMetrics()
 	resourceMetrics := metrics.ResourceMetrics().AppendEmpty()
 	resourceMetrics.Resource().Attributes().PutStr("service.name", "checkout")
+	resourceMetrics.Resource().Attributes().PutStr("service.instance.id", "checkout-1")
+	resourceMetrics.Resource().Attributes().PutStr("k8s.pod.name", "checkout-pod")
+	resourceMetrics.Resource().Attributes().PutStr("host.name", "checkout-node")
+	resourceMetrics.Resource().Attributes().PutEmptySlice("host.ip").AppendEmpty().SetStr("10.0.0.10")
 
 	scopeMetrics := resourceMetrics.ScopeMetrics().AppendEmpty()
 	scopeMetrics.Scope().SetName("test-scope")
@@ -64,7 +68,13 @@ func TestMapMetrics(t *testing.T) {
 	assert.Equal(t, 0.75, gaugeRecord["value"])
 	assert.Equal(t, 0.75, gaugeRecord["number_value"])
 	assert.Equal(t, map[string]any{"host": "api-1"}, gaugeRecord["attributes"])
-	assert.Equal(t, map[string]any{"service.name": "checkout"}, gaugeRecord["resource"])
+	assert.Equal(t, map[string]any{
+		"service.name":        "checkout",
+		"service.instance.id": "checkout-1",
+		"k8s.pod.name":        "checkout-pod",
+		"host.name":           "checkout-node",
+		"host.ip":             []any{"10.0.0.10"},
+	}, gaugeRecord["resource"])
 
 	sumRecord := findMetricRecord(t, payload.Records, "http.requests")
 	assert.Equal(t, "sum", sumRecord["type"])

@@ -19,6 +19,10 @@ func TestMapTraces(t *testing.T) {
 	traces := ptrace.NewTraces()
 	resourceSpans := traces.ResourceSpans().AppendEmpty()
 	resourceSpans.Resource().Attributes().PutStr("service.name", "checkout")
+	resourceSpans.Resource().Attributes().PutStr("service.instance.id", "checkout-1")
+	resourceSpans.Resource().Attributes().PutStr("k8s.pod.name", "checkout-pod")
+	resourceSpans.Resource().Attributes().PutStr("host.name", "checkout-node")
+	resourceSpans.Resource().Attributes().PutEmptySlice("host.ip").AppendEmpty().SetStr("10.0.0.10")
 
 	scopeSpans := resourceSpans.ScopeSpans().AppendEmpty()
 	scopeSpans.Scope().SetName("test-scope")
@@ -62,7 +66,13 @@ func TestMapTraces(t *testing.T) {
 	assert.Equal(t, int64(100), mapped["duration_ns"])
 	assert.Equal(t, "error", mapped["status_code"])
 	assert.Equal(t, "boom", mapped["status_message"])
-	assert.Equal(t, map[string]any{"service.name": "checkout"}, mapped["resource"])
+	assert.Equal(t, map[string]any{
+		"service.name":        "checkout",
+		"service.instance.id": "checkout-1",
+		"k8s.pod.name":        "checkout-pod",
+		"host.name":           "checkout-node",
+		"host.ip":             []any{"10.0.0.10"},
+	}, mapped["resource"])
 	assert.Equal(t, map[string]any{"name": "test-scope", "version": "1.0.0"}, mapped["scope"])
 	assert.Equal(t, map[string]any{"http.method": "GET"}, mapped["attributes"])
 
