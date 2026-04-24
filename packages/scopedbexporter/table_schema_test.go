@@ -113,6 +113,7 @@ func TestCreateIndexStatementsForSignal(t *testing.T) {
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (source)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (status)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (severity_number)",
+				"CREATE RANGE INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (severity_number)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (exception_type)",
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (exception_type)",
 				"CREATE SEARCH INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (message)",

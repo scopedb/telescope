@@ -132,6 +132,7 @@ var signalTableLayouts = map[string]tablePhysicalLayout{
 			{Type: "PATTERN", Expr: "source"},
 			{Type: "POINT", Expr: "status"},
 			{Type: "POINT", Expr: "severity_number"},
+			{Type: "RANGE", Expr: "severity_number"},
 			{Type: "POINT", Expr: "exception_type"},
 			{Type: "PATTERN", Expr: "exception_type"},
 			{Type: "SEARCH", Expr: "message"},
