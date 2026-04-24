@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/httpapi"
+	"github.com/scopedb/telescope/services/api/internal/httpapi"
 )
 
 func TestServeInitializeAndListTools(t *testing.T) {

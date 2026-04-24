@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/scopeql"
+	"github.com/scopedb/telescope/services/api/internal/scopeql"
 )
 
 func (r Registry) compileAggregate(relation RelationSpec, aggregate AggregateSpec) (scopeql.Selection, error) {

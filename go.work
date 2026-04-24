@@ -2,5 +2,5 @@ go 1.25.0
 
 toolchain go1.25.3
 
-use ./packages/vendordbexporter
+use ./packages/scopedbexporter
 use ./services/api

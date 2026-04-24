@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/scopeql"
+	"github.com/scopedb/telescope/services/api/internal/scopeql"
 )
 
 func (r Registry) compileFilterExpr(relation RelationSpec, filter *FilterExpr) (scopeql.Expr, error) {

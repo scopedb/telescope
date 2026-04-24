@@ -15,4 +15,4 @@
 
 ## References
 
-- See [CONTRIBUTING.md](/Users/leiysky/work/scopedb-workspace/scopedb-otel/CONTRIBUTING.md:1) for the contributor-facing version of the same rule.
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor-facing version of the same rule.

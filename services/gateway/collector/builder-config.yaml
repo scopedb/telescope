@@ -1,7 +1,7 @@
 dist:
-  module: github.com/your-org/vendor-otel-gateway/services/gateway/collector
-  name: vendor-otelcol
-  description: Vendor OTel Gateway
+  module: github.com/scopedb/telescope/services/gateway/collector
+  name: telescope-otelcol
+  description: Telescope telemetry collector
   output_path: ./_build
   version: 0.1.0
 
@@ -17,6 +17,6 @@ extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0
 
 exporters:
-  - gomod: github.com/your-org/vendor-otel-gateway/packages/vendordbexporter v0.0.0
-    path: ../../../packages/vendordbexporter
+  - gomod: github.com/scopedb/telescope/packages/scopedbexporter v0.0.0
+    path: ../../../packages/scopedbexporter
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.150.0

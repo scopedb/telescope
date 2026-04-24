@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/semantic"
+	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
 func TestGetHealth(t *testing.T) {

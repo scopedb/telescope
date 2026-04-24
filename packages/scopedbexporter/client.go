@@ -1,4 +1,4 @@
-package vendordbexporter
+package scopedbexporter
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const userAgent = "vendor-otel-gateway/0.1.0"
+const userAgent = "telescope/0.1.0"
 
 type Client struct {
 	cfg        *Config
@@ -37,7 +37,7 @@ func NewClient(cfg *Config, settings exporter.Settings) (*Client, error) {
 		httpClient: &http.Client{
 			Transport: transport,
 		},
-		logger: settings.Logger.Named("vendordbexporter/client"),
+		logger: settings.Logger.Named("scopedbexporter/client"),
 	}, nil
 }
 

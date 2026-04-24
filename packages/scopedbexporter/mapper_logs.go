@@ -1,4 +1,4 @@
-package vendordbexporter
+package scopedbexporter
 
 import "go.opentelemetry.io/collector/pdata/plog"
 

@@ -1,4 +1,4 @@
-package vendordbexporter
+package scopedbexporter
 
 import (
 	"errors"
@@ -25,7 +25,7 @@ const (
 	defaultMetricsTable  = "scopedb.otel.metrics"
 )
 
-var typeStr = component.MustNewType("vendordb")
+var typeStr = component.MustNewType("scopedb")
 
 var tablePartPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 

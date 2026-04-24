@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/semantic"
+	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
 const serviceName = "scopedb-otel-debug-api"

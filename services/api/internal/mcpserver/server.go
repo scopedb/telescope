@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/your-org/vendor-otel-gateway/services/api/internal/httpapi"
+	"github.com/scopedb/telescope/services/api/internal/httpapi"
 )
 
 const protocolVersion = "2025-06-18"

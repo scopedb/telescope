@@ -19,7 +19,7 @@ processors:
     send_batch_size: 8192
 
 exporters:
-  vendordb:
+  scopedb:
     endpoint: ${env:SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:SCOPEDB_API_KEY}
@@ -49,12 +49,12 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [vendordb, debug]
+      exporters: [scopedb, debug]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [vendordb, debug]
+      exporters: [scopedb, debug]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [vendordb, debug]
+      exporters: [scopedb, debug]

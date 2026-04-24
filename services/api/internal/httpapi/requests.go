@@ -1,6 +1,6 @@
 package httpapi
 
-import "github.com/your-org/vendor-otel-gateway/services/api/internal/semantic"
+import "github.com/scopedb/telescope/services/api/internal/semantic"
 
 func toSemanticOrders(items []SortRequest) []semantic.OrderSpec {
 	out := make([]semantic.OrderSpec, 0, len(items))

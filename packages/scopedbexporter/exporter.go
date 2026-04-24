@@ -1,4 +1,4 @@
-package vendordbexporter
+package scopedbexporter
 
 import (
 	"context"
@@ -27,13 +27,13 @@ func newDBExporter(cfg *Config, set exporter.Settings) (*dbExporter, error) {
 	return &dbExporter{
 		cfg:    cfg,
 		client: client,
-		logger: set.Logger.Named("vendordbexporter"),
+		logger: set.Logger.Named("scopedbexporter"),
 	}, nil
 }
 
 func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
 	e.logger.Info(
-		"Starting vendordb exporter",
+		"Starting scopedb exporter",
 		zap.String("endpoint", e.cfg.Endpoint),
 		zap.String("path", e.cfg.Path),
 		zap.String("dataset", e.cfg.Dataset),

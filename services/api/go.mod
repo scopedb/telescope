@@ -1,4 +1,4 @@
-module github.com/your-org/vendor-otel-gateway/services/api
+module github.com/scopedb/telescope/services/api
 
 go 1.25.0
 

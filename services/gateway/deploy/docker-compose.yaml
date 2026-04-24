@@ -1,6 +1,6 @@
 services:
-  scopedb-otel-gateway:
-    image: scopedb-otel-gateway:0.1.0
+  scopedb-telescope:
+    image: scopedb-telescope:0.1.0
     build:
       context: ../../..
       dockerfile: services/gateway/collector/Dockerfile
@@ -13,7 +13,7 @@ services:
       - "4318:4318"
       - "13133:13133"
     volumes:
-      - scopedb-otel-queue:/var/lib/vendor-otelcol/queue
+      - scopedb-telescope-queue:/var/lib/telescope-otelcol/queue
 
 volumes:
-  scopedb-otel-queue:
+  scopedb-telescope-queue:

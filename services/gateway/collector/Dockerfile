@@ -10,11 +10,11 @@ RUN GOWORK=off /go/bin/builder --config builder-config.yaml
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /src/services/gateway/collector/_build/vendor-otelcol /usr/local/bin/vendor-otelcol
-COPY --from=builder /src/services/gateway/collector/config/deploy.yaml /etc/vendor-otelcol/config.yaml
+COPY --from=builder /src/services/gateway/collector/_build/telescope-otelcol /usr/local/bin/telescope-otelcol
+COPY --from=builder /src/services/gateway/collector/config/deploy.yaml /etc/telescope-otelcol/config.yaml
 
-VOLUME ["/var/lib/vendor-otelcol/queue"]
+VOLUME ["/var/lib/telescope-otelcol/queue"]
 
 EXPOSE 4317 4318 13133
 
-ENTRYPOINT ["/usr/local/bin/vendor-otelcol", "--config", "/etc/vendor-otelcol/config.yaml"]
+ENTRYPOINT ["/usr/local/bin/telescope-otelcol", "--config", "/etc/telescope-otelcol/config.yaml"]

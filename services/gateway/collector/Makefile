@@ -10,10 +10,10 @@ build:
 validate:
 	SCOPEDB_ENDPOINT="${SCOPEDB_ENDPOINT:?SCOPEDB_ENDPOINT is required}" \
 	SCOPEDB_API_KEY="${SCOPEDB_API_KEY:?SCOPEDB_API_KEY is required}" \
-	./_build/vendor-otelcol validate --config config/demo.yaml
+	./_build/telescope-otelcol validate --config config/demo.yaml
 
 .PHONY: validate-deploy
 validate-deploy:
 	SCOPEDB_ENDPOINT="${SCOPEDB_ENDPOINT:?SCOPEDB_ENDPOINT is required}" \
 	SCOPEDB_API_KEY="${SCOPEDB_API_KEY:?SCOPEDB_API_KEY is required}" \
-	./_build/vendor-otelcol validate --config config/deploy.yaml
+	./_build/telescope-otelcol validate --config config/deploy.yaml

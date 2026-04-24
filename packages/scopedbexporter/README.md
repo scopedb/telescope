@@ -1,6 +1,6 @@
-# vendordb Exporter
+# ScopeDB Exporter
 
-`vendordbexporter` is an independent OpenTelemetry Collector exporter module named `vendordb`.
+`scopedbexporter` is an independent OpenTelemetry Collector exporter module named `scopedb`.
 
 It accepts logs, traces, and metrics in Collector pdata form, maps them into JSON records, and writes them through ScopeDB's public `/v1/ingest` API with a generated `INSERT` statement.
 
@@ -8,8 +8,8 @@ It accepts logs, traces, and metrics in Collector pdata form, maps them into JSO
 
 ```yaml
 exporters:
-  vendordb:
-    endpoint: https://your-workspace.scopedb.cloud
+  scopedb:
+    endpoint: https://<region>.scopedb.cloud
     path: /v1/ingest
     api_key: ${env:SCOPEDB_API_KEY}
     dataset: default

@@ -1,4 +1,4 @@
-package vendordbexporter
+package scopedbexporter
 
 import (
 	"context"

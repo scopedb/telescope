@@ -1,4 +1,4 @@
-module github.com/your-org/vendor-otel-gateway/packages/vendordbexporter
+module github.com/scopedb/telescope/packages/scopedbexporter
 
 go 1.25.0
 
