@@ -34,6 +34,29 @@ func TestGetHealth(t *testing.T) {
 	}
 }
 
+func TestGetLLMSText(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	request := httptest.NewRequest(http.MethodGet, "/llms.txt", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.Contains(got, "text/markdown") {
+		t.Fatalf("unexpected content-type: %s", got)
+	}
+	body := recorder.Body.String()
+	if !strings.HasPrefix(body, "# Telescope\n") {
+		t.Fatalf("missing title: %s", body)
+	}
+	if !strings.Contains(body, "[Semantic schema](/v1/schema)") || !strings.Contains(body, "[MCP](/mcp)") {
+		t.Fatalf("missing runtime endpoints: %s", body)
+	}
+}
+
 func TestGetSchema(t *testing.T) {
 	server := newTestServer(t, &fakeRunner{}, "test")
 

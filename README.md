@@ -93,8 +93,9 @@ Telescope exposes five MCP tools:
 - `search`: inspect detail telemetry rows
 - `aggregate`: summarize trends and breakdowns
 
-The same primitives are available through the HTTP API:
+The daemon HTTP server exposes:
 
+- `GET /llms.txt`
 - `GET /v1/schema`
 - `GET /v1/schema/guide.md`
 - `POST /v1/search`

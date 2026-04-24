@@ -35,6 +35,7 @@ func NewWithService(service TelemetryService) (*echo.Echo, error) {
 	e.Use(middleware.Recover())
 
 	e.GET("/healthz", server.getHealth)
+	e.GET("/llms.txt", server.getLLMSText)
 
 	v1 := e.Group("/v1")
 	v1.GET("/schema", server.getSchema)
@@ -47,6 +48,11 @@ func NewWithService(service TelemetryService) (*echo.Echo, error) {
 
 func (s *Server) getHealth(c echo.Context) error {
 	return c.JSON(http.StatusOK, s.service.Health(c.Request().Context()))
+}
+
+func (s *Server) getLLMSText(c echo.Context) error {
+	c.Response().Header().Set(echo.HeaderContentType, "text/markdown; charset=utf-8")
+	return c.String(http.StatusOK, llmsText)
 }
 
 func (s *Server) getSchema(c echo.Context) error {
