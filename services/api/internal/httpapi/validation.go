@@ -217,6 +217,7 @@ func validationError(message string, section string, field string, capability st
 	}
 	if field != "" {
 		details["field"] = field
+		details["hint"] = "Use schema or schema_guide to inspect promoted semantic fields for the selected source. Arbitrary record paths are not accepted by search or aggregate filters; promote or materialize important raw attributes first."
 	}
 	if capability != "" {
 		details["capability"] = capability

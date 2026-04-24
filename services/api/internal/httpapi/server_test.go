@@ -59,6 +59,10 @@ func TestGetSchema(t *testing.T) {
 	if len(response.Relations[1].Advisory.IdentityFields) == 0 || response.Relations[1].Advisory.IdentityFields[0] != "trace_id" {
 		t.Fatalf("unexpected advisory: %#v", response.Relations[1].Advisory)
 	}
+
+	if response.Relations[0].Fields[0].Name != "ts" {
+		t.Fatalf("unexpected first field: %#v", response.Relations[0].Fields[0])
+	}
 }
 
 func TestGetSchemaGuide(t *testing.T) {
@@ -81,6 +85,9 @@ func TestGetSchemaGuide(t *testing.T) {
 	}
 	if !strings.Contains(body, "## `executions_v1`") || !strings.Contains(body, "- `trace_id`") {
 		t.Fatalf("missing relation advisory: %s", body)
+	}
+	if !strings.Contains(body, "promoted semantic field names only") || !strings.Contains(body, "`record` field is full-fidelity evidence payload") {
+		t.Fatalf("missing query surface guidance: %s", body)
 	}
 }
 
@@ -337,6 +344,9 @@ func TestPostSearchRejectsUnknownProjectField(t *testing.T) {
 	}
 	if response.Error.Details["field"] != "time_unix_nano" || response.Error.Details["section"] != "project" {
 		t.Fatalf("unexpected details: %#v", response.Error.Details)
+	}
+	if !strings.Contains(response.Error.Details["hint"].(string), "Arbitrary record paths are not accepted") {
+		t.Fatalf("missing field hint: %#v", response.Error.Details)
 	}
 }
 

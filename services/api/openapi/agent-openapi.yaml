@@ -165,6 +165,7 @@ components:
       properties:
         field:
           type: string
+          description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
         direction:
           $ref: "#/components/schemas/Direction"
     TimeRange:
@@ -198,6 +199,7 @@ components:
           maxItems: 2
           prefixItems:
             - type: string
+              description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
             - type: string
     ContainsPredicate:
       type: object
@@ -211,6 +213,7 @@ components:
           maxItems: 2
           prefixItems:
             - type: string
+              description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
             - type: string
     RegexpLikePredicate:
       type: object
@@ -227,6 +230,7 @@ components:
           properties:
             field:
               type: string
+              description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
             pattern:
               type: string
             flags:
@@ -243,6 +247,7 @@ components:
           maxItems: 2
           prefixItems:
             - type: string
+              description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
             - $ref: "#/components/schemas/Value"
     InPredicate:
       type: object
@@ -256,6 +261,7 @@ components:
           maxItems: 2
           prefixItems:
             - type: string
+              description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
             - type: array
               items:
                 $ref: "#/components/schemas/Value"
@@ -267,6 +273,7 @@ components:
       properties:
         exists:
           type: string
+          description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
     BinaryPredicate:
       oneOf:
         - type: object
@@ -280,6 +287,7 @@ components:
               maxItems: 2
               prefixItems:
                 - type: string
+                  description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
                 - $ref: "#/components/schemas/Value"
         - type: object
           additionalProperties: false
@@ -292,6 +300,7 @@ components:
               maxItems: 2
               prefixItems:
                 - type: string
+                  description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
                 - $ref: "#/components/schemas/Value"
         - type: object
           additionalProperties: false
@@ -304,6 +313,7 @@ components:
               maxItems: 2
               prefixItems:
                 - type: string
+                  description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
                 - $ref: "#/components/schemas/Value"
         - type: object
           additionalProperties: false
@@ -316,8 +326,10 @@ components:
               maxItems: 2
               prefixItems:
                 - type: string
+                  description: Promoted semantic field name from the selected relation schema; arbitrary `record.*` paths are not accepted.
                 - $ref: "#/components/schemas/Value"
     FilterExpr:
+      description: Structured filter over promoted semantic fields only. The raw `record` payload is evidence, not an arbitrary-path filter surface.
       oneOf:
         - type: object
           additionalProperties: false
@@ -373,6 +385,7 @@ components:
           $ref: "#/components/schemas/MeasureOp"
         field:
           type: string
+          description: Promoted semantic field name from the selected relation schema.
         as:
           type: string
     GroupBySpec:
@@ -384,6 +397,7 @@ components:
           properties:
             field:
               type: string
+              description: Promoted semantic field name from the selected relation schema.
         - type: object
           additionalProperties: false
           required:
@@ -551,6 +565,7 @@ components:
           $ref: "#/components/schemas/FilterExpr"
         project:
           type: array
+          description: Projection over promoted semantic fields. Include `record` only when raw evidence payload is needed.
           items:
             type: string
         sort:

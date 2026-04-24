@@ -156,7 +156,7 @@ var Default = Registry{
 			Type:        FieldTypeObject,
 			Role:        FieldRoleObject,
 			Stability:   StabilityCore,
-			Description: "Original mapped signal payload.",
+			Description: "Original mapped signal payload for evidence and human inspection.",
 			Filterable:  false,
 			Groupable:   false,
 			ExprByRelation: map[string]Expr{
@@ -196,6 +196,7 @@ var Default = Registry{
 				Notes: []string{
 					"events_v1 is row-oriented and best suited for detail search plus lightweight breakdowns",
 					"message supports search, contains, and regexp_like filters",
+					"record is an evidence payload, not the default query surface; promote or materialize important raw attributes before filtering",
 				},
 			},
 		},
@@ -235,6 +236,7 @@ var Default = Registry{
 					"executions_v1 currently returns only root spans",
 					"root span detection treats NULL and empty parent_span_id as root",
 					"detail pagination is guaranteed only for default ts DESC, row_id DESC ordering",
+					"record is an evidence payload, not the default query surface; promote or materialize important raw attributes before filtering",
 				},
 			},
 		},
@@ -273,6 +275,7 @@ var Default = Registry{
 				Notes: []string{
 					"measurements_v1 is best used with aggregate and time_bucket for trends",
 					"raw point search is available but usually less informative than grouped views",
+					"record is an evidence payload, not the default query surface; promote or materialize important raw attributes before filtering",
 				},
 			},
 		},

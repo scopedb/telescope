@@ -9,7 +9,7 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "schema",
-			Description: "Return the machine-readable semantic telemetry schema. Use this first to discover valid sources, fields, defaults, and advisory query hints.",
+			Description: "Return the machine-readable semantic telemetry schema. Use this first to discover valid sources, promoted fields, defaults, and advisory query hints.",
 			InputSchema: objectSchema(nil, nil),
 		},
 		{
@@ -19,12 +19,12 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "search",
-			Description: "Search detail telemetry rows from events_v1, executions_v1, or measurements_v1. Valid fields come from the schema tool for the selected source.",
+			Description: "Search detail telemetry rows from events_v1, executions_v1, or measurements_v1. Valid fields come from the schema tool for the selected source; arbitrary record paths are intentionally not accepted.",
 			InputSchema: searchInputSchema(),
 		},
 		{
 			Name:        "aggregate",
-			Description: "Run grouped or time-bucketed aggregate telemetry queries. Valid fields come from the schema tool; sort may also use group aliases or measure aliases.",
+			Description: "Run grouped or time-bucketed aggregate telemetry queries. Valid fields come from the schema tool; sort may also use group aliases or measure aliases. Do not use arbitrary record paths.",
 			InputSchema: aggregateInputSchema(),
 		},
 	}
@@ -51,7 +51,7 @@ func searchInputSchema() map[string]any {
 	properties := commonQueryProperties()
 	properties["project"] = map[string]any{
 		"type":        "array",
-		"description": "Fields to return. Valid values are relation.fields from the schema tool for the selected source. If omitted, the source default projection is used.",
+		"description": "Fields to return. Valid values are promoted relation.fields from the schema tool for the selected source. If omitted, the source default projection is used.",
 		"items":       fieldNameSchema("Projection field name."),
 	}
 	properties["cursor"] = map[string]any{
@@ -74,7 +74,7 @@ func commonQueryProperties() map[string]any {
 	return map[string]any{
 		"source": map[string]any{
 			"type":        "string",
-			"description": "Semantic relation to query. Inspect schema or schema_guide before choosing fields for a source.",
+			"description": "Semantic relation to query. Inspect schema or schema_guide before choosing promoted fields for a source.",
 			"enum":        []string{"events_v1", "executions_v1", "measurements_v1"},
 		},
 		"time_range": map[string]any{
@@ -90,7 +90,7 @@ func commonQueryProperties() map[string]any {
 		"filter": filterSchema(),
 		"sort": map[string]any{
 			"type":        "array",
-			"description": "Sort keys. For search, fields must come from schema relation.fields. For aggregate, fields may also be group aliases or measure aliases.",
+			"description": "Sort keys. For search, fields must come from promoted schema relation.fields. For aggregate, fields may also be group aliases or measure aliases.",
 			"items": map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
@@ -119,7 +119,7 @@ func filterSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"description":          "Structured FilterExpr. Field names must come from schema relation.fields for the selected source. Use searchable fields with search, and patternable fields with contains/regexp_like.",
+		"description":          "Structured FilterExpr. Field names must come from promoted schema relation.fields for the selected source. Arbitrary record paths are not accepted. Use searchable fields with search, and patternable fields with contains/regexp_like.",
 		"properties": map[string]any{
 			"and":      map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 			"or":       map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
@@ -151,7 +151,7 @@ func groupBySchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"description":          "Group by a schema field or a time bucket. group_by.field must be groupable in the schema.",
+		"description":          "Group by a promoted schema field or a time bucket. group_by.field must be groupable in the schema.",
 		"properties": map[string]any{
 			"field": fieldNameSchema("Groupable field name from schema relation.fields."),
 			"time_bucket": map[string]any{
@@ -171,7 +171,7 @@ func measureSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"description":          "Aggregate measure. If field is set, it must be a valid field for the selected source. Alias with as when the output name should be stable.",
+		"description":          "Aggregate measure. If field is set, it must be a promoted field for the selected source. Alias with as when the output name should be stable.",
 		"properties": map[string]any{
 			"op":    map[string]any{"type": "string", "enum": []string{"count", "count_distinct", "sum", "avg", "min", "max", "p50", "p95", "p99"}},
 			"field": fieldNameSchema("Field to aggregate. Valid fields come from schema relation.fields for the selected source."),
@@ -194,7 +194,7 @@ func debugSchema() map[string]any {
 func fieldNameSchema(description string) map[string]any {
 	return map[string]any{
 		"type":        "string",
-		"description": description + " Field validation errors are returned as pure JSON tool errors with error.details.section and error.details.field.",
+		"description": description + " Field validation errors are returned as pure JSON tool errors with error.details.section, error.details.field, and a hint. Use schema fields, not arbitrary record paths.",
 	}
 }
 
