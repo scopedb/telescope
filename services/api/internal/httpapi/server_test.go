@@ -73,7 +73,7 @@ func TestGetSchema(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(response.Relations) != 3 {
+	if len(response.Relations) != 4 {
 		t.Fatalf("unexpected relations: %#v", response.Relations)
 	}
 	if response.Relations[0].DefaultSort[0].Field != "ts" {
@@ -117,7 +117,7 @@ func TestGetSchemaGuide(t *testing.T) {
 	if !strings.Contains(body, "# ScopeDB OTel Schema Guide") {
 		t.Fatalf("missing title: %s", body)
 	}
-	if !strings.Contains(body, "## `executions_v1`") || !strings.Contains(body, "- `trace_id`") {
+	if !strings.Contains(body, "## `executions_v1`") || !strings.Contains(body, "## `spans_v1`") || !strings.Contains(body, "- `trace_id`") {
 		t.Fatalf("missing relation advisory: %s", body)
 	}
 	if !strings.Contains(body, "promoted semantic field names only") || !strings.Contains(body, "`record` field is full-fidelity evidence payload") {

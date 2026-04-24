@@ -50,8 +50,8 @@ Telescope also creates default indexes:
 
 | Signal | Indexes |
 | --- | --- |
-| Logs | range on `record_timestamp`, `severity_number`; point on `trace_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `severity_number`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
-| Traces | range on `start_timestamp`, `duration_ns`; point on `trace_id`, `span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `status_code`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `error_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `span_name`, `url_path`, `http_route`, `peer_service`, `rpc_method`, `error_type` |
+| Logs | range on `record_timestamp`, `severity_number`; point on `trace_id`, `span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `severity_number`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
+| Traces | range on `start_timestamp`, `duration_ns`; point on `trace_id`, `span_id`, `parent_span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `status_code`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `error_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `span_name`, `url_path`, `http_route`, `peer_service`, `rpc_method`, `error_type` |
 | Metrics | range on `record_timestamp`; point on `metric_name`, `service`, `version`, `k8s_namespace`, `k8s_cluster`; pattern on `metric_name`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host` |
 
 ## How Tables Are Created

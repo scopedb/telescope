@@ -19,7 +19,7 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "search",
-			Description: "Search detail telemetry rows from events_v1, executions_v1, or measurements_v1. Valid fields come from the schema tool for the selected source; arbitrary record paths are intentionally not accepted.",
+			Description: "Search detail telemetry rows from events_v1, executions_v1, spans_v1, or measurements_v1. Valid fields come from the schema tool for the selected source; arbitrary record paths are intentionally not accepted.",
 			InputSchema: searchInputSchema(),
 		},
 		{
@@ -75,7 +75,7 @@ func commonQueryProperties() map[string]any {
 		"source": map[string]any{
 			"type":        "string",
 			"description": "Semantic relation to query. Inspect schema or schema_guide before choosing promoted fields for a source.",
-			"enum":        []string{"events_v1", "executions_v1", "measurements_v1"},
+			"enum":        []string{"events_v1", "executions_v1", "spans_v1", "measurements_v1"},
 		},
 		"time_range": map[string]any{
 			"type":                 "object",

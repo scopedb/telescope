@@ -115,6 +115,7 @@ var signalTableLayouts = map[string]tablePhysicalLayout{
 		Indexes: []tableIndex{
 			{Type: "RANGE", Expr: "record_timestamp"},
 			{Type: "POINT", Expr: "trace_id"},
+			{Type: "POINT", Expr: "span_id"},
 			{Type: "POINT", Expr: "service"},
 			{Type: "PATTERN", Expr: "service"},
 			{Type: "POINT", Expr: "version"},
@@ -149,6 +150,7 @@ var signalTableLayouts = map[string]tablePhysicalLayout{
 			{Type: "RANGE", Expr: "duration_ns"},
 			{Type: "POINT", Expr: "trace_id"},
 			{Type: "POINT", Expr: "span_id"},
+			{Type: "POINT", Expr: "parent_span_id"},
 			{Type: "POINT", Expr: "service"},
 			{Type: "PATTERN", Expr: "service"},
 			{Type: "POINT", Expr: "version"},

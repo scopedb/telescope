@@ -83,7 +83,7 @@ This keeps pagination stable while leaving room to change the encoding later.
 
 ## Semantic Relations
 
-The semantic layer should expose three query-oriented relations:
+The semantic layer should expose four query-oriented relations:
 
 - `events_v1`
   Source: `scopedb.otel.logs`
@@ -94,13 +94,18 @@ The semantic layer should expose three query-oriented relations:
   Purpose: execution-centric request debugging
   V1 approximation: root spans where `parent_span_id` is empty
 
+- `spans_v1`
+  Source: `scopedb.otel.traces`
+  Purpose: span-level trace expansion and child-span evidence
+  V1 behavior: all spans from the trace table, without the root-span filter used by `executions_v1`
+
 - `measurements_v1`
   Source: `scopedb.otel.metrics`
   Purpose: numeric anomaly and regression investigation
 
 ## API Surface
 
-The public API surface should be reduced to three primitives:
+The public API surface should stay small and centered on schema discovery plus two query primitives:
 
 - `GET /v1/schema`
 - `GET /v1/schema/guide.md`
@@ -236,6 +241,30 @@ Search returns:
 - `sort`
 - `limit`
 - `has_cursor`
+
+### Trace-first search
+
+When an incident starts from a trace id, agents should treat `trace_id` as the primary anchor:
+
+1. Query `executions_v1` by `trace_id` to inspect the root/request span.
+2. Query `spans_v1` by `trace_id`, usually sorted by `ts ASC`, to reconstruct the span timeline from `span_id` and `parent_span_id`.
+3. Query `events_v1` by the same `trace_id`, and optionally `span_id`, to collect log evidence.
+4. Cite evidence using `source`, `trace_id`, `span_id`, `row_id`, `ts`, and the relevant operation or message.
+
+Example span expansion request:
+
+```json
+{
+  "source": "spans_v1",
+  "time_range": {
+    "start": "2026-04-23T00:00:00Z",
+    "end": "2026-04-23T01:00:00Z"
+  },
+  "filter": { "eq": ["trace_id", "4bf92f3577b34da6a3ce929d0e0e4736"] },
+  "sort": [{ "field": "ts", "direction": "asc" }],
+  "limit": 200
+}
+```
 
 ## Aggregate
 
