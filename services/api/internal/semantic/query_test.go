@@ -20,16 +20,24 @@ func TestBuildDefaultSearchQuery(t *testing.T) {
 		"SELECT\n" +
 		"  `record_timestamp` AS `ts`,\n" +
 		"  `row_id` AS `row_id`,\n" +
-		"  `dataset` AS `dataset`,\n" +
-		"  `service_name` AS `service_name`,\n" +
+		"  `env` AS `env`,\n" +
+		"  `service` AS `service`,\n" +
+		"  `version` AS `version`,\n" +
 		"  `instance_id` AS `instance_id`,\n" +
-		"  `pod_name` AS `pod_name`,\n" +
+		"  `k8s_pod` AS `k8s_pod`,\n" +
+		"  `k8s_namespace` AS `k8s_namespace`,\n" +
+		"  `k8s_cluster` AS `k8s_cluster`,\n" +
+		"  `container_name` AS `container_name`,\n" +
 		"  `host_ip` AS `host_ip`,\n" +
-		"  `host_name` AS `host_name`,\n" +
+		"  `host` AS `host`,\n" +
 		"  `trace_id` AS `trace_id`,\n" +
 		"  `trace_id` AS `execution_id`,\n" +
 		"  `span_id` AS `span_id`,\n" +
-		"  `severity_text` AS `severity_text`,\n" +
+		"  `source` AS `source`,\n" +
+		"  `status` AS `status`,\n" +
+		"  `severity_number` AS `severity_number`,\n" +
+		"  `exception_type` AS `exception_type`,\n" +
+		"  `exception_message` AS `exception_message`,\n" +
 		"  `message` AS `message`,\n" +
 		"  `record` AS `record`\n" +
 		"ORDER BY `ts` DESC, `row_id` DESC\n" +
@@ -41,7 +49,7 @@ func TestBuildDefaultSearchQuery(t *testing.T) {
 }
 
 func TestBuildAggregateQuery(t *testing.T) {
-	filter := mustFilter(t, `{"eq":["service_name","checkout"]}`)
+	filter := mustFilter(t, `{"eq":["service","checkout"]}`)
 
 	query, err := Default.BuildQuery(QuerySpec{
 		Relation: "executions_v1",
@@ -64,7 +72,7 @@ func TestBuildAggregateQuery(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`traces`\n" +
-		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service_name` = 'checkout')\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service` = 'checkout')\n" +
 		"GROUP BY `span_name` AS `operation`, `status_code` AS `status_code`\n" +
 		"AGGREGATE\n" +
 		"  count() AS `count`\n" +
@@ -102,16 +110,24 @@ func TestBuildQueryWithTimeRangeAndRowIDTieBreaker(t *testing.T) {
 		"SELECT\n" +
 		"  `record_timestamp` AS `ts`,\n" +
 		"  `row_id` AS `row_id`,\n" +
-		"  `dataset` AS `dataset`,\n" +
-		"  `service_name` AS `service_name`,\n" +
+		"  `env` AS `env`,\n" +
+		"  `service` AS `service`,\n" +
+		"  `version` AS `version`,\n" +
 		"  `instance_id` AS `instance_id`,\n" +
-		"  `pod_name` AS `pod_name`,\n" +
+		"  `k8s_pod` AS `k8s_pod`,\n" +
+		"  `k8s_namespace` AS `k8s_namespace`,\n" +
+		"  `k8s_cluster` AS `k8s_cluster`,\n" +
+		"  `container_name` AS `container_name`,\n" +
 		"  `host_ip` AS `host_ip`,\n" +
-		"  `host_name` AS `host_name`,\n" +
+		"  `host` AS `host`,\n" +
 		"  `trace_id` AS `trace_id`,\n" +
 		"  `trace_id` AS `execution_id`,\n" +
 		"  `span_id` AS `span_id`,\n" +
-		"  `severity_text` AS `severity_text`,\n" +
+		"  `source` AS `source`,\n" +
+		"  `status` AS `status`,\n" +
+		"  `severity_number` AS `severity_number`,\n" +
+		"  `exception_type` AS `exception_type`,\n" +
+		"  `exception_message` AS `exception_message`,\n" +
 		"  `message` AS `message`,\n" +
 		"  `record` AS `record`\n" +
 		"ORDER BY `ts` DESC, `row_id` DESC\n" +
@@ -125,7 +141,7 @@ func TestBuildQueryWithTimeRangeAndRowIDTieBreaker(t *testing.T) {
 func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 	filter := mustFilter(t, `{
 	  "and": [
-	    {"eq": ["service_name", "checkout"]},
+	    {"eq": ["service", "checkout"]},
 	    {"search": ["message", "payment timeout"]},
 	    {"regexp_like": {"field":"message","pattern":"timeout|deadline","flags":"i"}}
 	  ]
@@ -144,7 +160,7 @@ func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`logs`\n" +
-		"WHERE (`service_name` = 'checkout') AND (search(`message`, 'payment timeout')) AND (regexp_like(`message`, '(?i)timeout|deadline'))\n" +
+		"WHERE (`service` = 'checkout') AND (search(`message`, 'payment timeout')) AND (regexp_like(`message`, '(?i)timeout|deadline'))\n" +
 		"SELECT\n" +
 		"  `record_timestamp` AS `ts`,\n" +
 		"  `row_id` AS `row_id`,\n" +
@@ -158,7 +174,7 @@ func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 }
 
 func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
-	filter := mustFilter(t, `{"eq":["service_name","checkout"]}`)
+	filter := mustFilter(t, `{"eq":["service","checkout"]}`)
 
 	query, err := Default.BuildQuery(QuerySpec{
 		Relation: "executions_v1",
@@ -169,11 +185,12 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 		Filter: filter,
 		GroupBy: []GroupBySpec{
 			{TimeBucket: &TimeBucketSpec{Field: "ts", Interval: "5m"}},
-			{Field: "service_name"},
+			{Field: "service"},
 		},
 		Aggregates: []AggregateSpec{
 			{Op: "count", Alias: "count"},
 			{Op: "avg", Field: "duration_ns", Alias: "avg_duration_ns"},
+			{Op: "p95", Field: "duration_ns", Alias: "p95_duration_ns"},
 		},
 		OrderBy: []OrderSpec{
 			{Field: "ts", Direction: "desc"},
@@ -186,16 +203,18 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`traces`\n" +
-		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service_name` = 'checkout') AND (`start_timestamp` >= '2026-04-23T00:00:00Z'::timestamp) AND (`start_timestamp` < '2026-04-23T01:00:00Z'::timestamp)\n" +
-		"GROUP BY floor(`start_timestamp`, n => 5, unit => 'minute') AS `ts_5m`, `service_name` AS `service_name`\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service` = 'checkout') AND (`start_timestamp` >= '2026-04-23T00:00:00Z'::timestamp) AND (`start_timestamp` < '2026-04-23T01:00:00Z'::timestamp)\n" +
+		"GROUP BY floor(`start_timestamp`, n => 5, unit => 'minute') AS `ts_5m`, `service` AS `service`\n" +
 		"AGGREGATE\n" +
 		"  count() AS `count`,\n" +
-		"  avg(`duration_ns`) AS `avg_duration_ns`\n" +
+		"  avg(`duration_ns`) AS `avg_duration_ns`,\n" +
+		"  approx_quantile(`duration_ns`::float, quantile => 0.95) AS `p95_duration_ns`\n" +
 		"SELECT\n" +
 		"  `ts_5m`,\n" +
-		"  `service_name`,\n" +
+		"  `service`,\n" +
 		"  `count`,\n" +
-		"  `avg_duration_ns`\n" +
+		"  `avg_duration_ns`,\n" +
+		"  `p95_duration_ns`\n" +
 		"ORDER BY `ts_5m` DESC\n" +
 		"LIMIT 10"
 

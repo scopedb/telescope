@@ -91,6 +91,12 @@ func (c *Client) EnsureTable(ctx context.Context, signal string, table tableRef)
 		return fmt.Errorf("ensure %s table %s: %w", signal, table.String(), err)
 	}
 
+	for _, statement := range c.createIndexStatements(signal, table) {
+		if _, err := sdkClient.Statement(statement).Execute(ctx); err != nil {
+			return fmt.Errorf("ensure %s table index for %s: %w", signal, table.String(), err)
+		}
+	}
+
 	c.logger.Info(
 		"ScopeDB table is ready",
 		zap.String("signal", signal),
@@ -109,6 +115,10 @@ func (c *Client) createSchemaStatement(table tableRef) string {
 
 func (c *Client) createTableStatement(signal string, table tableRef) string {
 	return createTableStatementForSignal(signal, table)
+}
+
+func (c *Client) createIndexStatements(signal string, table tableRef) []string {
+	return createIndexStatementsForSignal(signal, table)
 }
 
 func sdkCompression(mode string) scopedb.Compression {

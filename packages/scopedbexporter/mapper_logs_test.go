@@ -15,7 +15,7 @@ func TestMapLogs(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "https://scopedb.invalid"
 	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Dataset = "demo"
+	cfg.Env = "demo"
 
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
@@ -49,7 +49,7 @@ func TestMapLogs(t *testing.T) {
 	assert.Equal(t, "456", mapped["observed_timestamp_unix_nano"])
 	assert.Equal(t, "01020300000000000000000000000000", mapped["trace_id"])
 	assert.Equal(t, "0405060000000000", mapped["span_id"])
-	assert.Equal(t, "INFO", mapped["severity_text"])
+	assert.Equal(t, "INFO", mapped["status"])
 	assert.Equal(t, int(plog.SeverityNumberInfo), mapped["severity_number"])
 	assert.Equal(t, "hello world", mapped["body"])
 	assert.Equal(t, "hello world", mapped["message"])

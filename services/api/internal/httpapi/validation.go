@@ -55,10 +55,7 @@ func (s *Service) validateAggregateRequest(relation semantic.RelationSpec, reque
 		}
 	}
 	for _, measure := range request.Measures {
-		if strings.TrimSpace(measure.Field) == "" {
-			continue
-		}
-		if err := s.validateRelationField(relation, measure.Field, "measure", fieldCapabilityAggregate); err != nil {
+		if err := s.validateMeasure(relation, measure); err != nil {
 			return err
 		}
 	}
@@ -73,6 +70,58 @@ func (s *Service) validateAggregateRequest(relation semantic.RelationSpec, reque
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Service) validateMeasure(relation semantic.RelationSpec, measure MeasureRequest) *ServiceError {
+	op := normalizeMeasureOp(measure.Op)
+	if op == "" {
+		return validationError("measure op is required", "measure", "", "")
+	}
+
+	def, ok := relationMeasure(relation, op)
+	if !ok {
+		return badRequest(fmt.Sprintf("unsupported measure op: %s", op), map[string]any{
+			"section":   "measure",
+			"op":        op,
+			"valid_ops": relationMeasureNames(relation),
+		})
+	}
+
+	fieldName := strings.TrimSpace(measure.Field)
+	if fieldName == "" {
+		if def.FieldRequired {
+			return badRequest(fmt.Sprintf("%s requires a field", op), map[string]any{
+				"section":      "measure",
+				"op":           op,
+				"input_types":  def.InputTypes,
+				"valid_fields": s.measureFieldNames(relation, def),
+				"hint":         "Choose one of valid_fields from the selected source schema, for example p95(duration_ns).",
+			})
+		}
+		return nil
+	}
+
+	if err := s.validateRelationField(relation, fieldName, "measure", fieldCapabilityAggregate); err != nil {
+		return err
+	}
+
+	field, ok := s.registry.Field(fieldName)
+	if !ok {
+		return validationError(fmt.Sprintf("unknown measure field: %s", fieldName), "measure", fieldName, "")
+	}
+	if !measureAcceptsField(def, field) {
+		return badRequest(fmt.Sprintf("%s does not support field type %s: %s", op, field.Type, fieldName), map[string]any{
+			"section":      "measure",
+			"field":        fieldName,
+			"op":           op,
+			"actual_type":  field.Type,
+			"input_types":  def.InputTypes,
+			"valid_fields": s.measureFieldNames(relation, def),
+			"hint":         "Use schema or schema_guide to inspect each measure's input_types and fields. Use dimensions in group_by, not as percentile fields.",
+		})
+	}
+
 	return nil
 }
 
@@ -174,7 +223,7 @@ func aggregateSortAliases(relation semantic.RelationSpec, request AggregateReque
 }
 
 func defaultMeasureAlias(measure MeasureRequest) string {
-	op := strings.TrimSpace(measure.Op)
+	op := normalizeMeasureOp(measure.Op)
 	field := strings.TrimSpace(measure.Field)
 	if field == "" {
 		return op

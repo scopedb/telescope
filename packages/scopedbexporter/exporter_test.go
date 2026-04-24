@@ -122,7 +122,11 @@ func TestExporterStartEnsuresTableWhenEnabled(t *testing.T) {
 			assert.True(t,
 				strings.HasPrefix(request.Statement, "CREATE DATABASE IF NOT EXISTS") ||
 					strings.HasPrefix(request.Statement, "CREATE SCHEMA IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE TABLE IF NOT EXISTS"),
+					strings.HasPrefix(request.Statement, "CREATE TABLE IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE RANGE INDEX IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE POINT INDEX IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE SEARCH INDEX IF NOT EXISTS") ||
+					strings.HasPrefix(request.Statement, "CREATE PATTERN INDEX IF NOT EXISTS"),
 			)
 			w.Header().Set("Content-Type", "application/json")
 			require.NoError(t, json.NewEncoder(w).Encode(exporterTableInitStatementResponse{

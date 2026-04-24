@@ -71,8 +71,10 @@ type RelationSpec struct {
 }
 
 type MeasureDef struct {
-	Name        string
-	Description string
+	Name          string
+	Description   string
+	FieldRequired bool
+	InputTypes    []FieldType
 }
 
 type RelationAdvisory struct {

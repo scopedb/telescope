@@ -24,7 +24,7 @@ func schemaResponse(registry semantic.Registry) SchemaResponse {
 			SupportsAggregate: relation.SupportsAggregate,
 			Advisory:          schemaAdvisory(relation.Advisory),
 			Fields:            schemaFields(registry, relation),
-			Measures:          schemaMeasures(relation.Measures),
+			Measures:          schemaMeasures(registry, relation),
 		})
 	}
 
@@ -51,12 +51,15 @@ func schemaFields(registry semantic.Registry, relation semantic.RelationSpec) []
 	return fields
 }
 
-func schemaMeasures(measures []semantic.MeasureDef) []MeasureSchema {
-	out := make([]MeasureSchema, 0, len(measures))
-	for _, measure := range measures {
+func schemaMeasures(registry semantic.Registry, relation semantic.RelationSpec) []MeasureSchema {
+	out := make([]MeasureSchema, 0, len(relation.Measures))
+	for _, measure := range relation.Measures {
 		out = append(out, MeasureSchema{
-			Name:        measure.Name,
-			Description: measure.Description,
+			Name:          measure.Name,
+			Description:   measure.Description,
+			FieldRequired: measure.FieldRequired,
+			InputTypes:    append([]semantic.FieldType(nil), measure.InputTypes...),
+			Fields:        measureFields(registry, relation, measure),
 		})
 	}
 	return out
@@ -110,11 +113,57 @@ func renderSchemaGuide(registry semantic.Registry) string {
 		writeMarkdownList(&builder, "Preferred filters", relation.Advisory.PreferredFilters, true)
 		writeMarkdownList(&builder, "Preferred group by", relation.Advisory.PreferredGroupBy, true)
 		writeMarkdownList(&builder, "Preferred measures", relation.Advisory.PreferredMeasures, true)
+		writeMeasureMarkdownList(&builder, registry, relation)
 		writeMarkdownList(&builder, "Common patterns", relation.Advisory.CommonPatterns, false)
 		writeMarkdownList(&builder, "Notes", relation.Advisory.Notes, false)
 	}
 
 	return builder.String()
+}
+
+func writeMeasureMarkdownList(builder *strings.Builder, registry semantic.Registry, relation semantic.RelationSpec) {
+	if len(relation.Measures) == 0 {
+		return
+	}
+	builder.WriteString("\n### Supported measures\n\n")
+	for _, measure := range relation.Measures {
+		builder.WriteString("- `")
+		builder.WriteString(measure.Name)
+		builder.WriteString("`")
+		if measure.FieldRequired {
+			builder.WriteString(" requires a field")
+		} else {
+			builder.WriteString(" can omit field")
+		}
+		if len(measure.InputTypes) > 0 {
+			builder.WriteString("; input types: ")
+			writeInlineCodeList(builder, fieldTypesToStrings(measure.InputTypes))
+		}
+		if fields := measureFields(registry, relation, measure); len(fields) > 0 {
+			builder.WriteString("; fields: ")
+			writeInlineCodeList(builder, fields)
+		}
+		builder.WriteString("\n")
+	}
+}
+
+func writeInlineCodeList(builder *strings.Builder, values []string) {
+	for i, value := range values {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString("`")
+		builder.WriteString(value)
+		builder.WriteString("`")
+	}
+}
+
+func fieldTypesToStrings(types []semantic.FieldType) []string {
+	values := make([]string, 0, len(types))
+	for _, typ := range types {
+		values = append(values, string(typ))
+	}
+	return values
 }
 
 func writeMarkdownList(builder *strings.Builder, title string, values []string, code bool) {

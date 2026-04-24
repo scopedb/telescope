@@ -152,8 +152,11 @@ type FieldSchema struct {
 }
 
 type MeasureSchema struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name          string               `json:"name"`
+	Description   string               `json:"description,omitempty"`
+	FieldRequired bool                 `json:"field_required"`
+	InputTypes    []semantic.FieldType `json:"input_types,omitempty"`
+	Fields        []string             `json:"fields,omitempty"`
 }
 
 type SearchResponse struct {

@@ -27,7 +27,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    dataset: default
+    env: ${env:TELESCOPE_ENV}
     create_tables_if_not_exist: true
     schema_version: v1
     compression: zstd

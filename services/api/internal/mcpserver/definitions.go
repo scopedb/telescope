@@ -24,7 +24,7 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "aggregate",
-			Description: "Run grouped or time-bucketed aggregate telemetry queries. Valid fields come from the schema tool; sort may also use group aliases or measure aliases. Do not use arbitrary record paths.",
+			Description: "Run grouped or time-bucketed aggregate telemetry queries. Valid fields and measure input types come from the schema tool; sort may also use group aliases or measure aliases. Do not use arbitrary record paths.",
 			InputSchema: aggregateInputSchema(),
 		},
 	}
@@ -171,7 +171,7 @@ func measureSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"description":          "Aggregate measure. If field is set, it must be a promoted field for the selected source. Alias with as when the output name should be stable.",
+		"description":          "Aggregate measure. Check schema.measures for valid ops, field_required, input_types, and fields for the selected source. Alias with as when the output name should be stable.",
 		"properties": map[string]any{
 			"op":    map[string]any{"type": "string", "enum": []string{"count", "count_distinct", "sum", "avg", "min", "max", "p50", "p95", "p99"}},
 			"field": fieldNameSchema("Field to aggregate. Valid fields come from schema relation.fields for the selected source."),

@@ -70,6 +70,7 @@ func TestApplyDefaultEnv(t *testing.T) {
 	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", "")
 	t.Setenv("TELESCOPE_HEALTH_ADDR", "")
 	t.Setenv("TELESCOPE_QUEUE_DIR", "")
+	t.Setenv("TELESCOPE_ENV", "")
 
 	Settings("", "test")
 
@@ -84,6 +85,9 @@ func TestApplyDefaultEnv(t *testing.T) {
 	}
 	if got := getenv(t, "TELESCOPE_QUEUE_DIR"); got != "/tmp/telescope-home/.telescope/queue" {
 		t.Fatalf("expected default queue dir under HOME, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_ENV"); got != "default" {
+		t.Fatalf("expected default telemetry env, got %q", got)
 	}
 }
 

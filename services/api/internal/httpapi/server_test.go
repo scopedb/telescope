@@ -86,6 +86,17 @@ func TestGetSchema(t *testing.T) {
 	if response.Relations[0].Fields[0].Name != "ts" {
 		t.Fatalf("unexpected first field: %#v", response.Relations[0].Fields[0])
 	}
+	executions := response.Relations[1]
+	var p95 MeasureSchema
+	for _, measure := range executions.Measures {
+		if measure.Name == "p95" {
+			p95 = measure
+			break
+		}
+	}
+	if !p95.FieldRequired || len(p95.InputTypes) != 2 || len(p95.Fields) != 1 || p95.Fields[0] != "duration_ns" {
+		t.Fatalf("unexpected p95 schema: %#v", p95)
+	}
 }
 
 func TestGetSchemaGuide(t *testing.T) {
@@ -228,9 +239,9 @@ func TestPostSearchCustomProjectAddsInternalCursorFields(t *testing.T) {
 		results: []fakeResult{
 			{
 				rows: []map[string]any{
-					{"ts": "2026-04-23T00:00:10Z", "row_id": "abcd000000000001", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
-					{"ts": "2026-04-23T00:00:09Z", "row_id": "abcd000000000002", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
-					{"ts": "2026-04-23T00:00:08Z", "row_id": "abcd000000000003", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
+					{"ts": "2026-04-23T00:00:10Z", "row_id": "abcd000000000001", "service": "checkout-demo", "message": "PaymentTimeoutError"},
+					{"ts": "2026-04-23T00:00:09Z", "row_id": "abcd000000000002", "service": "checkout-demo", "message": "PaymentTimeoutError"},
+					{"ts": "2026-04-23T00:00:08Z", "row_id": "abcd000000000003", "service": "checkout-demo", "message": "PaymentTimeoutError"},
 				},
 			},
 		},
@@ -244,7 +255,7 @@ func TestPostSearchCustomProjectAddsInternalCursorFields(t *testing.T) {
 	    "end": "2026-04-23T01:00:00Z"
 	  },
 	  "filter": {"contains":["message","PaymentTimeoutError"]},
-	  "project": ["ts", "service_name", "message"],
+	  "project": ["ts", "service", "message"],
 	  "limit": 2
 	}`)
 
@@ -295,7 +306,7 @@ func TestPostAggregate(t *testing.T) {
 	    "start": "2026-04-23T00:00:00Z",
 	    "end": "2026-04-23T01:00:00Z"
 	  },
-	  "filter": {"eq":["service_name","checkout"]},
+	  "filter": {"eq":["service","checkout"]},
 	  "group_by": [{"field":"operation"}],
 	  "measures": [{"op":"count","as":"count"}],
 	  "sort": [{"field":"count","direction":"desc"}],
@@ -333,6 +344,47 @@ func TestPostAggregate(t *testing.T) {
 	}
 	if response.Meta.AppliedQuery.Source != "executions_v1" || len(response.Meta.AppliedQuery.GroupBy) != 1 {
 		t.Fatalf("unexpected applied query: %#v", response.Meta.AppliedQuery)
+	}
+}
+
+func TestPostAggregateNormalizesMeasureOp(t *testing.T) {
+	runner := &fakeRunner{
+		results: []fakeResult{
+			{rows: []map[string]any{{"p95_duration_ns": float64(123)}}},
+		},
+	}
+	server := newTestServer(t, runner, "test")
+
+	body := []byte(`{
+	  "source": "executions_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "measures": [{"op":"P95","field":"duration_ns"}],
+	  "sort": [{"field":"p95_duration_ns","direction":"desc"}],
+	  "limit": 20
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/aggregate", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if len(runner.statements) != 1 || !strings.Contains(runner.statements[0], "approx_quantile(`duration_ns`::float, quantile => 0.95) AS `p95_duration_ns`") {
+		t.Fatalf("unexpected statement: %#v", runner.statements)
+	}
+
+	var response AggregateResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Meta.AppliedQuery.Measures) != 1 || response.Meta.AppliedQuery.Measures[0].Op != "p95" {
+		t.Fatalf("unexpected applied measures: %#v", response.Meta.AppliedQuery.Measures)
 	}
 }
 
@@ -426,6 +478,70 @@ func TestPostAggregateRejectsUnknownGroupByField(t *testing.T) {
 	}
 }
 
+func TestPostAggregateRejectsUnsupportedMeasureOp(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	body := []byte(`{
+	  "source": "executions_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "measures": [{"op":"banana","field":"duration_ns"}]
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/aggregate", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "unsupported measure op: banana") {
+		t.Fatalf("unexpected body: %s", recorder.Body.String())
+	}
+}
+
+func TestPostAggregateRejectsPercentileOnDimension(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	body := []byte(`{
+	  "source": "executions_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "measures": [{"op":"p95","field":"service","as":"p95_service"}]
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/aggregate", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response ErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Message != "p95 does not support field type string: service" {
+		t.Fatalf("unexpected error: %#v", response.Error)
+	}
+	if response.Error.Details["field"] != "service" || response.Error.Details["op"] != "p95" {
+		t.Fatalf("unexpected details: %#v", response.Error.Details)
+	}
+	validFields, ok := response.Error.Details["valid_fields"].([]any)
+	if !ok || len(validFields) != 1 || validFields[0] != "duration_ns" {
+		t.Fatalf("unexpected valid_fields: %#v", response.Error.Details)
+	}
+}
+
 func TestPostSearchReturnsScopeQLWhenDebugRequested(t *testing.T) {
 	runner := &fakeRunner{
 		results: []fakeResult{
@@ -440,7 +556,7 @@ func TestPostSearchReturnsScopeQLWhenDebugRequested(t *testing.T) {
 	    "start": "2026-04-23T00:00:00Z",
 	    "end": "2026-04-23T01:00:00Z"
 	  },
-	  "filter": {"eq":["service_name","checkout"]},
+	  "filter": {"eq":["service","checkout"]},
 	  "debug": {"scopeql": true},
 	  "limit": 1
 	}`)
@@ -527,7 +643,7 @@ func TestPostSearchRejectsCursorWithCustomSort(t *testing.T) {
 	    "start": "2026-04-23T00:00:00Z",
 	    "end": "2026-04-23T01:00:00Z"
 	  },
-	  "sort": [{"field":"service_name","direction":"asc"}],
+	  "sort": [{"field":"service","direction":"asc"}],
 	  "cursor": "next"
 	}`)
 

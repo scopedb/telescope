@@ -25,14 +25,34 @@ Telescope keeps each signal in a separate table because the promoted columns dif
 | Traces | `scopedb.otel.traces` | Span executions, timing, duration, status, parent/child correlation. |
 | Metrics | `scopedb.otel.metrics` | Metric points, metric identity, numeric values, distributions. |
 
-All tables include shared columns such as `ingest_ts`, `schema_version`, `dataset`, `row_id`, `service_name`, `instance_id`, `pod_name`, `host_ip`, `host_name`, and `record`. The `record` column stores the full mapped OpenTelemetry payload as evidence; promoted columns are the intended fast query surface.
+All tables include shared columns such as `ingest_ts`, `schema_version`, `env`, `row_id`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, and `record`. The `record` column stores the full mapped OpenTelemetry payload as evidence; promoted columns are the intended fast query surface.
 
 The important split is:
 
-- `dataset` is a logical label stored in every row.
+- `env` is a logical label stored in every row.
 - `tables.*` is physical storage routing.
 
-Prefer changing `dataset` first. Change table routes only when storage topology, retention, indexing, access policy, or migration control needs to differ.
+Prefer changing `env` first. Change table routes only when storage topology, retention, indexing, access policy, or migration control needs to differ.
+
+## Default Physical Layout
+
+Telescope creates ScopeDB-native physical layouts for the default tables:
+
+| Signal | Partition key | Cluster key |
+| --- | --- | --- |
+| Logs | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `severity_number`, `record_timestamp` |
+| Traces | `floor(start_timestamp, 24, 'hour')` | `env`, `service`, `status_code`, `start_timestamp` |
+| Metrics | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `metric_name`, `record_timestamp` |
+
+The `floor(..., 24, 'hour')` expression is the default UTC day bucket. Partitions stay time-bounded only; service remains the primary clustering dimension, followed by stable low-cardinality status fields. Logs use OTel `severity_number` for physical clustering while preserving string `status` for agent-facing queries.
+
+Telescope also creates default indexes:
+
+| Signal | Indexes |
+| --- | --- |
+| Logs | range on `record_timestamp`, `severity_number`; point on `trace_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `severity_number`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
+| Traces | range on `start_timestamp`, `duration_ns`; point on `trace_id`, `span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `status_code`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `error_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `span_name`, `url_path`, `http_route`, `peer_service`, `rpc_method`, `error_type` |
+| Metrics | range on `record_timestamp`; point on `metric_name`, `service`, `version`, `k8s_namespace`, `k8s_cluster`; pattern on `metric_name`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host` |
 
 ## How Tables Are Created
 
@@ -77,11 +97,11 @@ telescope daemon
 
 The Docker image includes this deploy config at `/etc/telescope/collector.yaml`, and Docker Compose sets `TELESCOPE_COLLECTOR_CONFIG` to that path.
 
-Keep one logical telemetry environment per `dataset` value unless you have a strong reason to split physical tables. `dataset` is stored as a column and is cheaper to change than table topology.
+Keep one logical telemetry environment per `env` value unless you have a strong reason to split physical tables. `env` is stored as a column and is cheaper to change than table topology.
 
-## Choosing Dataset vs Tables
+## Choosing Env vs Tables
 
-Prefer changing `dataset` when you want to distinguish:
+Prefer changing `env` when you want to distinguish:
 
 - local, staging, and production telemetry in the same physical tables
 - temporary test traffic from normal traffic
@@ -106,7 +126,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    dataset: default
+    env: default
     create_tables_if_not_exist: true
     schema_version: v1
 ```
@@ -119,7 +139,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    dataset: production
+    env: production
     tables:
       logs: telemetry_prod.otel.logs
       traces: telemetry_prod.otel.traces
@@ -140,7 +160,7 @@ exporters:
       storage: file_storage
 ```
 
-In this example, `dataset: production` is still a row value. The three `tables.*` routes choose physical tables in database `telemetry_prod` and schema `otel`.
+In this example, `env: production` is still a row value. The three `tables.*` routes choose physical tables in database `telemetry_prod` and schema `otel`.
 
 Important fields:
 
@@ -149,7 +169,7 @@ Important fields:
 | `endpoint` | none | Required ScopeDB physical region endpoint. |
 | `path` | `/v1/ingest` | ScopeDB ingest API path. |
 | `api_key` | none | Required; sent as `Authorization: Bearer <api_key>`. |
-| `dataset` | `default` | Stored in every row; preferred first-level environment separator. |
+| `env` | `default` | Stored in every row; preferred first-level environment separator. |
 | `tables.logs` | `scopedb.otel.logs` | Log table route. |
 | `tables.traces` | `scopedb.otel.traces` | Trace/span table route. |
 | `tables.metrics` | `scopedb.otel.metrics` | Metric table route. |
@@ -225,11 +245,11 @@ Telescope's initial table schema is intentionally append-friendly:
 - stable promoted columns are first-class table columns
 - `record` keeps the full mapped OpenTelemetry payload
 - `schema_version` allows future readers to distinguish layouts
-- `dataset` allows logical separation without multiplying table topology
+- `env` allows logical separation without multiplying table topology
 
 When a raw OpenTelemetry attribute becomes important for repeated queries, prefer promoting it in the exporter/schema and semantic layer rather than relying on arbitrary `record` filters. This keeps agent queries predictable and lets ScopeDB index/materialize the field intentionally.
 
-For a breaking schema migration, prefer creating new tables or a new dataset first, running both paths briefly, and then switching readers once the new tables have enough coverage.
+For a breaking schema migration, prefer creating new tables or a new env first, running both paths briefly, and then switching readers once the new tables have enough coverage.
 
 ## Troubleshooting
 

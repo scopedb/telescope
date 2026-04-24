@@ -10,13 +10,26 @@ import (
 )
 
 func (r Registry) compileAggregate(relation RelationSpec, aggregate AggregateSpec) (scopeql.Selection, error) {
-	funcName := strings.TrimSpace(aggregate.Op)
+	funcName := strings.ToLower(strings.TrimSpace(aggregate.Op))
 	if funcName == "" {
 		return scopeql.Selection{}, fmt.Errorf("aggregate op is required")
 	}
 
 	var expr scopeql.Expr
-	if strings.TrimSpace(aggregate.Field) == "" {
+	if percentile, ok := percentileForOp(funcName); ok {
+		if strings.TrimSpace(aggregate.Field) == "" {
+			return scopeql.Selection{}, fmt.Errorf("%s requires a field", funcName)
+		}
+		fieldExpr, fieldErr := r.compileFieldExpr(relation.Name, aggregate.Field)
+		if fieldErr != nil {
+			return scopeql.Selection{}, fieldErr
+		}
+		expr = scopeql.Call(
+			"approx_quantile",
+			scopeql.Raw(fieldExpr.ScopeQL()+"::float"),
+			scopeql.Raw("quantile => "+scopeql.Float(percentile).ScopeQL()),
+		)
+	} else if strings.TrimSpace(aggregate.Field) == "" {
 		expr = scopeql.Call(funcName)
 	} else {
 		fieldExpr, fieldErr := r.compileFieldExpr(relation.Name, aggregate.Field)
@@ -33,11 +46,25 @@ func (r Registry) compileAggregate(relation RelationSpec, aggregate AggregateSpe
 	return scopeql.Select(expr, alias), nil
 }
 
-func defaultAggregateAlias(aggregate AggregateSpec) string {
-	if strings.TrimSpace(aggregate.Field) == "" {
-		return aggregate.Op
+func percentileForOp(op string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(op)) {
+	case "p50":
+		return 0.5, true
+	case "p95":
+		return 0.95, true
+	case "p99":
+		return 0.99, true
+	default:
+		return 0, false
 	}
-	return aggregate.Op + "_" + aggregate.Field
+}
+
+func defaultAggregateAlias(aggregate AggregateSpec) string {
+	op := strings.ToLower(strings.TrimSpace(aggregate.Op))
+	if strings.TrimSpace(aggregate.Field) == "" {
+		return op
+	}
+	return op + "_" + aggregate.Field
 }
 
 func (r Registry) compileGroupBy(relation RelationSpec, groups []GroupBySpec) ([]scopeql.Selection, error) {

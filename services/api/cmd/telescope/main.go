@@ -173,6 +173,7 @@ Usage:
 Environment:
   TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
   TELESCOPE_SCOPEDB_API_KEY    ScopeDB API key
+  TELESCOPE_ENV                Telemetry environment label, default "default"
   TELESCOPE_HTTP_ADDR          HTTP API listen address, default :8080
   TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318

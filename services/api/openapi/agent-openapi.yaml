@@ -378,6 +378,7 @@ components:
     MeasureSpec:
       type: object
       additionalProperties: false
+      description: Check the selected relation's schema.measures for valid ops, field_required, input_types, and fields.
       required:
         - op
       properties:
@@ -446,11 +447,25 @@ components:
       additionalProperties: false
       required:
         - name
+        - field_required
       properties:
         name:
           type: string
         description:
           type: string
+        field_required:
+          type: boolean
+          description: Whether this operation requires a field input.
+        input_types:
+          type: array
+          description: Accepted semantic field types for this operation.
+          items:
+            $ref: "#/components/schemas/FieldType"
+        fields:
+          type: array
+          description: Valid field names for this operation on this relation when constrained by type and role.
+          items:
+            type: string
     RelationSchema:
       type: object
       additionalProperties: false
