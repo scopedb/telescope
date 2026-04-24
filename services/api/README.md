@@ -51,6 +51,7 @@ Required environment variables:
 
 Optional environment variables:
 
+- `TELESCOPE_ENV`: telemetry environment label, default `default`
 - `TELESCOPE_HTTP_ADDR`: listen address, default `:8080`
 - `TELESCOPE_PORT`: alternate way to set the listen port when `TELESCOPE_HTTP_ADDR` is unset
 - `TELESCOPE_OTLP_GRPC_ADDR`: OTLP gRPC listen address, default `0.0.0.0:4317`

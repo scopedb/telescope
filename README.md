@@ -26,6 +26,7 @@ Set your ScopeDB credentials in `services/gateway/deploy/.env`:
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
+TELESCOPE_ENV=default
 TELESCOPE_OTLP_GRPC_PORT=4317
 TELESCOPE_OTLP_HTTP_PORT=4318
 TELESCOPE_HTTP_PORT=8080

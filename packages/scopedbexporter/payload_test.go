@@ -11,15 +11,19 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalLogs,
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{
 			{
 				"timestamp_unix_nano":          "1713835425123456789",
 				"observed_timestamp_unix_nano": "1713835426123456789",
 				"resource": map[string]any{
 					"service.name":        "collector-a",
+					"service.version":     "1.2.3",
 					"service.instance.id": "collector-a-1",
 					"k8s.pod.name":        "collector-a-pod",
+					"k8s.namespace.name":  "payments",
+					"k8s.cluster.name":    "prod-us-east",
+					"container.name":      "collector",
 					"host.ip":             []any{"10.0.0.10", "127.0.0.1"},
 					"host.name":           "collector-a-node",
 				},
@@ -43,11 +47,15 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 		assert.Equal(t, rows[0]["row_id"].(string)[:8], rows[1]["row_id"].(string)[:8])
 		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", rows[0]["record_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", rows[0]["observed_timestamp"])
-		assert.Equal(t, "collector-a", rows[0]["service_name"])
+		assert.Equal(t, "collector-a", rows[0]["service"])
+		assert.Equal(t, "1.2.3", rows[0]["version"])
 		assert.Equal(t, "collector-a-1", rows[0]["instance_id"])
-		assert.Equal(t, "collector-a-pod", rows[0]["pod_name"])
+		assert.Equal(t, "collector-a-pod", rows[0]["k8s_pod"])
+		assert.Equal(t, "payments", rows[0]["k8s_namespace"])
+		assert.Equal(t, "prod-us-east", rows[0]["k8s_cluster"])
+		assert.Equal(t, "collector", rows[0]["container_name"])
 		assert.Equal(t, "10.0.0.10", rows[0]["host_ip"])
-		assert.Equal(t, "collector-a-node", rows[0]["host_name"])
+		assert.Equal(t, "collector-a-node", rows[0]["host"])
 		assert.Equal(t, "2024-04-23T01:23:47.123456789Z", rows[1]["start_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:48.123456789Z", rows[1]["end_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:49.123456789Z", rows[2]["start_timestamp"])
@@ -72,7 +80,7 @@ func TestScopeDBRowsProjectsTraceSchemaColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalTraces,
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{
 			{
 				"name":                 "GET /checkout",
@@ -98,7 +106,7 @@ func TestScopeDBRowsProjectsMetricSchemaColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalMetrics,
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{
 			{
 				"metric_name":               "cpu.utilization",
@@ -125,10 +133,15 @@ func TestScopeDBRowsProjectsLogMessage(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalLogs,
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{
 			{
 				"message": "hello world",
+				"scope":   map[string]any{"name": "go"},
+				"attributes": map[string]any{
+					"exception.type":    "PaymentTimeoutError",
+					"exception.message": "payment provider timed out",
+				},
 			},
 		},
 	}
@@ -136,6 +149,46 @@ func TestScopeDBRowsProjectsLogMessage(t *testing.T) {
 	rows := payload.scopeDBRows()
 	if assert.Len(t, rows, 1) {
 		assert.Equal(t, "hello world", rows[0]["message"])
+		assert.Equal(t, "go", rows[0]["source"])
+		assert.Equal(t, "PaymentTimeoutError", rows[0]["exception_type"])
+		assert.Equal(t, "payment provider timed out", rows[0]["exception_message"])
+	}
+}
+
+func TestScopeDBRowsProjectsTraceAttributeFacets(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalTraces,
+		Env:           "demo",
+		Records: []Record{
+			{
+				"name": "GET /checkout",
+				"attributes": map[string]any{
+					"http.request.method":       "GET",
+					"http.response.status_code": int64(504),
+					"url.path":                  "/checkout",
+					"http.route":                "/checkout/{cart_id}",
+					"peer.service":              "payments",
+					"db.system.name":            "postgresql",
+					"db.operation.name":         "SELECT",
+					"rpc.method":                "Charge",
+					"error.type":                "PaymentTimeoutError",
+				},
+			},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 1) {
+		assert.Equal(t, "GET", rows[0]["http_method"])
+		assert.Equal(t, int64(504), rows[0]["http_status_code"])
+		assert.Equal(t, "/checkout", rows[0]["url_path"])
+		assert.Equal(t, "/checkout/{cart_id}", rows[0]["http_route"])
+		assert.Equal(t, "payments", rows[0]["peer_service"])
+		assert.Equal(t, "postgresql", rows[0]["db_system"])
+		assert.Equal(t, "SELECT", rows[0]["db_operation"])
+		assert.Equal(t, "Charge", rows[0]["rpc_method"])
+		assert.Equal(t, "PaymentTimeoutError", rows[0]["error_type"])
 	}
 }
 
@@ -143,7 +196,7 @@ func TestScopeDBRowsProjectsMetricDistribution(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalMetrics,
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{
 			{
 				"metric_name": "request.duration",

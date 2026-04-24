@@ -12,7 +12,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    dataset: default
+    env: default
     tables:
       logs: scopedb.otel.logs
       traces: scopedb.otel.traces
@@ -65,15 +65,15 @@ Each JSON row includes shared ingest columns plus the full original mapped recor
 - `ingest_ts`
 - `signal`
 - `schema_version`
-- `dataset`
+- `env`
 - `row_id`
 - `record`
 
 The exporter also promotes signal-specific fields into top-level row columns so each table can use its own schema:
 
-- shared resource columns: `service_name`, `instance_id`, `pod_name`, `host_ip`, `host_name`
-- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `severity_text`, `message`
-- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`
+- shared resource columns: `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`
+- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `source`, `status`, `message`, `exception_type`, `exception_message`
+- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`, `http_method`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `db_system`, `db_operation`, `rpc_method`, `error_type`
 - metrics: `record_timestamp`, `start_timestamp`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
 
 The `record` object keeps the signal-specific body. Log records include fields such as:
@@ -82,7 +82,7 @@ The `record` object keeps the signal-specific body. Log records include fields s
 - `observed_timestamp_unix_nano`
 - `trace_id`
 - `span_id`
-- `severity_text`
+- `status`
 - `severity_number`
 - `body`
 - `resource`
@@ -132,17 +132,24 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   record_timestamp timestamp,
   observed_timestamp timestamp,
   schema_version string,
-  dataset string,
+  env string,
   row_id string,
-  service_name string,
+  service string,
+  version string,
   instance_id string,
-  pod_name string,
+  k8s_pod string,
+  k8s_namespace string,
+  k8s_cluster string,
+  container_name string,
   host_ip string,
-  host_name string,
+  host string,
   trace_id string,
   span_id string,
-  severity_text string,
+  source string,
+  status string,
   message string,
+  exception_type string,
+  exception_message string,
   record object
 )
 
@@ -152,19 +159,32 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.traces (
   end_timestamp timestamp,
   duration_ns int,
   schema_version string,
-  dataset string,
+  env string,
   row_id string,
-  service_name string,
+  service string,
+  version string,
   instance_id string,
-  pod_name string,
+  k8s_pod string,
+  k8s_namespace string,
+  k8s_cluster string,
+  container_name string,
   host_ip string,
-  host_name string,
+  host string,
   trace_id string,
   span_id string,
   parent_span_id string,
   span_name string,
   span_kind string,
   status_code string,
+  http_method string,
+  http_status_code int,
+  url_path string,
+  http_route string,
+  peer_service string,
+  db_system string,
+  db_operation string,
+  rpc_method string,
+  error_type string,
   record object
 )
 
@@ -173,13 +193,17 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
   record_timestamp timestamp,
   start_timestamp timestamp,
   schema_version string,
-  dataset string,
+  env string,
   row_id string,
-  service_name string,
+  service string,
+  version string,
   instance_id string,
-  pod_name string,
+  k8s_pod string,
+  k8s_namespace string,
+  k8s_cluster string,
+  container_name string,
   host_ip string,
-  host_name string,
+  host string,
   metric_name string,
   metric_type string,
   temporality string,

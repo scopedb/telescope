@@ -24,7 +24,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    dataset: demo
+    env: demo
     tables:
       logs: scopedb.otel.logs
       traces: scopedb.otel.traces

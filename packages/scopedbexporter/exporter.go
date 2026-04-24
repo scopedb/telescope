@@ -36,7 +36,7 @@ func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
 		"Starting scopedb exporter",
 		zap.String("endpoint", e.cfg.Endpoint),
 		zap.String("path", e.cfg.Path),
-		zap.String("dataset", e.cfg.Dataset),
+		zap.String("env", e.cfg.Env),
 		zap.Strings("tables", e.cfg.configuredTables()),
 		zap.Bool("create_tables_if_not_exist", e.cfg.CreateTablesIfNotExist),
 		zap.String("compression", e.cfg.Compression),

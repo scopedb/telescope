@@ -44,11 +44,29 @@ The landing schema remains the evidence layer.
 Recent promoted fields include:
 
 - `row_id`
-- `service_name`
+- `env`
+- `service`
+- `version`
 - `instance_id`
-- `pod_name`
+- `k8s_pod`
+- `k8s_namespace`
+- `k8s_cluster`
+- `container_name`
 - `host_ip`
-- `host_name`
+- `host`
+- `source`
+- `status`
+- `exception_type`
+- `exception_message`
+- `http_method`
+- `http_status_code`
+- `url_path`
+- `http_route`
+- `peer_service`
+- `db_system`
+- `db_operation`
+- `rpc_method`
+- `error_type`
 
 ### `row_id`
 
@@ -263,7 +281,7 @@ Aggregate responses use the same `meta.applied_query` envelope. For aggregate re
 
 Examples:
 
-- `{"field":"service_name"}`
+- `{"field":"service"}`
 - `{"time_bucket":{"field":"ts","interval":"5m"}}`
 
 `time_bucket.interval` should be a duration string such as:
@@ -290,6 +308,14 @@ Initial supported measure ops:
 - `p50`
 - `p95`
 - `p99`
+
+The machine-readable schema returns each measure with:
+
+- `field_required`
+- `input_types`
+- `fields`
+
+Agents should use these hints before building aggregate requests. For example, percentile measures such as `p95` accept numeric measure fields like `duration_ns`; dimensions such as `service` should be used in `group_by` instead.
 
 ## Filter Model
 

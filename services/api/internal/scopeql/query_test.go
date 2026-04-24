@@ -33,30 +33,30 @@ func TestQueryScopeQL(t *testing.T) {
 func TestAggregateQueryScopeQL(t *testing.T) {
 	query := New().
 		From("scopedb.otel.logs").
-		Where(Eq(Ref("service_name"), String("checkout"))).
+		Where(Eq(Ref("service"), String("checkout"))).
 		GroupBy(
 			Select(Call("trunc", Ref("record_timestamp"), Raw("unit => 'minute'")), "bucket"),
-			Select(Ref("severity_text"), "severity_text"),
+			Select(Ref("status"), "status"),
 		).
 		Aggregate(
 			Select(Call("count"), "count"),
 		).
 		Select(
 			Select(Ref("bucket"), ""),
-			Select(Ref("severity_text"), ""),
+			Select(Ref("status"), ""),
 			Select(Ref("count"), ""),
 		).
 		OrderBy(OrderBy(Ref("bucket"), false))
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`logs`\n" +
-		"WHERE `service_name` = 'checkout'\n" +
-		"GROUP BY trunc(`record_timestamp`, unit => 'minute') AS `bucket`, `severity_text` AS `severity_text`\n" +
+		"WHERE `service` = 'checkout'\n" +
+		"GROUP BY trunc(`record_timestamp`, unit => 'minute') AS `bucket`, `status` AS `status`\n" +
 		"AGGREGATE\n" +
 		"  count() AS `count`\n" +
 		"SELECT\n" +
 		"  `bucket`,\n" +
-		"  `severity_text`,\n" +
+		"  `status`,\n" +
 		"  `count`\n" +
 		"ORDER BY `bucket` ASC"
 

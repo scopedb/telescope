@@ -55,10 +55,7 @@ func (s *Service) validateAggregateRequest(relation semantic.RelationSpec, reque
 		}
 	}
 	for _, measure := range request.Measures {
-		if strings.TrimSpace(measure.Field) == "" {
-			continue
-		}
-		if err := s.validateRelationField(relation, measure.Field, "measure", fieldCapabilityAggregate); err != nil {
+		if err := s.validateMeasure(relation, measure); err != nil {
 			return err
 		}
 	}
@@ -73,6 +70,58 @@ func (s *Service) validateAggregateRequest(relation semantic.RelationSpec, reque
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Service) validateMeasure(relation semantic.RelationSpec, measure MeasureRequest) *ServiceError {
+	op := strings.TrimSpace(measure.Op)
+	if op == "" {
+		return validationError("measure op is required", "measure", "", "")
+	}
+
+	def, ok := relationMeasure(relation, op)
+	if !ok {
+		return badRequest(fmt.Sprintf("unsupported measure op: %s", op), map[string]any{
+			"section":   "measure",
+			"op":        op,
+			"valid_ops": relationMeasureNames(relation),
+		})
+	}
+
+	fieldName := strings.TrimSpace(measure.Field)
+	if fieldName == "" {
+		if def.FieldRequired {
+			return badRequest(fmt.Sprintf("%s requires a field", op), map[string]any{
+				"section":      "measure",
+				"op":           op,
+				"input_types":  def.InputTypes,
+				"valid_fields": s.measureFieldNames(relation, def),
+				"hint":         "Choose one of valid_fields from the selected source schema, for example p95(duration_ns).",
+			})
+		}
+		return nil
+	}
+
+	if err := s.validateRelationField(relation, fieldName, "measure", fieldCapabilityAggregate); err != nil {
+		return err
+	}
+
+	field, ok := s.registry.Field(fieldName)
+	if !ok {
+		return validationError(fmt.Sprintf("unknown measure field: %s", fieldName), "measure", fieldName, "")
+	}
+	if !measureAcceptsField(def, field) {
+		return badRequest(fmt.Sprintf("%s does not support field type %s: %s", op, field.Type, fieldName), map[string]any{
+			"section":      "measure",
+			"field":        fieldName,
+			"op":           op,
+			"actual_type":  field.Type,
+			"input_types":  def.InputTypes,
+			"valid_fields": s.measureFieldNames(relation, def),
+			"hint":         "Use schema or schema_guide to inspect each measure's input_types and fields. Use dimensions in group_by, not as percentile fields.",
+		})
+	}
+
 	return nil
 }
 
@@ -223,4 +272,55 @@ func validationError(message string, section string, field string, capability st
 		details["capability"] = capability
 	}
 	return badRequest(message, details)
+}
+
+func relationMeasure(relation semantic.RelationSpec, op string) (semantic.MeasureDef, bool) {
+	for _, measure := range relation.Measures {
+		if measure.Name == op {
+			return measure, true
+		}
+	}
+	return semantic.MeasureDef{}, false
+}
+
+func relationMeasureNames(relation semantic.RelationSpec) []string {
+	names := make([]string, 0, len(relation.Measures))
+	for _, measure := range relation.Measures {
+		names = append(names, measure.Name)
+	}
+	return names
+}
+
+func (s *Service) measureFieldNames(relation semantic.RelationSpec, measure semantic.MeasureDef) []string {
+	if len(measure.InputTypes) == 0 || (acceptsMeasureType(measure, semantic.FieldTypeAny) && !measure.FieldRequired) {
+		return nil
+	}
+
+	fields := make([]string, 0)
+	for _, fieldName := range relation.Fields {
+		field, ok := s.registry.Field(fieldName)
+		if !ok {
+			continue
+		}
+		if measureAcceptsField(measure, field) {
+			fields = append(fields, fieldName)
+		}
+	}
+	return fields
+}
+
+func measureAcceptsField(measure semantic.MeasureDef, field semantic.FieldSpec) bool {
+	if acceptsMeasureType(measure, semantic.FieldTypeAny) {
+		return field.Role != semantic.FieldRoleObject
+	}
+	return field.Role == semantic.FieldRoleMeasure && acceptsMeasureType(measure, field.Type)
+}
+
+func acceptsMeasureType(measure semantic.MeasureDef, fieldType semantic.FieldType) bool {
+	for _, inputType := range measure.InputTypes {
+		if inputType == semantic.FieldTypeAny || inputType == fieldType {
+			return true
+		}
+	}
+	return len(measure.InputTypes) == 0
 }

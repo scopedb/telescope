@@ -24,7 +24,7 @@ func mapLogs(cfg *Config, logs plog.Logs) (*IngestPayload, error) {
 					"observed_timestamp_unix_nano": timestampString(record.ObservedTimestamp()),
 					"trace_id":                     traceIDString(record.TraceID()),
 					"span_id":                      spanIDString(record.SpanID()),
-					"severity_text":                record.SeverityText(),
+					"status":                       record.SeverityText(),
 					"severity_number":              int(record.SeverityNumber()),
 					"body":                         body,
 					"message":                      messageString(body),

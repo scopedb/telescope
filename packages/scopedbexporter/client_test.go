@@ -47,14 +47,13 @@ type tableInitStatementResponse struct {
 
 func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 	cfg := testClientConfig("http://example.invalid")
-	cfg.Dataset = "demo"
+	cfg.Env = "demo"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, defaultPath, r.URL.Path)
 		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
-		assert.Equal(t, "demo", r.Header.Get("X-Vendor-Dataset"))
 		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
 		body, err := decodeCompressedRequestBody(r)
 		require.NoError(t, err)
@@ -66,7 +65,7 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
 		assert.Contains(t, request.Statement, "record_timestamp")
 		assert.Contains(t, request.Statement, "observed_timestamp")
-		assert.Contains(t, request.Statement, "severity_text")
+		assert.Contains(t, request.Statement, "status")
 		assert.Contains(t, request.Statement, "message")
 		assert.NotContains(t, request.Statement, "metric_name")
 
@@ -77,7 +76,7 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(lines[0]), &row))
 		assert.Equal(t, signalLogs, row["signal"])
 		assert.Equal(t, "v1", row["schema_version"])
-		assert.Equal(t, "demo", row["dataset"])
+		assert.Equal(t, "demo", row["env"])
 		assert.NotEmpty(t, row["row_id"])
 		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", row["record_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", row["observed_timestamp"])
@@ -98,7 +97,7 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{{
 			"body":                         "hello",
 			"timestamp_unix_nano":          "1713835425123456789",
@@ -111,14 +110,13 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 func TestClientSendGzipAndBearer(t *testing.T) {
 	cfg := testClientConfig("http://example.invalid")
 	cfg.Compression = "gzip"
-	cfg.Dataset = "demo"
+	cfg.Env = "demo"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, defaultPath, r.URL.Path)
 		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
-		assert.Equal(t, "demo", r.Header.Get("X-Vendor-Dataset"))
 		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
 
 		body, err := decodeCompressedRequestBody(r)
@@ -138,7 +136,7 @@ func TestClientSendGzipAndBearer(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       "demo",
+		Env:           "demo",
 		Records: []Record{{
 			"body":                         "hello",
 			"timestamp_unix_nano":          "1713835425123456789",
@@ -152,10 +150,10 @@ func TestClientEnsureTable(t *testing.T) {
 	cfg := testClientConfig("http://example.invalid")
 	ref, err := parseTableRef(cfg.Tables.Logs)
 	require.NoError(t, err)
-	expectedStatements := []string{
-		"CREATE SCHEMA IF NOT EXISTS `public`",
-		"CREATE TABLE IF NOT EXISTS `public`.`vendor_otel_logs_test` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  row_id string,\n  service_name string,\n  instance_id string,\n  pod_name string,\n  host_ip string,\n  host_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
-	}
+	expectedStatements := append(
+		[]string{"CREATE SCHEMA IF NOT EXISTS `public`", createTableStatementForSignal(signalLogs, ref)},
+		createIndexStatementsForSignal(signalLogs, ref)...,
+	)
 	var statements []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -207,8 +205,9 @@ func TestClientEnsureTableCreatesDatabaseSchemaAndTable(t *testing.T) {
 	expectedStatements := []string{
 		"CREATE DATABASE IF NOT EXISTS `scopedb`",
 		"CREATE SCHEMA IF NOT EXISTS `scopedb`.`otel`",
-		"CREATE TABLE IF NOT EXISTS `scopedb`.`otel`.`logs` (\n  ingest_ts timestamp,\n  record_timestamp timestamp,\n  observed_timestamp timestamp,\n  schema_version string,\n  dataset string,\n  row_id string,\n  service_name string,\n  instance_id string,\n  pod_name string,\n  host_ip string,\n  host_name string,\n  trace_id string,\n  span_id string,\n  severity_text string,\n  message string,\n  record object\n)",
+		createTableStatementForSignal(signalLogs, ref),
 	}
+	expectedStatements = append(expectedStatements, createIndexStatementsForSignal(signalLogs, ref)...)
 	var statements []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +282,7 @@ func TestClientSendUsesSignalSpecificTable(t *testing.T) {
 		var request scopeDBIngestRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
-		assert.Contains(t, request.Statement, "severity_text")
+		assert.Contains(t, request.Statement, "status")
 		assert.Contains(t, request.Statement, "message")
 		assert.NotContains(t, request.Statement, "parent_span_id")
 		w.WriteHeader(http.StatusOK)
@@ -297,7 +296,7 @@ func TestClientSendUsesSignalSpecificTable(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       cfg.Dataset,
+		Env:           cfg.Env,
 		Records:       []Record{{"body": "hello"}},
 	})
 	require.NoError(t, err)
@@ -315,7 +314,7 @@ func TestClientSendUsesTraceSchema(t *testing.T) {
 		assert.Contains(t, request.Statement, "span_kind")
 		assert.Contains(t, request.Statement, "status_code")
 		assert.Contains(t, request.Statement, "duration_ns")
-		assert.NotContains(t, request.Statement, "severity_text")
+		assert.NotContains(t, request.Statement, "message")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -327,7 +326,7 @@ func TestClientSendUsesTraceSchema(t *testing.T) {
 
 	err = client.Send(context.Background(), signalTraces, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       cfg.Dataset,
+		Env:           cfg.Env,
 		Records: []Record{{
 			"name":                 "GET /checkout",
 			"kind":                 "server",
@@ -364,7 +363,7 @@ func TestClientSendUsesMetricSchema(t *testing.T) {
 
 	err = client.Send(context.Background(), signalMetrics, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       cfg.Dataset,
+		Env:           cfg.Env,
 		Records: []Record{{
 			"metric_name":               "cpu.utilization",
 			"type":                      "gauge",
@@ -391,7 +390,7 @@ func TestClientSendRetryableStatuses(t *testing.T) {
 
 			err = client.Send(context.Background(), signalLogs, &IngestPayload{
 				SchemaVersion: "v1",
-				Dataset:       cfg.Dataset,
+				Env:           cfg.Env,
 				Records:       []Record{{"body": "hello"}},
 			})
 			require.Error(t, err)
@@ -412,7 +411,7 @@ func TestClientSendPermanentStatus(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Dataset:       cfg.Dataset,
+		Env:           cfg.Env,
 		Records:       []Record{{"body": "hello"}},
 	})
 	require.Error(t, err)
@@ -423,7 +422,7 @@ func testClientConfig(endpoint string) *Config {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Dataset = "demo"
+	cfg.Env = "demo"
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",
 		Traces:  "public.vendor_otel_traces_test",

@@ -10,23 +10,41 @@ type tableColumn struct {
 	Type string
 }
 
+type tablePhysicalLayout struct {
+	PartitionBy []string
+	ClusterBy   []string
+	Indexes     []tableIndex
+}
+
+type tableIndex struct {
+	Type string
+	Expr string
+}
+
 var signalTableColumns = map[string][]tableColumn{
 	signalLogs: {
 		{Name: "ingest_ts", Type: "timestamp"},
 		{Name: "record_timestamp", Type: "timestamp"},
 		{Name: "observed_timestamp", Type: "timestamp"},
 		{Name: "schema_version", Type: "string"},
-		{Name: "dataset", Type: "string"},
+		{Name: "env", Type: "string"},
 		{Name: "row_id", Type: "string"},
-		{Name: "service_name", Type: "string"},
+		{Name: "service", Type: "string"},
+		{Name: "version", Type: "string"},
 		{Name: "instance_id", Type: "string"},
-		{Name: "pod_name", Type: "string"},
+		{Name: "k8s_pod", Type: "string"},
+		{Name: "k8s_namespace", Type: "string"},
+		{Name: "k8s_cluster", Type: "string"},
+		{Name: "container_name", Type: "string"},
 		{Name: "host_ip", Type: "string"},
-		{Name: "host_name", Type: "string"},
+		{Name: "host", Type: "string"},
 		{Name: "trace_id", Type: "string"},
 		{Name: "span_id", Type: "string"},
-		{Name: "severity_text", Type: "string"},
+		{Name: "source", Type: "string"},
+		{Name: "status", Type: "string"},
 		{Name: "message", Type: "string"},
+		{Name: "exception_type", Type: "string"},
+		{Name: "exception_message", Type: "string"},
 		{Name: "record", Type: "object"},
 	},
 	signalTraces: {
@@ -35,19 +53,32 @@ var signalTableColumns = map[string][]tableColumn{
 		{Name: "end_timestamp", Type: "timestamp"},
 		{Name: "duration_ns", Type: "int"},
 		{Name: "schema_version", Type: "string"},
-		{Name: "dataset", Type: "string"},
+		{Name: "env", Type: "string"},
 		{Name: "row_id", Type: "string"},
-		{Name: "service_name", Type: "string"},
+		{Name: "service", Type: "string"},
+		{Name: "version", Type: "string"},
 		{Name: "instance_id", Type: "string"},
-		{Name: "pod_name", Type: "string"},
+		{Name: "k8s_pod", Type: "string"},
+		{Name: "k8s_namespace", Type: "string"},
+		{Name: "k8s_cluster", Type: "string"},
+		{Name: "container_name", Type: "string"},
 		{Name: "host_ip", Type: "string"},
-		{Name: "host_name", Type: "string"},
+		{Name: "host", Type: "string"},
 		{Name: "trace_id", Type: "string"},
 		{Name: "span_id", Type: "string"},
 		{Name: "parent_span_id", Type: "string"},
 		{Name: "span_name", Type: "string"},
 		{Name: "span_kind", Type: "string"},
 		{Name: "status_code", Type: "string"},
+		{Name: "http_method", Type: "string"},
+		{Name: "http_status_code", Type: "int"},
+		{Name: "url_path", Type: "string"},
+		{Name: "http_route", Type: "string"},
+		{Name: "peer_service", Type: "string"},
+		{Name: "db_system", Type: "string"},
+		{Name: "db_operation", Type: "string"},
+		{Name: "rpc_method", Type: "string"},
+		{Name: "error_type", Type: "string"},
 		{Name: "record", Type: "object"},
 	},
 	signalMetrics: {
@@ -55,13 +86,17 @@ var signalTableColumns = map[string][]tableColumn{
 		{Name: "record_timestamp", Type: "timestamp"},
 		{Name: "start_timestamp", Type: "timestamp"},
 		{Name: "schema_version", Type: "string"},
-		{Name: "dataset", Type: "string"},
+		{Name: "env", Type: "string"},
 		{Name: "row_id", Type: "string"},
-		{Name: "service_name", Type: "string"},
+		{Name: "service", Type: "string"},
+		{Name: "version", Type: "string"},
 		{Name: "instance_id", Type: "string"},
-		{Name: "pod_name", Type: "string"},
+		{Name: "k8s_pod", Type: "string"},
+		{Name: "k8s_namespace", Type: "string"},
+		{Name: "k8s_cluster", Type: "string"},
+		{Name: "container_name", Type: "string"},
 		{Name: "host_ip", Type: "string"},
-		{Name: "host_name", Type: "string"},
+		{Name: "host", Type: "string"},
 		{Name: "metric_name", Type: "string"},
 		{Name: "metric_type", Type: "string"},
 		{Name: "temporality", Type: "string"},
@@ -72,12 +107,119 @@ var signalTableColumns = map[string][]tableColumn{
 	},
 }
 
+var signalTableLayouts = map[string]tablePhysicalLayout{
+	signalLogs: {
+		PartitionBy: []string{"floor(record_timestamp, 24, 'hour')"},
+		ClusterBy:   []string{"env", "status", "service", "record_timestamp"},
+		Indexes: []tableIndex{
+			{Type: "RANGE", Expr: "record_timestamp"},
+			{Type: "POINT", Expr: "trace_id"},
+			{Type: "POINT", Expr: "service"},
+			{Type: "PATTERN", Expr: "service"},
+			{Type: "POINT", Expr: "version"},
+			{Type: "PATTERN", Expr: "version"},
+			{Type: "PATTERN", Expr: "instance_id"},
+			{Type: "PATTERN", Expr: "k8s_pod"},
+			{Type: "POINT", Expr: "k8s_namespace"},
+			{Type: "PATTERN", Expr: "k8s_namespace"},
+			{Type: "POINT", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "container_name"},
+			{Type: "PATTERN", Expr: "host_ip"},
+			{Type: "PATTERN", Expr: "host"},
+			{Type: "POINT", Expr: "source"},
+			{Type: "PATTERN", Expr: "source"},
+			{Type: "POINT", Expr: "status"},
+			{Type: "POINT", Expr: "exception_type"},
+			{Type: "PATTERN", Expr: "exception_type"},
+			{Type: "SEARCH", Expr: "message"},
+			{Type: "PATTERN", Expr: "message"},
+			{Type: "SEARCH", Expr: "exception_message"},
+			{Type: "PATTERN", Expr: "exception_message"},
+		},
+	},
+	signalTraces: {
+		PartitionBy: []string{"floor(start_timestamp, 24, 'hour')"},
+		ClusterBy:   []string{"env", "status_code", "service", "start_timestamp"},
+		Indexes: []tableIndex{
+			{Type: "RANGE", Expr: "start_timestamp"},
+			{Type: "RANGE", Expr: "duration_ns"},
+			{Type: "POINT", Expr: "trace_id"},
+			{Type: "POINT", Expr: "span_id"},
+			{Type: "POINT", Expr: "service"},
+			{Type: "PATTERN", Expr: "service"},
+			{Type: "POINT", Expr: "version"},
+			{Type: "PATTERN", Expr: "version"},
+			{Type: "PATTERN", Expr: "instance_id"},
+			{Type: "PATTERN", Expr: "k8s_pod"},
+			{Type: "POINT", Expr: "k8s_namespace"},
+			{Type: "PATTERN", Expr: "k8s_namespace"},
+			{Type: "POINT", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "container_name"},
+			{Type: "PATTERN", Expr: "host_ip"},
+			{Type: "PATTERN", Expr: "host"},
+			{Type: "PATTERN", Expr: "span_name"},
+			{Type: "POINT", Expr: "status_code"},
+			{Type: "POINT", Expr: "http_status_code"},
+			{Type: "POINT", Expr: "url_path"},
+			{Type: "PATTERN", Expr: "url_path"},
+			{Type: "POINT", Expr: "http_route"},
+			{Type: "PATTERN", Expr: "http_route"},
+			{Type: "POINT", Expr: "peer_service"},
+			{Type: "PATTERN", Expr: "peer_service"},
+			{Type: "PATTERN", Expr: "rpc_method"},
+			{Type: "POINT", Expr: "error_type"},
+			{Type: "PATTERN", Expr: "error_type"},
+		},
+	},
+	signalMetrics: {
+		PartitionBy: []string{"floor(record_timestamp, 24, 'hour')"},
+		ClusterBy:   []string{"env", "service", "metric_name", "record_timestamp"},
+		Indexes: []tableIndex{
+			{Type: "RANGE", Expr: "record_timestamp"},
+			{Type: "POINT", Expr: "metric_name"},
+			{Type: "PATTERN", Expr: "metric_name"},
+			{Type: "POINT", Expr: "service"},
+			{Type: "PATTERN", Expr: "service"},
+			{Type: "POINT", Expr: "version"},
+			{Type: "PATTERN", Expr: "version"},
+			{Type: "PATTERN", Expr: "instance_id"},
+			{Type: "PATTERN", Expr: "k8s_pod"},
+			{Type: "POINT", Expr: "k8s_namespace"},
+			{Type: "PATTERN", Expr: "k8s_namespace"},
+			{Type: "POINT", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "k8s_cluster"},
+			{Type: "PATTERN", Expr: "container_name"},
+			{Type: "PATTERN", Expr: "host_ip"},
+			{Type: "PATTERN", Expr: "host"},
+		},
+	},
+}
+
 func createTableStatementForSignal(signal string, table tableRef) string {
+	layout := layoutForSignal(signal)
 	return fmt.Sprintf(
-		"CREATE TABLE IF NOT EXISTS %s (\n%s\n)",
+		"CREATE TABLE IF NOT EXISTS %s (\n%s\n) PARTITION BY %s CLUSTER BY %s",
 		table.Identifier(),
 		strings.Join(columnDefinitionLines(signal), ",\n"),
+		strings.Join(layout.PartitionBy, ", "),
+		strings.Join(layout.ClusterBy, ", "),
 	)
+}
+
+func createIndexStatementsForSignal(signal string, table tableRef) []string {
+	layout := layoutForSignal(signal)
+	statements := make([]string, 0, len(layout.Indexes))
+	for _, index := range layout.Indexes {
+		statements = append(statements, fmt.Sprintf(
+			"CREATE %s INDEX IF NOT EXISTS ON %s (%s)",
+			index.Type,
+			table.Identifier(),
+			index.Expr,
+		))
+	}
+	return statements
 }
 
 func ingestStatementForSignal(signal string, table tableRef) string {
@@ -122,4 +264,12 @@ func columnsForSignal(signal string) []tableColumn {
 		panic(fmt.Sprintf("unsupported signal %q", signal))
 	}
 	return columns
+}
+
+func layoutForSignal(signal string) tablePhysicalLayout {
+	layout, ok := signalTableLayouts[signal]
+	if !ok {
+		panic(fmt.Sprintf("unsupported signal %q", signal))
+	}
+	return layout
 }

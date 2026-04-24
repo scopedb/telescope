@@ -56,8 +56,8 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	if payload.SchemaVersion == "" {
 		payload.SchemaVersion = c.cfg.SchemaVersion
 	}
-	if payload.Dataset == "" {
-		payload.Dataset = c.cfg.Dataset
+	if payload.Env == "" {
+		payload.Env = c.cfg.Env
 	}
 
 	table, err := parseTableRef(c.cfg.tableForSignal(signal))
@@ -83,9 +83,6 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Authorization", c.formattedAPIKey())
-	if c.cfg.Dataset != "" {
-		req.Header.Set("X-Vendor-Dataset", c.cfg.Dataset)
-	}
 	if contentEncoding != "" {
 		req.Header.Set("Content-Encoding", contentEncoding)
 		req.Header.Set("X-ScopeDB-Uncompressed-Content-Length", strconv.Itoa(len(rawBody)))

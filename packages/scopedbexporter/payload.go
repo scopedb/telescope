@@ -24,7 +24,7 @@ const (
 type IngestPayload struct {
 	SchemaVersion string         `json:"schema_version"`
 	Signal        string         `json:"signal"`
-	Dataset       string         `json:"dataset"`
+	Env           string         `json:"env"`
 	Resource      map[string]any `json:"resource,omitempty"`
 	Records       []Record       `json:"records"`
 }
@@ -46,7 +46,7 @@ func newPayload(cfg *Config, signal string) *IngestPayload {
 	return &IngestPayload{
 		SchemaVersion: cfg.SchemaVersion,
 		Signal:        signal,
-		Dataset:       cfg.Dataset,
+		Env:           cfg.Env,
 		Records:       make([]Record, 0),
 	}
 }
@@ -60,7 +60,7 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 			"ingest_ts":      ingestTS,
 			"signal":         p.Signal,
 			"schema_version": p.SchemaVersion,
-			"dataset":        p.Dataset,
+			"env":            p.Env,
 			"record":         map[string]any(record),
 			"row_id":         deriveRowID(ingestID, uint32(i)),
 		}
@@ -88,11 +88,11 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 		if metricName, ok := record["metric_name"].(string); ok && metricName != "" {
 			row["metric_name"] = metricName
 		}
-		if severityText, ok := record["severity_text"].(string); ok && severityText != "" {
-			row["severity_text"] = severityText
+		if status, ok := record["status"].(string); ok && status != "" {
+			row["status"] = status
 		}
-		if serviceName := recordServiceName(record); serviceName != "" {
-			row["service_name"] = serviceName
+		if service := recordService(record); service != "" {
+			row["service"] = service
 		}
 		projectResourceColumns(row, record)
 		projectSignalColumns(row, p.Signal, record)
@@ -105,12 +105,26 @@ func projectSignalColumns(row map[string]any, signal string, record Record) {
 	switch signal {
 	case signalLogs:
 		copyRecordField(row, record, "message")
+		if source := recordSource(record); source != "" {
+			row["source"] = source
+		}
+		projectAttributeString(row, record, "exception_type", "exception.type")
+		projectAttributeString(row, record, "exception_message", "exception.message")
 	case signalTraces:
 		copyRecordField(row, record, "parent_span_id")
 		copyRecordFieldAs(row, record, "name", "span_name")
 		copyRecordFieldAs(row, record, "kind", "span_kind")
 		copyRecordField(row, record, "status_code")
 		copyRecordField(row, record, "duration_ns")
+		projectAttributeString(row, record, "http_method", "http.request.method", "http.method")
+		projectAttributeInt(row, record, "http_status_code", "http.response.status_code", "http.status_code")
+		projectAttributeString(row, record, "url_path", "url.path", "http.target")
+		projectAttributeString(row, record, "http_route", "http.route")
+		projectAttributeString(row, record, "peer_service", "peer.service", "server.address", "net.peer.name")
+		projectAttributeString(row, record, "db_system", "db.system.name", "db.system")
+		projectAttributeString(row, record, "db_operation", "db.operation.name", "db.operation")
+		projectAttributeString(row, record, "rpc_method", "rpc.method")
+		projectAttributeString(row, record, "error_type", "error.type")
 	case signalMetrics:
 		copyRecordField(row, record, "unit")
 		copyRecordField(row, record, "temporality")
@@ -166,6 +180,18 @@ func copyRecordFieldAs(row map[string]any, record Record, sourceKey string, targ
 		return
 	}
 	row[targetKey] = value
+}
+
+func projectAttributeString(row map[string]any, record Record, targetKey string, sourceKeys ...string) {
+	if value := recordAttributeString(record, sourceKeys...); value != "" {
+		row[targetKey] = value
+	}
+}
+
+func projectAttributeInt(row map[string]any, record Record, targetKey string, sourceKeys ...string) {
+	if value, ok := recordAttributeInt(record, sourceKeys...); ok {
+		row[targetKey] = value
+	}
 }
 
 func unixNanoStringToRFC3339(raw string) string {
@@ -279,28 +305,34 @@ func messageString(value any) string {
 	}
 }
 
-func recordServiceName(record Record) string {
-	resource := recordResource(record)
-	if resource == nil {
-		return ""
-	}
-
-	serviceName, _ := resource["service.name"].(string)
-	return serviceName
+func recordService(record Record) string {
+	return recordResourceString(record, "service.name")
 }
 
 func projectResourceColumns(row map[string]any, record Record) {
+	if version := recordResourceString(record, "service.version"); version != "" {
+		row["version"] = version
+	}
 	if instanceID := recordResourceString(record, "service.instance.id"); instanceID != "" {
 		row["instance_id"] = instanceID
 	}
 	if podName := recordResourceString(record, "k8s.pod.name"); podName != "" {
-		row["pod_name"] = podName
+		row["k8s_pod"] = podName
+	}
+	if namespace := recordResourceString(record, "k8s.namespace.name"); namespace != "" {
+		row["k8s_namespace"] = namespace
+	}
+	if cluster := recordResourceString(record, "k8s.cluster.name"); cluster != "" {
+		row["k8s_cluster"] = cluster
+	}
+	if container := recordResourceString(record, "container.name"); container != "" {
+		row["container_name"] = container
 	}
 	if hostIP := recordResourceFirstString(record, "host.ip"); hostIP != "" {
 		row["host_ip"] = hostIP
 	}
 	if hostName := recordResourceString(record, "host.name"); hostName != "" {
-		row["host_name"] = hostName
+		row["host"] = hostName
 	}
 }
 
@@ -326,6 +358,69 @@ func recordResourceFirstString(record Record, key string) string {
 		return ""
 	}
 	return firstString(resource[key])
+}
+
+func recordSource(record Record) string {
+	if source := recordAttributeString(record, "source", "event.source", "log.source"); source != "" {
+		return source
+	}
+	if source := recordResourceString(record, "telemetry.sdk.language"); source != "" {
+		return source
+	}
+	if source := recordResourceString(record, "telemetry.sdk.name"); source != "" {
+		return source
+	}
+	return recordScopeString(record, "name")
+}
+
+func recordScopeString(record Record, key string) string {
+	scope := recordScope(record)
+	if scope == nil {
+		return ""
+	}
+	return firstString(scope[key])
+}
+
+func recordAttributeString(record Record, keys ...string) string {
+	attributes := recordAttributes(record)
+	if attributes == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := firstString(attributes[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func recordAttributeInt(record Record, keys ...string) (int64, bool) {
+	attributes := recordAttributes(record)
+	if attributes == nil {
+		return 0, false
+	}
+	for _, key := range keys {
+		if value, ok := int64Value(attributes[key]); ok {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func recordAttributes(record Record) map[string]any {
+	attributes, ok := record["attributes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return attributes
+}
+
+func recordScope(record Record) map[string]any {
+	scope, ok := record["scope"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return scope
 }
 
 func newIngestID() uint32 {
@@ -361,4 +456,28 @@ func firstString(value any) string {
 		}
 	}
 	return ""
+}
+
+func int64Value(value any) (int64, bool) {
+	switch v := value.(type) {
+	case int:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int64:
+		return v, true
+	case uint:
+		return int64(v), true
+	case uint32:
+		return int64(v), true
+	case uint64:
+		if v <= math.MaxInt64 {
+			return int64(v), true
+		}
+	case float64:
+		if math.Trunc(v) == v && v >= math.MinInt64 && v <= math.MaxInt64 {
+			return int64(v), true
+		}
+	}
+	return 0, false
 }
