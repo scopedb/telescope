@@ -10,7 +10,7 @@ import (
 )
 
 func (r Registry) compileAggregate(relation RelationSpec, aggregate AggregateSpec) (scopeql.Selection, error) {
-	funcName := strings.TrimSpace(aggregate.Op)
+	funcName := strings.ToLower(strings.TrimSpace(aggregate.Op))
 	if funcName == "" {
 		return scopeql.Selection{}, fmt.Errorf("aggregate op is required")
 	}
@@ -60,10 +60,11 @@ func percentileForOp(op string) (float64, bool) {
 }
 
 func defaultAggregateAlias(aggregate AggregateSpec) string {
+	op := strings.ToLower(strings.TrimSpace(aggregate.Op))
 	if strings.TrimSpace(aggregate.Field) == "" {
-		return aggregate.Op
+		return op
 	}
-	return aggregate.Op + "_" + aggregate.Field
+	return op + "_" + aggregate.Field
 }
 
 func (r Registry) compileGroupBy(relation RelationSpec, groups []GroupBySpec) ([]scopeql.Selection, error) {

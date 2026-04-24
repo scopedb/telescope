@@ -65,24 +65,6 @@ func schemaMeasures(registry semantic.Registry, relation semantic.RelationSpec) 
 	return out
 }
 
-func measureFields(registry semantic.Registry, relation semantic.RelationSpec, measure semantic.MeasureDef) []string {
-	if len(measure.InputTypes) == 0 || (acceptsMeasureType(measure, semantic.FieldTypeAny) && !measure.FieldRequired) {
-		return nil
-	}
-
-	fields := make([]string, 0)
-	for _, fieldName := range relation.Fields {
-		field, ok := registry.Field(fieldName)
-		if !ok {
-			continue
-		}
-		if measureAcceptsField(measure, field) {
-			fields = append(fields, fieldName)
-		}
-	}
-	return fields
-}
-
 func schemaAdvisory(advisory semantic.RelationAdvisory) RelationAdvisory {
 	return RelationAdvisory{
 		IdentityFields:    append([]string(nil), advisory.IdentityFields...),

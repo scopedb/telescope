@@ -347,6 +347,47 @@ func TestPostAggregate(t *testing.T) {
 	}
 }
 
+func TestPostAggregateNormalizesMeasureOp(t *testing.T) {
+	runner := &fakeRunner{
+		results: []fakeResult{
+			{rows: []map[string]any{{"p95_duration_ns": float64(123)}}},
+		},
+	}
+	server := newTestServer(t, runner, "test")
+
+	body := []byte(`{
+	  "source": "executions_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "measures": [{"op":"P95","field":"duration_ns"}],
+	  "sort": [{"field":"p95_duration_ns","direction":"desc"}],
+	  "limit": 20
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/aggregate", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if len(runner.statements) != 1 || !strings.Contains(runner.statements[0], "approx_quantile(duration_ns::float, quantile => 0.95) AS p95_duration_ns") {
+		t.Fatalf("unexpected statement: %#v", runner.statements)
+	}
+
+	var response AggregateResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Meta.AppliedQuery.Measures) != 1 || response.Meta.AppliedQuery.Measures[0].Op != "p95" {
+		t.Fatalf("unexpected applied measures: %#v", response.Meta.AppliedQuery.Measures)
+	}
+}
+
 func TestPostSearchRejectsUnknownProjectField(t *testing.T) {
 	server := newTestServer(t, &fakeRunner{}, "test")
 
