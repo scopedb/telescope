@@ -71,5 +71,7 @@ func (r tableRef) SchemaIdentifier() string {
 }
 
 func quoteTablePart(part string) string {
-	return "`" + part + "`"
+	escaped := strings.ReplaceAll(part, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, "`", "``")
+	return "`" + escaped + "`"
 }

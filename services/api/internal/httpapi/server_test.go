@@ -127,7 +127,7 @@ func TestPostSearchUsesTimeTopByDefault(t *testing.T) {
 	if !strings.Contains(runner.statements[0], "record_timestamp < '2026-04-23T01:00:00Z'::timestamp") {
 		t.Fatalf("missing time_range end in statement: %s", runner.statements[0])
 	}
-	if !strings.Contains(runner.statements[0], "ORDER BY ts DESC, row_id DESC") {
+	if !strings.Contains(runner.statements[0], "ORDER BY `ts` DESC, `row_id` DESC") {
 		t.Fatalf("missing default ordering in statement: %s", runner.statements[0])
 	}
 	if !strings.Contains(runner.statements[0], "LIMIT 101") {
@@ -291,10 +291,10 @@ func TestPostAggregate(t *testing.T) {
 	if len(runner.statements) != 1 {
 		t.Fatalf("expected 1 query, got %d", len(runner.statements))
 	}
-	if !strings.Contains(runner.statements[0], "FROM scopedb.otel.traces") {
+	if !strings.Contains(runner.statements[0], "FROM `scopedb`.`otel`.`traces`") {
 		t.Fatalf("unexpected statement: %s", runner.statements[0])
 	}
-	if !strings.Contains(runner.statements[0], "count() AS count") {
+	if !strings.Contains(runner.statements[0], "count() AS `count`") {
 		t.Fatalf("unexpected statement: %s", runner.statements[0])
 	}
 
@@ -436,7 +436,7 @@ func TestPostSearchReturnsScopeQLWhenDebugRequested(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Meta.Debug == nil || !strings.Contains(response.Meta.Debug.GeneratedScopeQL, "FROM scopedb.otel.logs") {
+	if response.Meta.Debug == nil || !strings.Contains(response.Meta.Debug.GeneratedScopeQL, "FROM `scopedb`.`otel`.`logs`") {
 		t.Fatalf("missing debug scopeql: %#v", response.Meta.Debug)
 	}
 	if response.Meta.AppliedQuery.Filter == nil {

@@ -2,6 +2,7 @@ package scopeql
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +33,7 @@ func Ref(name string) Expr {
 }
 
 func (e refExpr) ScopeQL() string {
-	return e.name
+	return QuoteIdentifier(e.name)
 }
 
 type stringExpr struct {
@@ -44,7 +45,7 @@ func String(value string) Expr {
 }
 
 func (e stringExpr) ScopeQL() string {
-	return "'" + strings.ReplaceAll(e.value, "'", "''") + "'"
+	return QuoteStringLiteral(e.value)
 }
 
 type intExpr struct {
@@ -103,8 +104,15 @@ func Literal(value any) (Expr, error) {
 	case int64:
 		return Int(v), nil
 	case float32:
-		return Float(float64(v)), nil
+		value := float64(v)
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil, fmt.Errorf("unsupported non-finite float literal %v", value)
+		}
+		return Float(value), nil
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, fmt.Errorf("unsupported non-finite float literal %v", v)
+		}
 		return Float(v), nil
 	case bool:
 		return Bool(v), nil
@@ -129,7 +137,7 @@ func (e callExpr) ScopeQL() string {
 	for _, arg := range e.args {
 		args = append(args, arg.ScopeQL())
 	}
-	return fmt.Sprintf("%s(%s)", e.name, strings.Join(args, ", "))
+	return fmt.Sprintf("%s(%s)", quoteFunctionName(e.name), strings.Join(args, ", "))
 }
 
 type binaryExpr struct {
