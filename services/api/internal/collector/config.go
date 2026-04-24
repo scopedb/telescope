@@ -1,8 +1,11 @@
+package collector
+
+const DefaultConfig = `
 extensions:
   health_check:
     endpoint: ${env:TELESCOPE_HEALTH_ADDR}
   file_storage:
-    directory: /var/lib/telescope/queue
+    directory: ${env:TELESCOPE_QUEUE_DIR}
     create_directory: true
 
 receivers:
@@ -20,7 +23,7 @@ processors:
     spike_limit_mib: 128
   batch:
     timeout: 5s
-    send_batch_size: 8192
+    send_batch_size: 512
 
 exporters:
   scopedb:
@@ -30,26 +33,20 @@ exporters:
     dataset: default
     create_tables_if_not_exist: true
     schema_version: v1
-    compression: zstd
-    timeout: 10s
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 1000
+      num_consumers: 2
     retry_on_failure:
       enabled: true
       initial_interval: 1s
       max_interval: 30s
-      max_elapsed_time: 0s
-    sending_queue:
-      enabled: true
-      queue_size: 10000
-      num_consumers: 4
-      storage: file_storage
+      max_elapsed_time: 5m
 
 service:
   extensions: [health_check, file_storage]
   pipelines:
-    logs:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [scopedb]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
@@ -58,3 +55,8 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [scopedb]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [scopedb]
+`

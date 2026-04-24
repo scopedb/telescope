@@ -15,7 +15,7 @@ It is designed for the moment when an incident starts with partial context like 
 
 ## Quick Start
 
-Start the collector runtime:
+Start the local runtime:
 
 ```bash
 cp services/gateway/deploy/.env.example services/gateway/deploy/.env
@@ -28,10 +28,11 @@ TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
 TELESCOPE_OTLP_GRPC_PORT=4317
 TELESCOPE_OTLP_HTTP_PORT=4318
+TELESCOPE_HTTP_PORT=8080
 TELESCOPE_HEALTH_PORT=13133
 ```
 
-Run Telescope's collector runtime:
+Run Telescope:
 
 ```bash
 docker compose -f services/gateway/deploy/docker-compose.yaml up -d --build
@@ -42,31 +43,32 @@ Send OTLP telemetry to:
 - `localhost:4317` for OTLP gRPC
 - `localhost:4318` for OTLP HTTP
 
+The Docker deployment publishes the HTTP API/MCP port on `127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}` by default, so agent tools on the same host can use it without exposing query access on every interface.
+
 Change the `TELESCOPE_*_PORT` values if those ports are already in use.
 
-## Agent API
+## Local Binary
 
-Run the debug API and MCP server:
+Build and run the same daemon directly:
 
 ```bash
-cd services/api
+make build
 
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
-TELESCOPE_HTTP_ADDR=127.0.0.1:18080 \
-go run ./cmd/scopedb-otel-debug-api
+./bin/telescope daemon
 ```
 
 Check that it is alive:
 
 ```bash
-curl -sS http://127.0.0.1:18080/healthz
+curl -sS http://127.0.0.1:8080/healthz
 ```
 
 Initialize MCP over HTTP:
 
 ```bash
-curl -sS http://127.0.0.1:18080/mcp \
+curl -sS http://127.0.0.1:8080/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -H 'Content-Type: application/json' \
   -H 'MCP-Protocol-Version: 2025-06-18' \
@@ -76,11 +78,9 @@ curl -sS http://127.0.0.1:18080/mcp \
 For local agents that prefer stdio:
 
 ```bash
-cd services/api
-
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
-go run ./cmd/scopedb-otel-mcp
+./bin/telescope mcp
 ```
 
 ## Tools
@@ -113,23 +113,23 @@ The query surface accepts promoted semantic fields only. Raw `record` payloads r
 
 ## Develop
 
-Run exporter tests:
+For table creation and routing details, see [docs/table-management.md](docs/table-management.md).
+
+Run all tests:
 
 ```bash
 make test
 ```
 
-Run API tests:
+Run a focused package test from the repository root:
 
 ```bash
-cd services/api
-go test ./...
+go test ./services/api/...
 ```
 
-Build the collector runtime:
+Build the local runtime:
 
 ```bash
-make build-ocb
 make build
 ```
 
@@ -147,9 +147,9 @@ make validate-deploy
 
 ## Project Map
 
-- `services/gateway/collector`: custom OpenTelemetry Collector distribution
+- `services/gateway/collector`: collector configs and Docker packaging
 - `services/gateway/deploy`: Docker Compose deployment assets
-- `services/api`: semantic HTTP API and MCP server
+- `services/api`: `telescope` binary, semantic HTTP API, MCP server, and embedded collector runtime
 - `packages/scopedbexporter`: ScopeDB OpenTelemetry Collector exporter
 - `docs`: design notes
 

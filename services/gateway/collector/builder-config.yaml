@@ -1,7 +1,7 @@
 dist:
   module: github.com/scopedb/telescope/services/gateway/collector
-  name: telescope-otelcol
-  description: Telescope telemetry collector
+  name: telescope
+  description: Telescope telemetry runtime
   output_path: ./_build
   version: 0.1.0
 
@@ -17,6 +17,7 @@ extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0
 
 exporters:
-  - gomod: github.com/scopedb/telescope/packages/scopedbexporter v0.0.0
-    path: ../../../packages/scopedbexporter
+  - gomod: github.com/scopedb/telescope v0.0.0
+    import: github.com/scopedb/telescope/packages/scopedbexporter
+    path: ../../..
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.150.0

@@ -10,7 +10,7 @@ import (
 	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
-const serviceName = "scopedb-otel-debug-api"
+const serviceName = "telescope"
 
 type Server struct {
 	service TelemetryService

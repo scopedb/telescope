@@ -2,7 +2,7 @@ extensions:
   health_check:
     endpoint: ${env:TELESCOPE_HEALTH_ADDR}
   file_storage:
-    directory: /tmp/telescope-otelcol/queue
+    directory: /tmp/telescope/queue
     create_directory: true
 
 receivers:

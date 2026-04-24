@@ -26,7 +26,7 @@ func New(service httpapi.TelemetryService, name string, version string) (*Server
 		return nil, fmt.Errorf("telemetry service is required")
 	}
 	if strings.TrimSpace(name) == "" {
-		name = "scopedb-otel-mcp"
+		name = "telescope"
 	}
 	return &Server{
 		service: service,

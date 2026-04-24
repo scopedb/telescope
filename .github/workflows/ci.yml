@@ -14,12 +14,9 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  GO_VERSION: '1.25.3'
-
 jobs:
-  workspace:
-    name: Workspace
+  go-checks:
+    name: Go Checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,11 +28,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.work.sum
-            packages/scopedbexporter/go.sum
-            services/api/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Verify gofmt
         run: |
@@ -47,52 +41,18 @@ jobs:
             exit 1
           fi
 
-      - name: Verify go work sync
-        run: |
-          go work sync
-          git diff --exit-code -- go.work.sum
-
-  go-test:
-    name: Go test (${{ matrix.module }})
-    runs-on: ubuntu-latest
-    needs: workspace
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - packages/scopedbexporter
-          - services/api
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.work.sum
-            ${{ matrix.module }}/go.sum
-
       - name: Verify go mod tidy
-        working-directory: ${{ matrix.module }}
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
       - name: Run tests
-        working-directory: ${{ matrix.module }}
         run: go test ./...
 
-  collector:
-    name: Collector
+  collector-build:
+    name: Collector Build
     runs-on: ubuntu-latest
-    needs:
-      - workspace
-      - go-test
+    needs: go-checks
     defaults:
       run:
         shell: bash
@@ -103,15 +63,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.work.sum
-            packages/scopedbexporter/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
-      - name: Install OCB
-        run: make build-ocb
-
-      - name: Build collector
+      - name: Build Telescope
         run: make build
 
       - name: Validate demo collector config
