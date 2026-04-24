@@ -10,13 +10,16 @@ services:
       TELESCOPE_SCOPEDB_API_KEY: ${TELESCOPE_SCOPEDB_API_KEY}
       TELESCOPE_OTLP_GRPC_ADDR: 0.0.0.0:${TELESCOPE_OTLP_GRPC_PORT:-4317}
       TELESCOPE_OTLP_HTTP_ADDR: 0.0.0.0:${TELESCOPE_OTLP_HTTP_PORT:-4318}
+      TELESCOPE_HTTP_ADDR: 0.0.0.0:${TELESCOPE_HTTP_PORT:-8080}
       TELESCOPE_HEALTH_ADDR: 0.0.0.0:${TELESCOPE_HEALTH_PORT:-13133}
+      TELESCOPE_QUEUE_DIR: /var/lib/telescope/queue
     ports:
       - "${TELESCOPE_OTLP_GRPC_PORT:-4317}:${TELESCOPE_OTLP_GRPC_PORT:-4317}"
       - "${TELESCOPE_OTLP_HTTP_PORT:-4318}:${TELESCOPE_OTLP_HTTP_PORT:-4318}"
+      - "${TELESCOPE_HTTP_PORT:-8080}:${TELESCOPE_HTTP_PORT:-8080}"
       - "${TELESCOPE_HEALTH_PORT:-13133}:${TELESCOPE_HEALTH_PORT:-13133}"
     volumes:
-      - scopedb-telescope-queue:/var/lib/telescope-otelcol/queue
+      - scopedb-telescope-queue:/var/lib/telescope/queue
 
 volumes:
   scopedb-telescope-queue:

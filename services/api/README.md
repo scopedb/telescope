@@ -1,33 +1,31 @@
-# API Service
+# Telescope Runtime
 
-This directory is reserved for the next service in this repository: an agent-facing observability API built on top of the ScopeDB OTel landing schema.
+This directory contains the `telescope` binary: a local runtime that receives OTLP telemetry, writes it to ScopeDB, and exposes agent-facing HTTP/MCP debugging tools.
 
 The semantic design for this service lives in [../../docs/semantic-debug-api.md](../../docs/semantic-debug-api.md).
 
 ## Purpose
 
-The service is expected to:
+The runtime:
 
-- expose agent-oriented observability tools over the current OTel landing tables
-- compile semantic API requests into ScopeQL
-- keep the landing schema as the evidence layer
-- evolve through a small semantic field registry and relation registry
-- expose both canonical JSON schema introspection and a Markdown schema guide for agent planning
+- embeds an OpenTelemetry Collector runtime with the ScopeDB exporter
+- exposes agent-oriented observability tools over the current OTel landing tables
+- compiles semantic API requests into ScopeQL
+- keeps the landing schema as the evidence layer
+- evolves through a small semantic field registry and relation registry
+- exposes both canonical JSON schema introspection and a Markdown schema guide for agent planning
 
 The semantic registry source of truth currently lives in Go code under `internal/semantic/`.
 
-## Planned Layout
+## Layout
 
-- `cmd/`: service entrypoints
-- `internal/`: query compiler, semantic registry, ScopeDB execution, and Echo handlers
+- `cmd/telescope`: unified CLI entrypoint
+- `internal/appruntime`: shared API/MCP service wiring
+- `internal/collector`: embedded Collector factories and default config
+- `internal/httpapi`: Echo handlers and semantic API service
+- `internal/mcpserver`: stdio and Streamable HTTP MCP implementation
+- `internal/semantic`: field registry and ScopeQL query compiler
 - `openapi/`: hand-written OpenAPI contracts for the Echo HTTP surface, with the agent contract as source of truth
-
-## Expected First Milestones
-
-1. Define the semantic field registry and relation registry.
-2. Implement `GET /v1/schema`.
-3. Implement `POST /v1/search`.
-4. Implement `POST /v1/aggregate`.
 
 ## HTTP Contract
 
@@ -40,10 +38,9 @@ The primary HTTP contract should stay hand-written and live under `openapi/agent
 
 ## Binary
 
-The runnable binaries are:
+The runnable binary is:
 
-- `cmd/scopedb-otel-debug-api`: Echo HTTP API for the agent-oriented routes described in `openapi/agent-openapi.yaml`, plus a Streamable HTTP MCP endpoint at `/mcp`
-- `cmd/scopedb-otel-mcp`: stdio MCP server exposing the same telemetry service as tools and resources
+- `cmd/telescope`: unified local runtime with `daemon`, `mcp`, `collector`, and `version` commands
 
 Required environment variables:
 
@@ -54,12 +51,17 @@ Optional environment variables:
 
 - `TELESCOPE_HTTP_ADDR`: listen address, default `:8080`
 - `TELESCOPE_PORT`: alternate way to set the listen port when `TELESCOPE_HTTP_ADDR` is unset
+- `TELESCOPE_OTLP_GRPC_ADDR`: OTLP gRPC listen address, default `0.0.0.0:4317`
+- `TELESCOPE_OTLP_HTTP_ADDR`: OTLP HTTP listen address, default `0.0.0.0:4318`
+- `TELESCOPE_HEALTH_ADDR`: collector health listen address, default `0.0.0.0:13133`
+- `TELESCOPE_QUEUE_DIR`: persistent queue directory, default `$HOME/.telescope/queue`
 - `TELESCOPE_QUERY_TIMEOUT`: per-query timeout, default `15s`
+- `TELESCOPE_COLLECTOR_CONFIG`: collector config URI or file path; unset uses the embedded default config
 
 Example:
 
 ```bash
-go run ./cmd/scopedb-otel-debug-api
+go run ./cmd/telescope daemon
 ```
 
 Streamable HTTP MCP example:
@@ -75,7 +77,7 @@ curl -sS http://127.0.0.1:8080/mcp \
 stdio MCP example:
 
 ```bash
-go run ./cmd/scopedb-otel-mcp
+go run ./cmd/telescope mcp
 ```
 
 MCP tools:

@@ -1,25 +1,30 @@
 OTEL_VERSION ?= v0.150.0
 GOTOOLCHAIN ?= go1.25.3
 OCB ?= ../../../bin/builder
+TELESCOPE ?= ../../../bin/telescope
 
 .PHONY: build
 build:
+	cd ../../.. && GOTOOLCHAIN=$(GOTOOLCHAIN) go build -o $(abspath $(TELESCOPE)) ./services/api/cmd/telescope
+
+.PHONY: build-collector
+build-collector:
 	GOWORK=off GOTOOLCHAIN=$(GOTOOLCHAIN) $(OCB) --config builder-config.yaml
 
 .PHONY: validate
-validate:
+validate: build
 	TELESCOPE_SCOPEDB_ENDPOINT="${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
 	TELESCOPE_SCOPEDB_API_KEY="${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}" \
 	TELESCOPE_OTLP_GRPC_ADDR="${TELESCOPE_OTLP_GRPC_ADDR:-0.0.0.0:4317}" \
 	TELESCOPE_OTLP_HTTP_ADDR="${TELESCOPE_OTLP_HTTP_ADDR:-0.0.0.0:4318}" \
 	TELESCOPE_HEALTH_ADDR="${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
-	./_build/telescope-otelcol validate --config config/demo.yaml
+	$(TELESCOPE) collector validate --config config/demo.yaml
 
 .PHONY: validate-deploy
-validate-deploy:
+validate-deploy: build
 	TELESCOPE_SCOPEDB_ENDPOINT="${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
 	TELESCOPE_SCOPEDB_API_KEY="${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}" \
 	TELESCOPE_OTLP_GRPC_ADDR="${TELESCOPE_OTLP_GRPC_ADDR:-0.0.0.0:4317}" \
 	TELESCOPE_OTLP_HTTP_ADDR="${TELESCOPE_OTLP_HTTP_ADDR:-0.0.0.0:4318}" \
 	TELESCOPE_HEALTH_ADDR="${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
-	./_build/telescope-otelcol validate --config config/deploy.yaml
+	$(TELESCOPE) collector validate --config config/deploy.yaml
