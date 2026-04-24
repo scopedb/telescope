@@ -1,92 +1,100 @@
-# ScopeDB OTel Collector Gateway
+# scopedb/telescope
 
-`scopedb-otel` is a deployable custom OpenTelemetry Collector daemon for ScopeDB.
-It accepts OTLP logs, traces, and metrics over gRPC or HTTP, then writes them into ScopeDB through the public `/v1/ingest` API.
+`scopedb/telescope` is an edge telemetry daemon for ScopeDB.
+It has two jobs:
 
-This repository is organized around the current gateway service, while leaving room for additional services later:
+- ingest OpenTelemetry logs, traces, and metrics into ScopeDB through a custom OpenTelemetry Collector distribution
+- expose a small agent-facing query surface over those landing tables through HTTP and MCP
 
-- `services/gateway`: the deployable OTel gateway service
-- `packages/vendordbexporter`: the reusable Collector exporter module used by the gateway
-
-Contribution rules live in [CONTRIBUTING.md](/Users/leiysky/work/scopedb-workspace/scopedb-otel/CONTRIBUTING.md:1).
-Pull requests use semantic PR titles such as `feat: ...` or `fix: ...`.
+The project is still early and intentionally compact. The main product direction is a local data-plane runtime that sits between application telemetry, ScopeDB, and developer agents.
 
 ## What This Is
 
-- a standalone Collector gateway daemon you can run as a container or service
-- a ScopeDB-specific OTLP ingress path
-- a custom Collector distribution that already includes the exporter
-- a persistent-queue-capable gateway using `file_storage`
+- a deployable telemetry daemon for ScopeDB
+- a ScopeDB-specific OTLP ingest path for logs, traces, and metrics
+- an agent-oriented debug API over the ScopeDB OTel landing schema
+- an MCP server for developer agents that need telemetry tools
+- a semantic layer that keeps common debugging queries predictable and bounded
 
 ## What This Is Not
 
 - not a fork of OpenTelemetry Collector
-- not an upstream contrib component
-- not a runtime-loadable Collector plugin
-- not a general-purpose observability control plane
+- not a runtime-loadable Collector plugin for stock Collector binaries
+- not a managed observability control plane
+- not a general arbitrary JSON-path query API over raw records
 
-## Deployment Model
-
-This project is meant to run as its own Collector process:
+## Architecture
 
 ```text
-apps / agents / upstream collectors
+apps / SDKs / upstream collectors
   -> OTLP gRPC or OTLP HTTP
-  -> scopedb-otel-gateway
-  -> ScopeDB /v1/ingest
-  -> target ScopeDB table
+  -> scopedb/telescope
+  -> ScopeDB ingest tables
+  -> semantic debug API / MCP tools
+  -> developer agent / CLI / notebook
 ```
 
-By default the deployed gateway exposes:
+Telescope keeps the original mapped telemetry payload in `record` as evidence, but the query surface is based on promoted semantic fields such as `service_name`, `trace_id`, `message`, `status_code`, and `duration_ns`.
+This is deliberate: ScopeDB can query arbitrary records, but the agent-facing API keeps default queries predictable and easier to optimize.
 
-- `4317` for OTLP gRPC
-- `4318` for OTLP HTTP
-- `13133` for health checks
+## Repository Layout
 
-The production-style config is [services/gateway/collector/config/deploy.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/collector/config/deploy.yaml:1).
-It enables `file_storage` and stores the persistent queue under `/var/lib/vendor-otelcol/queue`.
-It also enables `create_tables_if_not_exist: true`, so the deployed gateway will create every configured target table on startup when the API key has DDL permission.
+- `services/gateway/collector`: custom OTel Collector distribution, configs, and container build. The directory still uses the older `gateway` component name.
+- `services/gateway/deploy`: Docker Compose and deployment environment examples for the collector runtime
+- `services/api`: semantic debug API and MCP server over ScopeDB OTel tables
+- `packages/vendordbexporter`: reusable Collector exporter module used by Telescope
+- `docs`: design notes for the semantic debug API and query model
 
-## How It Integrates With OpenTelemetry Collector
+## Runtime Components
 
-There are three common integration patterns.
+### Collector Runtime
 
-### 1. Use It As Your Gateway Collector
+The collector runtime accepts OTLP and writes to ScopeDB.
 
-Point your SDKs, agents, or sidecars directly at this daemon.
-This is the simplest model and the one this repo is optimized for.
+Default exposed ports:
 
-### 2. Put It Behind An Existing Collector
+- `4317`: OTLP gRPC
+- `4318`: OTLP HTTP
+- `13133`: Collector health check
 
-If you already run a standard OTel Collector, keep that layer for routing, sampling, or transforms, then export OTLP to this gateway.
+Default ScopeDB tables:
 
-Example upstream Collector snippet:
+- `scopedb.otel.logs`
+- `scopedb.otel.traces`
+- `scopedb.otel.metrics`
 
-```yaml
-exporters:
-  otlp/scopedb_gateway:
-    endpoint: scopedb-otel-gateway:4317
-    tls:
-      insecure: true
+The production-style config is `services/gateway/collector/config/deploy.yaml`.
+It enables `file_storage` for persistent queueing and can create the configured ScopeDB tables on startup when the API key has DDL permission.
 
-service:
-  pipelines:
-    logs:
-      exporters: [otlp/scopedb_gateway]
-    traces:
-      exporters: [otlp/scopedb_gateway]
-    metrics:
-      exporters: [otlp/scopedb_gateway]
-```
+### Debug API And MCP
 
-### 3. Rebuild It Into Your Own Custom Distribution
+The API service reads from the OTel landing tables and exposes a compact tool surface for developer agents.
 
-If you already maintain your own OCB build, you can import the exporter module from `packages/vendordbexporter` into your own `builder-config.yaml`.
+HTTP routes:
 
-Important: this exporter is linked at build time.
-You cannot take a stock Collector binary and add `vendordb` at runtime through config alone.
+- `GET /healthz`
+- `GET /v1/schema`
+- `GET /v1/schema/guide.md`
+- `POST /v1/search`
+- `POST /v1/aggregate`
+- `POST /mcp`
 
-## Quick Start With Docker Compose
+MCP tools:
+
+- `health`
+- `schema`
+- `schema_guide`
+- `search`
+- `aggregate`
+
+MCP resources:
+
+- `scopedb://telemetry/schema`
+- `scopedb://telemetry/guide.md`
+
+`/mcp` implements the Streamable HTTP shape for JSON-RPC requests. A stdio MCP binary is also provided for local agents that still prefer process-based MCP.
+
+## Quick Start: Telescope Collector With Docker Compose
 
 1. Copy the example environment file.
 
@@ -94,81 +102,92 @@ You cannot take a stock Collector binary and add `vendordb` at runtime through c
 cp services/gateway/deploy/.env.example services/gateway/deploy/.env
 ```
 
-2. Edit `services/gateway/deploy/.env` and set:
+2. Edit `services/gateway/deploy/.env`.
 
-- `SCOPEDB_ENDPOINT`
-- `SCOPEDB_API_KEY`
+```bash
+SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud
+SCOPEDB_API_KEY=sk_...
+```
 
-By default, the gateway writes to:
-
-- `scopedb.otel.logs`
-- `scopedb.otel.traces`
-- `scopedb.otel.metrics`
-
-3. Start the gateway.
+3. Start the collector runtime.
 
 ```bash
 docker compose -f services/gateway/deploy/docker-compose.yaml up -d --build
 ```
 
-4. Send OTLP data to:
+4. Send OTLP telemetry to Telescope.
 
-- `localhost:4317` for gRPC
-- `localhost:4318` for HTTP
+- gRPC: `localhost:4317`
+- HTTP: `localhost:4318`
 
-The Compose definition lives at [services/gateway/deploy/docker-compose.yaml](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/deploy/docker-compose.yaml:1).
+## Quick Start: Debug API And MCP
 
-## Run The Container Directly
-
-Build the image:
+The API service expects the same ScopeDB credentials:
 
 ```bash
-make docker-build
+cd services/api
+
+SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
+SCOPEDB_API_KEY=sk_... \
+HTTP_ADDR=127.0.0.1:18080 \
+go run ./cmd/scopedb-otel-debug-api
 ```
 
-Run it:
+Check health:
 
 ```bash
-docker run --rm \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  -p 13133:13133 \
-  -e SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
-  -e SCOPEDB_API_KEY=sk_... \
-  -v scopedb-otel-queue:/var/lib/vendor-otelcol/queue \
-  scopedb-otel-gateway:0.1.0
+curl -sS http://127.0.0.1:18080/healthz
 ```
 
-The image entrypoint and default config are defined in [services/gateway/collector/Dockerfile](/Users/leiysky/work/scopedb-workspace/scopedb-otel/services/gateway/collector/Dockerfile:1).
+Initialize MCP over HTTP:
 
-## Environment Variables
+```bash
+curl -sS http://127.0.0.1:18080/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -H 'MCP-Protocol-Version: 2025-06-18' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+```
 
-The deployment-facing config is environment-driven:
+Run the stdio MCP server:
 
-- `SCOPEDB_ENDPOINT`: ScopeDB base URL
-- `SCOPEDB_API_KEY`: ScopeDB API key
+```bash
+cd services/api
 
-Auth is sent as `Authorization: Bearer <token>`, which matches the current ScopeDB client behavior.
-Tenant selection is handled by the ScopeDB SaaS auth gateway, so there is no separate tenant config.
-The deployment config creates the built-in OTel tables automatically on startup.
+SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
+SCOPEDB_API_KEY=sk_... \
+go run ./cmd/scopedb-otel-mcp
+```
 
-## Table Initialization
+## Query Model
 
-The deployment config auto-creates the target table on startup with:
+The semantic API is designed for agent-driven debugging.
+It exposes two core query primitives:
+
+- `search`: inspect detail rows and page through evidence with `next_cursor`
+- `aggregate`: summarize trends and breakdowns with group-by, time buckets, and measures
+
+Agents should bootstrap with:
+
+1. call `schema` or read `scopedb://telemetry/schema`
+2. use `schema_guide` for relation-specific hints and common patterns
+3. use `search` for detail evidence
+4. use `aggregate` for trend or breakdown checks
+5. cite returned rows and `applied_query` when handing off findings
+
+The API intentionally accepts promoted semantic fields only.
+Arbitrary `record.*` paths are not accepted by `search` or `aggregate` filters.
+If a raw attribute becomes important for repeated debugging, promote or materialize it first.
+
+## Landing Tables
+
+Telescope can create the default tables automatically with:
 
 ```yaml
 create_tables_if_not_exist: true
 ```
 
-That startup DDL path uses the official ScopeDB Go SDK `github.com/scopedb/scopedb-sdk/go v0.5.0`.
-
-By default the gateway routes signals to:
-
-- `scopedb.otel.logs`
-- `scopedb.otel.traces`
-- `scopedb.otel.metrics`
-
-If you prefer to manage schema yourself or your API key does not have DDL permission, disable that flag in a custom Collector config and create the table manually with:
+If you prefer to manage schema manually, use equivalent tables:
 
 ```sql
 CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
@@ -216,16 +235,21 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
   number_value float,
   distribution object,
   record object
-)
+);
 ```
 
-## Local Development
+## Build And Validate
 
-Build and validate the custom Collector locally:
+Build the custom Collector:
 
 ```bash
 make build-ocb
 make build
+```
+
+Validate Collector configs:
+
+```bash
 SCOPEDB_ENDPOINT=https://your-workspace.scopedb.cloud \
 SCOPEDB_API_KEY=sk_... \
 make validate
@@ -235,8 +259,20 @@ SCOPEDB_API_KEY=sk_... \
 make validate-deploy
 ```
 
-The workspace pins Go `1.25` via `toolchain go1.25.3`.
-If your default Go is older, `GOTOOLCHAIN=go1.25.3` is already wired into the Makefile.
+Run Go tests for the API service:
+
+```bash
+cd services/api
+go test ./...
+```
+
+Run exporter tests:
+
+```bash
+make test
+```
+
+The workspace pins Go `1.25` through the Makefile with `GOTOOLCHAIN=go1.25.3`.
 
 ## Send Test Telemetry
 
@@ -263,34 +299,33 @@ GOTOOLCHAIN=go1.25.3 go run github.com/open-telemetry/opentelemetry-collector-co
   --metrics 3
 ```
 
-## Repository Layout
-
-- `services/gateway/collector`: OCB distribution, configs, and container build for the gateway service
-- `services/gateway/deploy`: Docker Compose and environment examples for the gateway service
-- `packages/vendordbexporter`: standalone exporter Go module that can also be reused by other Collector builds
-
 ## Reliability Semantics
 
-- at-least-once delivery under retryable failures
+The collector runtime uses standard Collector exporter helper behavior.
+
+- delivery is at-least-once under retryable failures
 - duplicates are possible
-- queue overflow can still drop data
+- queue overflow can drop data
 - persistent queue survives Collector restart, but not disk failure
-- if the queue or storage layer cannot accept new items, drops can happen before retry logic runs
+- if queue/storage cannot accept new items, drops can happen before retry logic runs
 
-## Main Configuration Surface
+## Main Exporter Configuration
 
-The `vendordb` exporter supports these main fields:
+The `vendordb` exporter supports:
 
-- `endpoint`: base URL for the ingest backend
+- `endpoint`: ScopeDB base URL
 - `path`: ingest path, default `/v1/ingest`
-- `api_key`: secret used for backend authentication
+- `api_key`: bearer token for ScopeDB
 - `dataset`: logical dataset name
-- built-in defaults: `scopedb.otel.logs`, `scopedb.otel.traces`, `scopedb.otel.metrics`
-- table routes accept `table`, `schema.table`, or `database.schema.table`
-- `tables.logs`, `tables.traces`, `tables.metrics`: required per-signal table routes, each pointing to a distinct table
-- `create_tables_if_not_exist`: automatically ensures the configured database, schema, and table exist for all configured routes on startup
+- `tables.logs`, `tables.traces`, `tables.metrics`: per-signal table routes
+- `create_tables_if_not_exist`: create configured routes on startup
 - `schema_version`: payload schema version
-- `compression`: `zstd`, `gzip`, or `none` (`zstd` is the default)
+- `compression`: `zstd`, `gzip`, or `none`
 - `timeout`: per-attempt exporter timeout
 - `retry_on_failure`: exporterhelper retry policy
 - `sending_queue`: exporterhelper queue policy, including optional `storage: file_storage`
+
+## Contributing
+
+Contribution rules live in `CONTRIBUTING.md`.
+Pull requests use semantic titles such as `feat: add persistent queue deployment defaults` or `fix(exporter): classify 401 as permanent`.
