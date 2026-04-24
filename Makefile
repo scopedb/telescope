@@ -22,15 +22,21 @@ build:
 .PHONY: validate
 validate:
 	cd $(GATEWAY_COLLECTOR_DIR) && \
-	SCOPEDB_ENDPOINT="$${SCOPEDB_ENDPOINT:?SCOPEDB_ENDPOINT is required}" \
-	SCOPEDB_API_KEY="$${SCOPEDB_API_KEY:?SCOPEDB_API_KEY is required}" \
+	TELESCOPE_SCOPEDB_ENDPOINT="$${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
+	TELESCOPE_SCOPEDB_API_KEY="$${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}" \
+	TELESCOPE_OTLP_GRPC_ADDR="$${TELESCOPE_OTLP_GRPC_ADDR:-0.0.0.0:4317}" \
+	TELESCOPE_OTLP_HTTP_ADDR="$${TELESCOPE_OTLP_HTTP_ADDR:-0.0.0.0:4318}" \
+	TELESCOPE_HEALTH_ADDR="$${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
 	./_build/telescope-otelcol validate --config config/demo.yaml
 
 .PHONY: validate-deploy
 validate-deploy:
 	cd $(GATEWAY_COLLECTOR_DIR) && \
-	SCOPEDB_ENDPOINT="$${SCOPEDB_ENDPOINT:?SCOPEDB_ENDPOINT is required}" \
-	SCOPEDB_API_KEY="$${SCOPEDB_API_KEY:?SCOPEDB_API_KEY is required}" \
+	TELESCOPE_SCOPEDB_ENDPOINT="$${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
+	TELESCOPE_SCOPEDB_API_KEY="$${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}" \
+	TELESCOPE_OTLP_GRPC_ADDR="$${TELESCOPE_OTLP_GRPC_ADDR:-0.0.0.0:4317}" \
+	TELESCOPE_OTLP_HTTP_ADDR="$${TELESCOPE_OTLP_HTTP_ADDR:-0.0.0.0:4318}" \
+	TELESCOPE_HEALTH_ADDR="$${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
 	./_build/telescope-otelcol validate --config config/deploy.yaml
 
 .PHONY: docker-build
@@ -39,6 +45,6 @@ docker-build:
 
 .PHONY: demo
 demo:
-	@echo "Export SCOPEDB_ENDPOINT and SCOPEDB_API_KEY, then run:"
+	@echo "Export TELESCOPE_SCOPEDB_ENDPOINT and TELESCOPE_SCOPEDB_API_KEY, then run:"
 	@echo "  ./services/gateway/collector/_build/telescope-otelcol --config services/gateway/collector/config/demo.yaml"
-	@echo "Use telemetrygen to send logs, traces, and metrics to localhost:4317 or localhost:4318."
+	@echo "Use telemetrygen to send logs, traces, and metrics to the configured OTLP ports."

@@ -59,9 +59,9 @@ type config struct {
 }
 
 func loadConfigFromEnv() (config, error) {
-	listenAddr := strings.TrimSpace(os.Getenv("HTTP_ADDR"))
+	listenAddr := strings.TrimSpace(os.Getenv("TELESCOPE_HTTP_ADDR"))
 	if listenAddr == "" {
-		port := strings.TrimSpace(os.Getenv("PORT"))
+		port := strings.TrimSpace(os.Getenv("TELESCOPE_PORT"))
 		if port != "" {
 			listenAddr = ":" + port
 		} else {
@@ -69,21 +69,21 @@ func loadConfigFromEnv() (config, error) {
 		}
 	}
 
-	endpoint := strings.TrimSpace(os.Getenv("SCOPEDB_ENDPOINT"))
+	endpoint := strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"))
 	if endpoint == "" {
-		return config{}, fmt.Errorf("SCOPEDB_ENDPOINT is required")
+		return config{}, fmt.Errorf("TELESCOPE_SCOPEDB_ENDPOINT is required")
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv("SCOPEDB_API_KEY"))
+	apiKey := strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_API_KEY"))
 	if apiKey == "" {
-		return config{}, fmt.Errorf("SCOPEDB_API_KEY is required")
+		return config{}, fmt.Errorf("TELESCOPE_SCOPEDB_API_KEY is required")
 	}
 
 	queryTimeout := 15 * time.Second
-	if raw := strings.TrimSpace(os.Getenv("SCOPEDB_QUERY_TIMEOUT")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("TELESCOPE_QUERY_TIMEOUT")); raw != "" {
 		parsed, err := time.ParseDuration(raw)
 		if err != nil {
-			return config{}, fmt.Errorf("parse SCOPEDB_QUERY_TIMEOUT: %w", err)
+			return config{}, fmt.Errorf("parse TELESCOPE_QUERY_TIMEOUT: %w", err)
 		}
 		queryTimeout = parsed
 	}

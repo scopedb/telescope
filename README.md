@@ -24,8 +24,11 @@ cp services/gateway/deploy/.env.example services/gateway/deploy/.env
 Set your ScopeDB credentials in `services/gateway/deploy/.env`:
 
 ```bash
-SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
-SCOPEDB_API_KEY=sk_...
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
+TELESCOPE_SCOPEDB_API_KEY=sk_...
+TELESCOPE_OTLP_GRPC_PORT=4317
+TELESCOPE_OTLP_HTTP_PORT=4318
+TELESCOPE_HEALTH_PORT=13133
 ```
 
 Run Telescope's collector runtime:
@@ -39,6 +42,8 @@ Send OTLP telemetry to:
 - `localhost:4317` for OTLP gRPC
 - `localhost:4318` for OTLP HTTP
 
+Change the `TELESCOPE_*_PORT` values if those ports are already in use.
+
 ## Agent API
 
 Run the debug API and MCP server:
@@ -46,9 +51,9 @@ Run the debug API and MCP server:
 ```bash
 cd services/api
 
-SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-SCOPEDB_API_KEY=sk_... \
-HTTP_ADDR=127.0.0.1:18080 \
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_API_KEY=sk_... \
+TELESCOPE_HTTP_ADDR=127.0.0.1:18080 \
 go run ./cmd/scopedb-otel-debug-api
 ```
 
@@ -73,8 +78,8 @@ For local agents that prefer stdio:
 ```bash
 cd services/api
 
-SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-SCOPEDB_API_KEY=sk_... \
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_API_KEY=sk_... \
 go run ./cmd/scopedb-otel-mcp
 ```
 
@@ -131,12 +136,12 @@ make build
 Validate collector configs:
 
 ```bash
-SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-SCOPEDB_API_KEY=sk_... \
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_API_KEY=sk_... \
 make validate
 
-SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-SCOPEDB_API_KEY=sk_... \
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_API_KEY=sk_... \
 make validate-deploy
 ```
 

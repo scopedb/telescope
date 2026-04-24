@@ -9,9 +9,9 @@ It accepts logs, traces, and metrics in Collector pdata form, maps them into JSO
 ```yaml
 exporters:
   scopedb:
-    endpoint: https://<region>.scopedb.cloud
+    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
-    api_key: ${env:SCOPEDB_API_KEY}
+    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     dataset: default
     tables:
       logs: scopedb.otel.logs

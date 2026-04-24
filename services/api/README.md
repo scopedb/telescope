@@ -47,14 +47,14 @@ The runnable binaries are:
 
 Required environment variables:
 
-- `SCOPEDB_ENDPOINT`
-- `SCOPEDB_API_KEY`
+- `TELESCOPE_SCOPEDB_ENDPOINT`
+- `TELESCOPE_SCOPEDB_API_KEY`
 
 Optional environment variables:
 
-- `HTTP_ADDR`: listen address, default `:8080`
-- `PORT`: alternate way to set the listen port when `HTTP_ADDR` is unset
-- `SCOPEDB_QUERY_TIMEOUT`: per-query timeout, default `15s`
+- `TELESCOPE_HTTP_ADDR`: listen address, default `:8080`
+- `TELESCOPE_PORT`: alternate way to set the listen port when `TELESCOPE_HTTP_ADDR` is unset
+- `TELESCOPE_QUERY_TIMEOUT`: per-query timeout, default `15s`
 
 Example:
 

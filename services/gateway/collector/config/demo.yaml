@@ -1,13 +1,14 @@
 extensions:
   health_check:
+    endpoint: ${env:TELESCOPE_HEALTH_ADDR}
 
 receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: ${env:TELESCOPE_OTLP_GRPC_ADDR}
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: ${env:TELESCOPE_OTLP_HTTP_ADDR}
 
 processors:
   memory_limiter:
@@ -20,9 +21,9 @@ processors:
 
 exporters:
   scopedb:
-    endpoint: ${env:SCOPEDB_ENDPOINT}
+    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
-    api_key: ${env:SCOPEDB_API_KEY}
+    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     dataset: demo
     tables:
       logs: scopedb.otel.logs
