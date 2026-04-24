@@ -28,8 +28,9 @@ func TestCreateTableStatementForSignal(t *testing.T) {
 				"k8s_cluster string",
 				"container_name string",
 				"status string",
+				"severity_number int",
 				"PARTITION BY floor(record_timestamp, 24, 'hour')",
-				"CLUSTER BY env, status, service, record_timestamp",
+				"CLUSTER BY env, service, severity_number, record_timestamp",
 			},
 		},
 		{
@@ -51,7 +52,7 @@ func TestCreateTableStatementForSignal(t *testing.T) {
 				"rpc_method string",
 				"error_type string",
 				"PARTITION BY floor(start_timestamp, 24, 'hour')",
-				"CLUSTER BY env, status_code, service, start_timestamp",
+				"CLUSTER BY env, service, status_code, start_timestamp",
 			},
 		},
 		{
@@ -111,6 +112,7 @@ func TestCreateIndexStatementsForSignal(t *testing.T) {
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (source)",
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (source)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (status)",
+				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (severity_number)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (exception_type)",
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (exception_type)",
 				"CREATE SEARCH INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (message)",

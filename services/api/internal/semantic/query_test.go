@@ -35,6 +35,7 @@ func TestBuildDefaultSearchQuery(t *testing.T) {
 		"  `span_id` AS `span_id`,\n" +
 		"  `source` AS `source`,\n" +
 		"  `status` AS `status`,\n" +
+		"  `severity_number` AS `severity_number`,\n" +
 		"  `exception_type` AS `exception_type`,\n" +
 		"  `exception_message` AS `exception_message`,\n" +
 		"  `message` AS `message`,\n" +
@@ -124,6 +125,7 @@ func TestBuildQueryWithTimeRangeAndRowIDTieBreaker(t *testing.T) {
 		"  `span_id` AS `span_id`,\n" +
 		"  `source` AS `source`,\n" +
 		"  `status` AS `status`,\n" +
+		"  `severity_number` AS `severity_number`,\n" +
 		"  `exception_type` AS `exception_type`,\n" +
 		"  `exception_message` AS `exception_message`,\n" +
 		"  `message` AS `message`,\n" +

@@ -154,6 +154,7 @@ var Default = Registry{
 		},
 		relationDimensionField("source", "events_v1", "source", "Event source or integration name when present.", StabilityCore, true, true),
 		relationDimensionField("status", "events_v1", "status", "Log severity or event status.", StabilityCore, true, true),
+		relationTypedDimensionField("severity_number", "events_v1", "severity_number", "OTel log severity number for stable severity filtering and physical clustering.", StabilityCore, FieldTypeInt, false, false),
 		relationDimensionField("exception_type", "events_v1", "exception_type", "Structured exception class or type when present.", StabilityCore, true, true),
 		relationDimensionField("exception_message", "events_v1", "exception_message", "Structured exception message when present.", StabilityCore, true, true),
 		{
@@ -213,7 +214,7 @@ var Default = Registry{
 			MaxLimit:          defaultRelationMax,
 			SupportsSearch:    true,
 			SupportsAggregate: true,
-			Fields:            appendFields(commonScopedFields, "trace_id", "execution_id", "span_id", "source", "status", "exception_type", "exception_message", "message", "record"),
+			Fields:            appendFields(commonScopedFields, "trace_id", "execution_id", "span_id", "source", "status", "severity_number", "exception_type", "exception_message", "message", "record"),
 			Anchors:           []string{"trace_id", "execution_id"},
 			Measures: []MeasureDef{
 				countMeasure,
@@ -222,9 +223,9 @@ var Default = Registry{
 			Advisory: RelationAdvisory{
 				IdentityFields:    []string{"trace_id", "span_id"},
 				AnchorFields:      []string{"trace_id", "execution_id", "service"},
-				DefaultProject:    []string{"ts", "row_id", "service", "version", "host", "source", "trace_id", "span_id", "status", "exception_type", "message"},
-				PreferredFilters:  []string{"env", "service", "version", "host", "source", "trace_id", "execution_id", "status", "exception_type", "message", "exception_message"},
-				PreferredGroupBy:  []string{"service", "version", "source", "status", "exception_type", "host", "k8s_namespace", "k8s_cluster"},
+				DefaultProject:    []string{"ts", "row_id", "service", "version", "host", "source", "trace_id", "span_id", "status", "severity_number", "exception_type", "message"},
+				PreferredFilters:  []string{"env", "service", "version", "host", "source", "trace_id", "execution_id", "status", "severity_number", "exception_type", "message", "exception_message"},
+				PreferredGroupBy:  []string{"service", "version", "source", "status", "severity_number", "exception_type", "host", "k8s_namespace", "k8s_cluster"},
 				PreferredMeasures: []string{"count"},
 				CommonPatterns: []string{
 					"find recent error events for one service",

@@ -56,6 +56,7 @@ Recent promoted fields include:
 - `host`
 - `source`
 - `status`
+- `severity_number`
 - `exception_type`
 - `exception_message`
 - `http_method`

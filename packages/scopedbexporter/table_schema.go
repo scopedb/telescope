@@ -42,6 +42,7 @@ var signalTableColumns = map[string][]tableColumn{
 		{Name: "span_id", Type: "string"},
 		{Name: "source", Type: "string"},
 		{Name: "status", Type: "string"},
+		{Name: "severity_number", Type: "int"},
 		{Name: "message", Type: "string"},
 		{Name: "exception_type", Type: "string"},
 		{Name: "exception_message", Type: "string"},
@@ -110,7 +111,7 @@ var signalTableColumns = map[string][]tableColumn{
 var signalTableLayouts = map[string]tablePhysicalLayout{
 	signalLogs: {
 		PartitionBy: []string{"floor(record_timestamp, 24, 'hour')"},
-		ClusterBy:   []string{"env", "status", "service", "record_timestamp"},
+		ClusterBy:   []string{"env", "service", "severity_number", "record_timestamp"},
 		Indexes: []tableIndex{
 			{Type: "RANGE", Expr: "record_timestamp"},
 			{Type: "POINT", Expr: "trace_id"},
@@ -130,6 +131,7 @@ var signalTableLayouts = map[string]tablePhysicalLayout{
 			{Type: "POINT", Expr: "source"},
 			{Type: "PATTERN", Expr: "source"},
 			{Type: "POINT", Expr: "status"},
+			{Type: "POINT", Expr: "severity_number"},
 			{Type: "POINT", Expr: "exception_type"},
 			{Type: "PATTERN", Expr: "exception_type"},
 			{Type: "SEARCH", Expr: "message"},
@@ -140,7 +142,7 @@ var signalTableLayouts = map[string]tablePhysicalLayout{
 	},
 	signalTraces: {
 		PartitionBy: []string{"floor(start_timestamp, 24, 'hour')"},
-		ClusterBy:   []string{"env", "status_code", "service", "start_timestamp"},
+		ClusterBy:   []string{"env", "service", "status_code", "start_timestamp"},
 		Indexes: []tableIndex{
 			{Type: "RANGE", Expr: "start_timestamp"},
 			{Type: "RANGE", Expr: "duration_ns"},

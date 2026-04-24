@@ -16,6 +16,7 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 			{
 				"timestamp_unix_nano":          "1713835425123456789",
 				"observed_timestamp_unix_nano": "1713835426123456789",
+				"severity_number":              int64(17),
 				"resource": map[string]any{
 					"service.name":        "collector-a",
 					"service.version":     "1.2.3",
@@ -47,6 +48,7 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 		assert.Equal(t, rows[0]["row_id"].(string)[:8], rows[1]["row_id"].(string)[:8])
 		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", rows[0]["record_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", rows[0]["observed_timestamp"])
+		assert.Equal(t, int64(17), rows[0]["severity_number"])
 		assert.Equal(t, "collector-a", rows[0]["service"])
 		assert.Equal(t, "1.2.3", rows[0]["version"])
 		assert.Equal(t, "collector-a-1", rows[0]["instance_id"])

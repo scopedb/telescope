@@ -91,6 +91,9 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 		if status, ok := record["status"].(string); ok && status != "" {
 			row["status"] = status
 		}
+		if severityNumber, ok := int64Value(record["severity_number"]); ok {
+			row["severity_number"] = severityNumber
+		}
 		if service := recordService(record); service != "" {
 			row["service"] = service
 		}

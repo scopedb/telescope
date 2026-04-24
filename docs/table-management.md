@@ -40,17 +40,17 @@ Telescope creates ScopeDB-native physical layouts for the default tables:
 
 | Signal | Partition key | Cluster key |
 | --- | --- | --- |
-| Logs | `floor(record_timestamp, 24, 'hour')` | `env`, `status`, `service`, `record_timestamp` |
-| Traces | `floor(start_timestamp, 24, 'hour')` | `env`, `status_code`, `service`, `start_timestamp` |
+| Logs | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `severity_number`, `record_timestamp` |
+| Traces | `floor(start_timestamp, 24, 'hour')` | `env`, `service`, `status_code`, `start_timestamp` |
 | Metrics | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `metric_name`, `record_timestamp` |
 
-The `floor(..., 24, 'hour')` expression is the default UTC day bucket. Partitions stay time-bounded only; status and service remain clustering dimensions for logs and traces so common error-first filters are locality-friendly without multiplying physical partitions.
+The `floor(..., 24, 'hour')` expression is the default UTC day bucket. Partitions stay time-bounded only; service remains the primary clustering dimension, followed by stable low-cardinality status fields. Logs use OTel `severity_number` for physical clustering while preserving string `status` for agent-facing queries.
 
 Telescope also creates default indexes:
 
 | Signal | Indexes |
 | --- | --- |
-| Logs | range on `record_timestamp`; point on `trace_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
+| Logs | range on `record_timestamp`; point on `trace_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `severity_number`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
 | Traces | range on `start_timestamp`, `duration_ns`; point on `trace_id`, `span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `status_code`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `error_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `span_name`, `url_path`, `http_route`, `peer_service`, `rpc_method`, `error_type` |
 | Metrics | range on `record_timestamp`; point on `metric_name`, `service`, `version`, `k8s_namespace`, `k8s_cluster`; pattern on `metric_name`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host` |
 

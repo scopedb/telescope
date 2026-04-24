@@ -72,7 +72,7 @@ Each JSON row includes shared ingest columns plus the full original mapped recor
 The exporter also promotes signal-specific fields into top-level row columns so each table can use its own schema:
 
 - shared resource columns: `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`
-- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `source`, `status`, `message`, `exception_type`, `exception_message`
+- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `source`, `status`, `severity_number`, `message`, `exception_type`, `exception_message`
 - traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`, `http_method`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `db_system`, `db_operation`, `rpc_method`, `error_type`
 - metrics: `record_timestamp`, `start_timestamp`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
 
@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
   span_id string,
   source string,
   status string,
+  severity_number int,
   message string,
   exception_type string,
   exception_message string,
