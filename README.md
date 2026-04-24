@@ -54,20 +54,19 @@ make build
 
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
-TELESCOPE_HTTP_ADDR=127.0.0.1:18080 \
 ./bin/telescope daemon
 ```
 
 Check that it is alive:
 
 ```bash
-curl -sS http://127.0.0.1:18080/healthz
+curl -sS http://127.0.0.1:8080/healthz
 ```
 
 Initialize MCP over HTTP:
 
 ```bash
-curl -sS http://127.0.0.1:18080/mcp \
+curl -sS http://127.0.0.1:8080/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -H 'Content-Type: application/json' \
   -H 'MCP-Protocol-Version: 2025-06-18' \
