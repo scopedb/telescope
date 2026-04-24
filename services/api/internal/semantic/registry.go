@@ -67,6 +67,28 @@ func relationDimensionField(name string, relation string, source string, descrip
 	return relationTypedDimensionField(name, relation, source, description, stability, FieldTypeString, searchable, patternable)
 }
 
+func traceDimensionField(name string, source string, description string, stability Stability, searchable bool, patternable bool) FieldSpec {
+	return traceTypedDimensionField(name, source, description, stability, FieldTypeString, searchable, patternable)
+}
+
+func traceTypedDimensionField(name string, source string, description string, stability Stability, fieldType FieldType, searchable bool, patternable bool) FieldSpec {
+	return FieldSpec{
+		Name:        name,
+		Type:        fieldType,
+		Role:        FieldRoleDimension,
+		Stability:   stability,
+		Description: description,
+		Filterable:  true,
+		Searchable:  searchable,
+		Patternable: patternable,
+		Groupable:   true,
+		ExprByRelation: map[string]Expr{
+			"executions_v1": Ref(source),
+			"spans_v1":      Ref(source),
+		},
+	}
+}
+
 func relationTypedDimensionField(name string, relation string, source string, description string, stability Stability, fieldType FieldType, searchable bool, patternable bool) FieldSpec {
 	return FieldSpec{
 		Name:        name,
@@ -99,6 +121,22 @@ func relationMeasureField(name string, relation string, source string, descripti
 	}
 }
 
+func traceMeasureField(name string, source string, description string, fieldType FieldType) FieldSpec {
+	return FieldSpec{
+		Name:        name,
+		Type:        fieldType,
+		Role:        FieldRoleMeasure,
+		Stability:   StabilityCore,
+		Description: description,
+		Filterable:  true,
+		Groupable:   false,
+		ExprByRelation: map[string]Expr{
+			"executions_v1": Ref(source),
+			"spans_v1":      Ref(source),
+		},
+	}
+}
+
 var Default = Registry{
 	Fields: []FieldSpec{
 		{
@@ -112,6 +150,7 @@ var Default = Registry{
 			ExprByRelation: map[string]Expr{
 				"events_v1":       Ref("record_timestamp"),
 				"executions_v1":   Ref("start_timestamp"),
+				"spans_v1":        Ref("start_timestamp"),
 				"measurements_v1": Ref("record_timestamp"),
 			},
 		},
@@ -150,6 +189,7 @@ var Default = Registry{
 			Groupable:   true,
 			ExprByRelation: map[string]Expr{
 				"executions_v1": Ref("parent_span_id"),
+				"spans_v1":      Ref("parent_span_id"),
 			},
 		},
 		relationDimensionField("source", "events_v1", "source", "Event source or integration name when present.", StabilityCore, true, true),
@@ -171,19 +211,19 @@ var Default = Registry{
 				"events_v1": Ref("message"),
 			},
 		},
-		relationDimensionField("operation", "executions_v1", "span_name", "Developer-facing operation name.", StabilityBeta, true, true),
-		relationDimensionField("span_kind", "executions_v1", "span_kind", "OTel span kind such as server, client, producer, or consumer.", StabilityCore, false, false),
-		relationDimensionField("status_code", "executions_v1", "status_code", "Execution outcome status code.", StabilityCore, false, false),
-		relationDimensionField("http_method", "executions_v1", "http_method", "HTTP request method when present.", StabilityCore, false, false),
-		relationTypedDimensionField("http_status_code", "executions_v1", "http_status_code", "HTTP response status code when present.", StabilityCore, FieldTypeInt, false, false),
-		relationDimensionField("url_path", "executions_v1", "url_path", "HTTP URL path when present.", StabilityCore, true, true),
-		relationDimensionField("http_route", "executions_v1", "http_route", "Low-cardinality HTTP route template when present.", StabilityCore, true, true),
-		relationDimensionField("peer_service", "executions_v1", "peer_service", "Named downstream peer service when present.", StabilityCore, true, true),
-		relationDimensionField("db_system", "executions_v1", "db_system", "Database system name when present.", StabilityCore, false, false),
-		relationDimensionField("db_operation", "executions_v1", "db_operation", "Database operation name when present.", StabilityCore, false, false),
-		relationDimensionField("rpc_method", "executions_v1", "rpc_method", "RPC method when present.", StabilityCore, true, true),
-		relationDimensionField("error_type", "executions_v1", "error_type", "Structured execution error type when present.", StabilityCore, true, true),
-		relationMeasureField("duration_ns", "executions_v1", "duration_ns", "Execution duration in nanoseconds.", FieldTypeInt),
+		traceDimensionField("operation", "span_name", "Developer-facing operation name.", StabilityBeta, true, true),
+		traceDimensionField("span_kind", "span_kind", "OTel span kind such as server, client, producer, or consumer.", StabilityCore, false, false),
+		traceDimensionField("status_code", "status_code", "Execution outcome status code.", StabilityCore, false, false),
+		traceDimensionField("http_method", "http_method", "HTTP request method when present.", StabilityCore, false, false),
+		traceTypedDimensionField("http_status_code", "http_status_code", "HTTP response status code when present.", StabilityCore, FieldTypeInt, false, false),
+		traceDimensionField("url_path", "url_path", "HTTP URL path when present.", StabilityCore, true, true),
+		traceDimensionField("http_route", "http_route", "Low-cardinality HTTP route template when present.", StabilityCore, true, true),
+		traceDimensionField("peer_service", "peer_service", "Named downstream peer service when present.", StabilityCore, true, true),
+		traceDimensionField("db_system", "db_system", "Database system name when present.", StabilityCore, false, false),
+		traceDimensionField("db_operation", "db_operation", "Database operation name when present.", StabilityCore, false, false),
+		traceDimensionField("rpc_method", "rpc_method", "RPC method when present.", StabilityCore, true, true),
+		traceDimensionField("error_type", "error_type", "Structured execution error type when present.", StabilityCore, true, true),
+		traceMeasureField("duration_ns", "duration_ns", "Execution duration in nanoseconds.", FieldTypeInt),
 		relationDimensionField("metric_name", "measurements_v1", "metric_name", "Metric name.", StabilityCore, true, true),
 		relationDimensionField("metric_type", "measurements_v1", "metric_type", "Metric type.", StabilityCore, false, false),
 		relationDimensionField("temporality", "measurements_v1", "temporality", "Metric aggregation temporality.", StabilityCore, false, false),
@@ -283,6 +323,53 @@ var Default = Registry{
 					"root span detection treats NULL and empty parent_span_id as root",
 					"detail pagination is guaranteed only for default ts DESC, row_id DESC ordering",
 					"record is an evidence payload, not the default query surface; promote or materialize important raw attributes before filtering",
+				},
+			},
+		},
+		{
+			Name:              "spans_v1",
+			Kind:              "span",
+			Description:       "Span-level trace view for expanding a full trace and locating failing or slow child spans.",
+			SourceTable:       "scopedb.otel.traces",
+			TimeField:         "ts",
+			DefaultOrderBy:    defaultDetailOrder,
+			DefaultLimit:      100,
+			MaxLimit:          defaultRelationMax,
+			SupportsSearch:    true,
+			SupportsAggregate: true,
+			Fields: appendFields(
+				commonScopedFields,
+				"trace_id", "execution_id", "span_id", "parent_span_id",
+				"operation", "span_kind", "status_code", "http_method", "http_status_code", "url_path",
+				"http_route", "peer_service", "db_system", "db_operation", "rpc_method", "error_type",
+				"duration_ns", "record",
+			),
+			Anchors: []string{"trace_id", "execution_id", "span_id", "parent_span_id"},
+			Measures: []MeasureDef{
+				countMeasure,
+				countDistinctMeasure,
+				numericMeasure("p50", "Median duration."),
+				numericMeasure("p95", "95th percentile duration."),
+				numericMeasure("p99", "99th percentile duration."),
+			},
+			Advisory: RelationAdvisory{
+				IdentityFields:    []string{"trace_id", "span_id", "parent_span_id"},
+				AnchorFields:      []string{"trace_id", "execution_id", "span_id", "service"},
+				DefaultProject:    []string{"ts", "row_id", "trace_id", "span_id", "parent_span_id", "service", "operation", "span_kind", "status_code", "http_status_code", "http_route", "url_path", "peer_service", "error_type", "duration_ns"},
+				PreferredFilters:  []string{"trace_id", "execution_id", "span_id", "parent_span_id", "env", "service", "version", "status_code", "http_status_code", "http_route", "url_path", "peer_service", "error_type"},
+				PreferredGroupBy:  []string{"service", "version", "operation", "span_kind", "status_code", "http_status_code", "http_route", "peer_service", "error_type", "k8s_namespace", "k8s_cluster", "host"},
+				PreferredMeasures: []string{"count", "p95(duration_ns)", "p99(duration_ns)"},
+				CommonPatterns: []string{
+					"expand a full trace by searching spans_v1 where trace_id equals the incident trace id and sorting ts ascending",
+					"identify failed or slow child spans by filtering one trace_id and sorting duration_ns descending",
+					"break down one trace or service by service, span_kind, status_code, peer_service, or error_type",
+				},
+				Notes: []string{
+					"spans_v1 includes every span from the trace table; use executions_v1 when you only need root/request spans",
+					"trace trees can be reconstructed from span_id and parent_span_id",
+					"for trace expansion, prefer sort ts ASC with a trace_id filter; cursor pagination remains guaranteed only for default ts DESC, row_id DESC ordering",
+					"join evidence manually by querying events_v1 with the same trace_id and, when needed, span_id",
+					"span events and links remain inside record for evidence and are not promoted as a default filter surface yet",
 				},
 			},
 		},

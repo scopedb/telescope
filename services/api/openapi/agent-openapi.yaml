@@ -130,6 +130,7 @@ components:
       enum:
         - events_v1
         - executions_v1
+        - spans_v1
         - measurements_v1
     Direction:
       type: string

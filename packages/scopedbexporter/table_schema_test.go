@@ -96,6 +96,7 @@ func TestCreateIndexStatementsForSignal(t *testing.T) {
 			want: []string{
 				"CREATE RANGE INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (record_timestamp)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (trace_id)",
+				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (span_id)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (service)",
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (service)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_logs_test` (version)",
@@ -131,6 +132,7 @@ func TestCreateIndexStatementsForSignal(t *testing.T) {
 				"CREATE RANGE INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (duration_ns)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (trace_id)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (span_id)",
+				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (parent_span_id)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (service)",
 				"CREATE PATTERN INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (service)",
 				"CREATE POINT INDEX IF NOT EXISTS ON `public`.`vendor_otel_traces_test` (version)",

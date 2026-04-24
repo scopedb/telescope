@@ -173,6 +173,43 @@ func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 	}
 }
 
+func TestBuildSpansTraceExpansionQuery(t *testing.T) {
+	start := time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 23, 1, 0, 0, 0, time.UTC)
+	filter := mustFilter(t, `{"eq":["trace_id","4bf92f3577b34da6a3ce929d0e0e4736"]}`)
+
+	query, err := Default.BuildQuery(QuerySpec{
+		Relation:  "spans_v1",
+		TimeRange: &TimeRange{Start: &start, End: &end},
+		Filter:    filter,
+		Fields:    []string{"ts", "row_id", "trace_id", "span_id", "parent_span_id", "service", "operation", "duration_ns"},
+		OrderBy:   []OrderSpec{{Field: "ts", Direction: "asc"}},
+		Limit:     200,
+	})
+	if err != nil {
+		t.Fatalf("build query: %v", err)
+	}
+
+	want := "" +
+		"FROM `scopedb`.`otel`.`traces`\n" +
+		"WHERE (`trace_id` = '4bf92f3577b34da6a3ce929d0e0e4736') AND (`start_timestamp` >= '2026-04-23T00:00:00Z'::timestamp) AND (`start_timestamp` < '2026-04-23T01:00:00Z'::timestamp)\n" +
+		"SELECT\n" +
+		"  `start_timestamp` AS `ts`,\n" +
+		"  `row_id` AS `row_id`,\n" +
+		"  `trace_id` AS `trace_id`,\n" +
+		"  `span_id` AS `span_id`,\n" +
+		"  `parent_span_id` AS `parent_span_id`,\n" +
+		"  `service` AS `service`,\n" +
+		"  `span_name` AS `operation`,\n" +
+		"  `duration_ns` AS `duration_ns`\n" +
+		"ORDER BY `ts` ASC, `row_id` DESC\n" +
+		"LIMIT 200"
+
+	if got := query.ScopeQL(); got != want {
+		t.Fatalf("unexpected ScopeQL:\n%s", got)
+	}
+}
+
 func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 	filter := mustFilter(t, `{"eq":["service","checkout"]}`)
 
