@@ -31,28 +31,16 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Verify gofmt
-        run: |
-          mapfile -t files < <(git ls-files '*.go' ':!:services/gateway/collector/_build/**')
-          unformatted="$(gofmt -l "${files[@]}")"
-          if [[ -n "${unformatted}" ]]; then
-            echo "Unformatted Go files:"
-            echo "${unformatted}"
-            exit 1
-          fi
+      - name: Run Go checks
+        run: make ci-go
 
-      - name: Verify go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-
-      - name: Run tests
-        run: go test ./...
-
-  collector-build:
-    name: Collector Build
+  runtime-checks:
+    name: Runtime Checks
     runs-on: ubuntu-latest
     needs: go-checks
+    env:
+      TELESCOPE_SCOPEDB_ENDPOINT: https://scopedb.invalid
+      TELESCOPE_SCOPEDB_API_KEY: dummy
     defaults:
       run:
         shell: bash
@@ -66,20 +54,5 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Build Telescope
-        run: make build
-
-      - name: Validate demo collector config
-        run: |
-          TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
-          TELESCOPE_SCOPEDB_API_KEY=dummy \
-          make validate
-
-      - name: Validate deploy collector config
-        run: |
-          TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
-          TELESCOPE_SCOPEDB_API_KEY=dummy \
-          make validate-deploy
-
-      - name: Build Docker image
-        run: make docker-build
+      - name: Run runtime checks
+        run: make ci-runtime
