@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  GOTOOLCHAIN: go1.25.3
+  GO_VERSION: '1.25.3'
 
 jobs:
   workspace:
@@ -31,7 +31,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.work
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
             go.work.sum
             packages/scopedbexporter/go.sum
@@ -72,7 +72,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.work
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
             go.work.sum
             ${{ matrix.module }}/go.sum
@@ -103,7 +103,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.work
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
             go.work.sum
             packages/scopedbexporter/go.sum
