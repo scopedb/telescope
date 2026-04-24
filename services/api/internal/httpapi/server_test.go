@@ -193,6 +193,62 @@ func TestPostSearchReturnsCursorWhenPageIsFull(t *testing.T) {
 	}
 }
 
+func TestPostSearchCustomProjectAddsInternalCursorFields(t *testing.T) {
+	runner := &fakeRunner{
+		results: []fakeResult{
+			{
+				rows: []map[string]any{
+					{"ts": "2026-04-23T00:00:10Z", "row_id": "abcd000000000001", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
+					{"ts": "2026-04-23T00:00:09Z", "row_id": "abcd000000000002", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
+					{"ts": "2026-04-23T00:00:08Z", "row_id": "abcd000000000003", "service_name": "checkout-demo", "message": "PaymentTimeoutError"},
+				},
+			},
+		},
+	}
+	server := newTestServer(t, runner, "test")
+
+	body := []byte(`{
+	  "source": "events_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "filter": {"contains":["message","PaymentTimeoutError"]},
+	  "project": ["ts", "service_name", "message"],
+	  "limit": 2
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(runner.statements[0], "row_id") {
+		t.Fatalf("expected internal row_id projection/order in statement: %s", runner.statements[0])
+	}
+
+	var response SearchResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Page.HasMore || response.Page.NextCursor == "" {
+		t.Fatalf("expected cursor from internal row_id: %#v", response.Page)
+	}
+	if len(response.Rows) != 2 {
+		t.Fatalf("expected trimmed rows, got %#v", response.Rows)
+	}
+	if _, ok := response.Rows[0]["row_id"]; ok {
+		t.Fatalf("internal row_id leaked into projected response: %#v", response.Rows[0])
+	}
+	if response.Rows[0]["message"] != "PaymentTimeoutError" {
+		t.Fatalf("unexpected projected row: %#v", response.Rows[0])
+	}
+}
+
 func TestPostAggregate(t *testing.T) {
 	runner := &fakeRunner{
 		results: []fakeResult{
@@ -247,6 +303,93 @@ func TestPostAggregate(t *testing.T) {
 	}
 	if response.Meta.AppliedQuery.Source != "executions_v1" || len(response.Meta.AppliedQuery.GroupBy) != 1 {
 		t.Fatalf("unexpected applied query: %#v", response.Meta.AppliedQuery)
+	}
+}
+
+func TestPostSearchRejectsUnknownProjectField(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	body := []byte(`{
+	  "source": "events_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "project": ["time_unix_nano"]
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response ErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "bad_request" || response.Error.Message != "unknown project field: time_unix_nano" {
+		t.Fatalf("unexpected error: %#v", response.Error)
+	}
+	if response.Error.Details["field"] != "time_unix_nano" || response.Error.Details["section"] != "project" {
+		t.Fatalf("unexpected details: %#v", response.Error.Details)
+	}
+}
+
+func TestPostSearchRejectsUnknownFilterField(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	body := []byte(`{
+	  "source": "events_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "filter": {"eq":["event_name","PaymentTimeoutError"]}
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "unknown filter field: event_name") {
+		t.Fatalf("unexpected body: %s", recorder.Body.String())
+	}
+}
+
+func TestPostAggregateRejectsUnknownGroupByField(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, "test")
+
+	body := []byte(`{
+	  "source": "events_v1",
+	  "time_range": {
+	    "start": "2026-04-23T00:00:00Z",
+	    "end": "2026-04-23T01:00:00Z"
+	  },
+	  "group_by": [{"field":"event_name"}],
+	  "measures": [{"op":"count"}]
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/aggregate", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "unknown group_by field: event_name") {
+		t.Fatalf("unexpected body: %s", recorder.Body.String())
 	}
 }
 

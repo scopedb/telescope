@@ -93,6 +93,9 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (SearchResp
 	if !supportsTimeTopCursor(request.Sort) && strings.TrimSpace(request.Cursor) != "" {
 		return SearchResponse{}, badRequest("cursor is only supported for default time-top sort", nil)
 	}
+	if err := s.validateSearchRequest(relation, request); err != nil {
+		return SearchResponse{}, err
+	}
 
 	timeRange := request.TimeRange.toSemantic()
 	if timeRange.End == nil {
@@ -130,7 +133,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (SearchResp
 	spec := semantic.QuerySpec{
 		Relation:  request.Source,
 		TimeRange: timeRange,
-		Fields:    request.Project,
+		Fields:    searchInternalProject(relation, request),
 		Filter:    filter,
 		OrderBy:   toSemanticOrders(request.Sort),
 		Limit:     clampLimit(request.Limit, relation.DefaultLimit, relation.MaxLimit),
@@ -158,6 +161,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (SearchResp
 		}
 		hasMore = nextCursor != ""
 	}
+	rows = trimRowsToProject(rows, request.Project)
 
 	return SearchResponse{
 		Rows: rows,
@@ -184,6 +188,9 @@ func (s *Service) Aggregate(ctx context.Context, request AggregateRequest) (Aggr
 	relation, ok := s.registry.Relation(request.Source)
 	if !ok {
 		return AggregateResponse{}, badRequest("unknown source", map[string]any{"source": request.Source})
+	}
+	if err := s.validateAggregateRequest(relation, request); err != nil {
+		return AggregateResponse{}, err
 	}
 
 	spec := semantic.QuerySpec{

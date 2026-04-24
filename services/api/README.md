@@ -40,9 +40,10 @@ The primary HTTP contract should stay hand-written and live under `openapi/agent
 
 ## Binary
 
-The initial runnable binary lives at `cmd/scopedb-otel-debug-api`.
+The runnable binaries are:
 
-The current implementation exposes the agent-oriented routes described in `openapi/agent-openapi.yaml`.
+- `cmd/scopedb-otel-debug-api`: Echo HTTP API for the agent-oriented routes described in `openapi/agent-openapi.yaml`
+- `cmd/scopedb-otel-mcp`: stdio MCP server exposing the same telemetry service as tools and resources
 
 Required environment variables:
 
@@ -60,3 +61,22 @@ Example:
 ```bash
 go run ./cmd/scopedb-otel-debug-api
 ```
+
+MCP example:
+
+```bash
+go run ./cmd/scopedb-otel-mcp
+```
+
+MCP tools:
+
+- `health`
+- `schema`
+- `schema_guide`
+- `search`
+- `aggregate`
+
+MCP resources:
+
+- `scopedb://telemetry/schema`
+- `scopedb://telemetry/guide.md`
