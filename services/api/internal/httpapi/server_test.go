@@ -375,7 +375,7 @@ func TestPostAggregateNormalizesMeasureOp(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if len(runner.statements) != 1 || !strings.Contains(runner.statements[0], "approx_quantile(duration_ns::float, quantile => 0.95) AS p95_duration_ns") {
+	if len(runner.statements) != 1 || !strings.Contains(runner.statements[0], "approx_quantile(`duration_ns`::float, quantile => 0.95) AS `p95_duration_ns`") {
 		t.Fatalf("unexpected statement: %#v", runner.statements)
 	}
 
