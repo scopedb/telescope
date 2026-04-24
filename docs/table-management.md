@@ -75,6 +75,8 @@ telescope daemon
 
 `TELESCOPE_COLLECTOR_CONFIG` replaces the embedded Collector config with a config URI or file path. The deploy config keeps the same table routes but enables a larger persistent sending queue under `/var/lib/telescope/queue`, so the path must be writable when used outside Docker.
 
+The Docker image includes this deploy config at `/etc/telescope/collector.yaml`, and Docker Compose sets `TELESCOPE_COLLECTOR_CONFIG` to that path.
+
 Keep one logical telemetry environment per `dataset` value unless you have a strong reason to split physical tables. `dataset` is stored as a column and is cheaper to change than table topology.
 
 ## Choosing Dataset vs Tables

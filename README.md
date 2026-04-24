@@ -43,6 +43,8 @@ Send OTLP telemetry to:
 - `localhost:4317` for OTLP gRPC
 - `localhost:4318` for OTLP HTTP
 
+The Docker deployment publishes the HTTP API/MCP port on `127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}` by default, so agent tools on the same host can use it without exposing query access on every interface.
+
 Change the `TELESCOPE_*_PORT` values if those ports are already in use.
 
 ## Local Binary

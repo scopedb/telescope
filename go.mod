@@ -2,6 +2,8 @@ module github.com/scopedb/telescope
 
 go 1.25.0
 
+toolchain go1.25.3
+
 require (
 	github.com/klauspost/compress v1.18.5
 	github.com/labstack/echo/v4 v4.15.1
