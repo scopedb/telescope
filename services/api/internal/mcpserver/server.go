@@ -13,7 +13,7 @@ import (
 	"github.com/your-org/vendor-otel-gateway/services/api/internal/httpapi"
 )
 
-const protocolVersion = "2024-11-05"
+const protocolVersion = "2025-06-18"
 
 type Server struct {
 	service httpapi.TelemetryService

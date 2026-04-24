@@ -6,7 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/your-org/vendor-otel-gateway/services/api/internal/httpapi"
+	"github.com/your-org/vendor-otel-gateway/services/api/internal/mcpserver"
 	"github.com/your-org/vendor-otel-gateway/services/api/internal/scopedbexec"
 	"github.com/your-org/vendor-otel-gateway/services/api/internal/semantic"
 )
@@ -23,11 +26,24 @@ func main() {
 	runner := scopedbexec.New(config.ScopeDBEndpoint, config.ScopeDBAPIKey, config.QueryTimeout)
 	defer runner.Close()
 
-	server, err := httpapi.New(semantic.Default, runner, version)
+	service, err := httpapi.NewService(semantic.Default, runner, version)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "build server: %v\n", err)
+		fmt.Fprintf(os.Stderr, "build service: %v\n", err)
 		os.Exit(1)
 	}
+
+	server, err := httpapi.NewWithService(service)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "build HTTP server: %v\n", err)
+		os.Exit(1)
+	}
+
+	mcp, err := mcpserver.New(service, "scopedb-otel-mcp", version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "build MCP server: %v\n", err)
+		os.Exit(1)
+	}
+	server.Any("/mcp", echo.WrapHandler(mcp))
 
 	if err := server.Start(config.ListenAddr); err != nil {
 		fmt.Fprintf(os.Stderr, "start server: %v\n", err)

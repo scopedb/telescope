@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -116,6 +118,87 @@ func TestServeToolErrorReturnsPureJSONText(t *testing.T) {
 	}
 }
 
+func TestServeHTTPInitialize(t *testing.T) {
+	server := newTestMCPServer(t, fakeService{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{
+	  "jsonrpc":"2.0",
+	  "id":1,
+	  "method":"initialize",
+	  "params":{"protocolVersion":"2025-06-18"}
+	}`))
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("unexpected content-type: %s", recorder.Header().Get("Content-Type"))
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	result := response["result"].(map[string]any)
+	if result["protocolVersion"] != "2025-06-18" {
+		t.Fatalf("unexpected initialize result: %#v", result)
+	}
+}
+
+func TestServeHTTPNotificationAccepted(t *testing.T) {
+	server := newTestMCPServer(t, fakeService{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{
+	  "jsonrpc":"2.0",
+	  "method":"notifications/initialized"
+	}`))
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got: %s", recorder.Body.String())
+	}
+}
+
+func TestServeHTTPGetReturnsMethodNotAllowed(t *testing.T) {
+	server := newTestMCPServer(t, fakeService{})
+	request := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestServeHTTPRejectsNonLoopbackOrigin(t *testing.T) {
+	server := newTestMCPServer(t, fakeService{})
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{
+	  "jsonrpc":"2.0",
+	  "id":1,
+	  "method":"ping"
+	}`))
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Origin", "https://example.com")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func runMessages(t *testing.T, payloads ...string) []byte {
 	t.Helper()
 
@@ -173,6 +256,15 @@ func decodeResponses(t *testing.T, output []byte) []map[string]any {
 		responses = append(responses, response)
 	}
 	return responses
+}
+
+func newTestMCPServer(t *testing.T, service httpapi.TelemetryService) *Server {
+	t.Helper()
+	server, err := New(service, "test-mcp", "test")
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	return server
 }
 
 type fakeService struct{}
