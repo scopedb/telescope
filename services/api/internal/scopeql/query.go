@@ -18,7 +18,7 @@ func (s Selection) ScopeQL() string {
 	if strings.TrimSpace(s.Alias) == "" {
 		return s.Expr.ScopeQL()
 	}
-	return fmt.Sprintf("%s AS %s", s.Expr.ScopeQL(), s.Alias)
+	return fmt.Sprintf("%s AS %s", s.Expr.ScopeQL(), QuoteIdentifier(s.Alias))
 }
 
 type Order struct {
@@ -98,7 +98,7 @@ func (q *Query) ScopeQL() string {
 	lines := make([]string, 0, 6)
 
 	if strings.TrimSpace(q.from) != "" {
-		lines = append(lines, "FROM "+q.from)
+		lines = append(lines, "FROM "+QuoteIdentifierPath(q.from))
 	}
 	if q.where != nil {
 		lines = append(lines, "WHERE "+q.where.ScopeQL())

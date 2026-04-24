@@ -17,12 +17,12 @@ func TestQueryScopeQL(t *testing.T) {
 		Limit(20)
 
 	want := "" +
-		"FROM scopedb.otel.traces\n" +
-		"WHERE (trace_id = 'abc') AND (status_code = 'error')\n" +
+		"FROM `scopedb`.`otel`.`traces`\n" +
+		"WHERE (`trace_id` = 'abc') AND (`status_code` = 'error')\n" +
 		"SELECT\n" +
-		"  start_timestamp AS ts,\n" +
-		"  trace_id AS trace_id\n" +
-		"ORDER BY ts DESC\n" +
+		"  `start_timestamp` AS `ts`,\n" +
+		"  `trace_id` AS `trace_id`\n" +
+		"ORDER BY `ts` DESC\n" +
 		"LIMIT 20"
 
 	if got := query.ScopeQL(); got != want {
@@ -49,16 +49,44 @@ func TestAggregateQueryScopeQL(t *testing.T) {
 		OrderBy(OrderBy(Ref("bucket"), false))
 
 	want := "" +
-		"FROM scopedb.otel.logs\n" +
-		"WHERE service_name = 'checkout'\n" +
-		"GROUP BY trunc(record_timestamp, unit => 'minute') AS bucket, severity_text AS severity_text\n" +
+		"FROM `scopedb`.`otel`.`logs`\n" +
+		"WHERE `service_name` = 'checkout'\n" +
+		"GROUP BY trunc(`record_timestamp`, unit => 'minute') AS `bucket`, `severity_text` AS `severity_text`\n" +
 		"AGGREGATE\n" +
-		"  count() AS count\n" +
+		"  count() AS `count`\n" +
 		"SELECT\n" +
-		"  bucket,\n" +
-		"  severity_text,\n" +
-		"  count\n" +
-		"ORDER BY bucket ASC"
+		"  `bucket`,\n" +
+		"  `severity_text`,\n" +
+		"  `count`\n" +
+		"ORDER BY `bucket` ASC"
+
+	if got := query.ScopeQL(); got != want {
+		t.Fatalf("unexpected ScopeQL:\n%s", got)
+	}
+}
+
+func TestStringLiteralEscapesQuotesAndBackslashes(t *testing.T) {
+	expr := String(`path\tail' OR true`)
+	want := `'path\\tail'' OR true'`
+
+	if got := expr.ScopeQL(); got != want {
+		t.Fatalf("unexpected ScopeQL: got %q, want %q", got, want)
+	}
+}
+
+func TestIdentifiersEscapeInjectionCharacters(t *testing.T) {
+	query := New().
+		From("safe.schema.logs; DROP TABLE x").
+		Select(
+			Select(Ref("field`name"), "alias.with.dot`; DROP TABLE x"),
+		).
+		OrderBy(OrderBy(Ref("alias.with.dot`; DROP TABLE x"), false))
+
+	want := "" +
+		"FROM `safe`.`schema`.`logs; DROP TABLE x`\n" +
+		"SELECT\n" +
+		"  `field``name` AS `alias.with.dot``; DROP TABLE x`\n" +
+		"ORDER BY `alias.with.dot``; DROP TABLE x` ASC"
 
 	if got := query.ScopeQL(); got != want {
 		t.Fatalf("unexpected ScopeQL:\n%s", got)
