@@ -111,6 +111,8 @@ The query surface accepts promoted semantic fields only. Raw `record` payloads r
 
 ## Develop
 
+For table creation and routing details, see [docs/table-management.md](docs/table-management.md).
+
 Run all tests:
 
 ```bash
