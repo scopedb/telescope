@@ -4,14 +4,34 @@ OCB ?= ./bin/builder
 IMAGE ?= scopedb-telescope:0.1.0
 GATEWAY_COLLECTOR_DIR ?= services/gateway/collector
 GATEWAY_DEPLOY_DIR ?= services/gateway/deploy
-EXPORTER_DIR ?= packages/scopedbexporter
 API_DIR ?= services/api
 TELESCOPE ?= ./bin/telescope
 
+.PHONY: fmt-check
+fmt-check:
+	@tmp="$$(mktemp)"; \
+	git ls-files '*.go' ':!:$(GATEWAY_COLLECTOR_DIR)/_build/**' | while IFS= read -r file; do \
+		gofmt -l "$$file"; \
+	done > "$$tmp"; \
+	if [ -s "$$tmp" ]; then \
+		echo "Unformatted Go files:"; \
+		cat "$$tmp"; \
+		rm -f "$$tmp"; \
+		exit 1; \
+	fi; \
+	rm -f "$$tmp"
+
+.PHONY: tidy-check
+tidy-check:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go mod tidy
+	git diff --exit-code -- go.mod go.sum
+
 .PHONY: test
 test:
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./$(EXPORTER_DIR)/...
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./$(API_DIR)/...
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
+
+.PHONY: ci-go
+ci-go: fmt-check tidy-check test
 
 .PHONY: build-ocb
 build-ocb:
@@ -47,9 +67,15 @@ validate-deploy: build
 	TELESCOPE_HEALTH_ADDR="$${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
 	$(abspath $(TELESCOPE)) collector validate --config config/deploy.yaml
 
+.PHONY: validate-configs
+validate-configs: validate validate-deploy
+
 .PHONY: docker-build
 docker-build:
 	docker build -f $(GATEWAY_COLLECTOR_DIR)/Dockerfile -t $(IMAGE) .
+
+.PHONY: ci-runtime
+ci-runtime: validate-configs docker-build
 
 .PHONY: demo
 demo:
