@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/scopedb/telescope/services/api/internal/scopeql"
 )
 
 type Expr interface {
@@ -23,7 +25,7 @@ func Ref(name string) Expr {
 func (RefExpr) exprNode() {}
 
 func (e RefExpr) ScopeQL() string {
-	return e.Name
+	return scopeql.QuoteIdentifier(e.Name)
 }
 
 func (e RefExpr) Validate() error {

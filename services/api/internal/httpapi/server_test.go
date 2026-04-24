@@ -121,10 +121,10 @@ func TestPostSearchUsesTimeTopByDefault(t *testing.T) {
 	if len(runner.statements) != 1 {
 		t.Fatalf("expected 1 query, got %d", len(runner.statements))
 	}
-	if !strings.Contains(runner.statements[0], "record_timestamp >= '2026-04-23T00:00:00Z'::timestamp") {
+	if !strings.Contains(runner.statements[0], "`record_timestamp` >= '2026-04-23T00:00:00Z'::timestamp") {
 		t.Fatalf("missing time_range start in statement: %s", runner.statements[0])
 	}
-	if !strings.Contains(runner.statements[0], "record_timestamp < '2026-04-23T01:00:00Z'::timestamp") {
+	if !strings.Contains(runner.statements[0], "`record_timestamp` < '2026-04-23T01:00:00Z'::timestamp") {
 		t.Fatalf("missing time_range end in statement: %s", runner.statements[0])
 	}
 	if !strings.Contains(runner.statements[0], "ORDER BY `ts` DESC, `row_id` DESC") {
@@ -490,7 +490,7 @@ func TestPostSearchUsesCursorForSecondPage(t *testing.T) {
 	if len(runner.statements) != 1 {
 		t.Fatalf("expected 1 query, got %d", len(runner.statements))
 	}
-	if !strings.Contains(runner.statements[0], "(record_timestamp < '2026-04-23T00:00:09Z'::timestamp) OR ((record_timestamp = '2026-04-23T00:00:09Z'::timestamp) AND (row_id < 'abcd000000000002'))") {
+	if !strings.Contains(runner.statements[0], "(`record_timestamp` < '2026-04-23T00:00:09Z'::timestamp) OR ((`record_timestamp` = '2026-04-23T00:00:09Z'::timestamp) AND (`row_id` < 'abcd000000000002'))") {
 		t.Fatalf("missing cursor predicate: %s", runner.statements[0])
 	}
 }

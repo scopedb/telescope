@@ -18,20 +18,20 @@ func TestBuildDefaultSearchQuery(t *testing.T) {
 	want := "" +
 		"FROM `scopedb`.`otel`.`logs`\n" +
 		"SELECT\n" +
-		"  record_timestamp AS `ts`,\n" +
-		"  row_id AS `row_id`,\n" +
-		"  dataset AS `dataset`,\n" +
-		"  service_name AS `service_name`,\n" +
-		"  instance_id AS `instance_id`,\n" +
-		"  pod_name AS `pod_name`,\n" +
-		"  host_ip AS `host_ip`,\n" +
-		"  host_name AS `host_name`,\n" +
-		"  trace_id AS `trace_id`,\n" +
-		"  trace_id AS `execution_id`,\n" +
-		"  span_id AS `span_id`,\n" +
-		"  severity_text AS `severity_text`,\n" +
-		"  message AS `message`,\n" +
-		"  record AS `record`\n" +
+		"  `record_timestamp` AS `ts`,\n" +
+		"  `row_id` AS `row_id`,\n" +
+		"  `dataset` AS `dataset`,\n" +
+		"  `service_name` AS `service_name`,\n" +
+		"  `instance_id` AS `instance_id`,\n" +
+		"  `pod_name` AS `pod_name`,\n" +
+		"  `host_ip` AS `host_ip`,\n" +
+		"  `host_name` AS `host_name`,\n" +
+		"  `trace_id` AS `trace_id`,\n" +
+		"  `trace_id` AS `execution_id`,\n" +
+		"  `span_id` AS `span_id`,\n" +
+		"  `severity_text` AS `severity_text`,\n" +
+		"  `message` AS `message`,\n" +
+		"  `record` AS `record`\n" +
 		"ORDER BY `ts` DESC, `row_id` DESC\n" +
 		"LIMIT 10"
 
@@ -64,8 +64,8 @@ func TestBuildAggregateQuery(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`traces`\n" +
-		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (service_name = 'checkout')\n" +
-		"GROUP BY span_name AS `operation`, status_code AS `status_code`\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service_name` = 'checkout')\n" +
+		"GROUP BY `span_name` AS `operation`, `status_code` AS `status_code`\n" +
 		"AGGREGATE\n" +
 		"  count() AS `count`\n" +
 		"SELECT\n" +
@@ -98,22 +98,22 @@ func TestBuildQueryWithTimeRangeAndRowIDTieBreaker(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`logs`\n" +
-		"WHERE (record_timestamp >= '2026-04-23T00:00:00Z'::timestamp) AND (record_timestamp < '2026-04-23T01:00:00Z'::timestamp)\n" +
+		"WHERE (`record_timestamp` >= '2026-04-23T00:00:00Z'::timestamp) AND (`record_timestamp` < '2026-04-23T01:00:00Z'::timestamp)\n" +
 		"SELECT\n" +
-		"  record_timestamp AS `ts`,\n" +
-		"  row_id AS `row_id`,\n" +
-		"  dataset AS `dataset`,\n" +
-		"  service_name AS `service_name`,\n" +
-		"  instance_id AS `instance_id`,\n" +
-		"  pod_name AS `pod_name`,\n" +
-		"  host_ip AS `host_ip`,\n" +
-		"  host_name AS `host_name`,\n" +
-		"  trace_id AS `trace_id`,\n" +
-		"  trace_id AS `execution_id`,\n" +
-		"  span_id AS `span_id`,\n" +
-		"  severity_text AS `severity_text`,\n" +
-		"  message AS `message`,\n" +
-		"  record AS `record`\n" +
+		"  `record_timestamp` AS `ts`,\n" +
+		"  `row_id` AS `row_id`,\n" +
+		"  `dataset` AS `dataset`,\n" +
+		"  `service_name` AS `service_name`,\n" +
+		"  `instance_id` AS `instance_id`,\n" +
+		"  `pod_name` AS `pod_name`,\n" +
+		"  `host_ip` AS `host_ip`,\n" +
+		"  `host_name` AS `host_name`,\n" +
+		"  `trace_id` AS `trace_id`,\n" +
+		"  `trace_id` AS `execution_id`,\n" +
+		"  `span_id` AS `span_id`,\n" +
+		"  `severity_text` AS `severity_text`,\n" +
+		"  `message` AS `message`,\n" +
+		"  `record` AS `record`\n" +
 		"ORDER BY `ts` DESC, `row_id` DESC\n" +
 		"LIMIT 10"
 
@@ -144,11 +144,11 @@ func TestBuildQueryWithSearchAndRegexpFilters(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`logs`\n" +
-		"WHERE (service_name = 'checkout') AND (search(message, 'payment timeout')) AND (regexp_like(message, '(?i)timeout|deadline'))\n" +
+		"WHERE (`service_name` = 'checkout') AND (search(`message`, 'payment timeout')) AND (regexp_like(`message`, '(?i)timeout|deadline'))\n" +
 		"SELECT\n" +
-		"  record_timestamp AS `ts`,\n" +
-		"  row_id AS `row_id`,\n" +
-		"  message AS `message`\n" +
+		"  `record_timestamp` AS `ts`,\n" +
+		"  `row_id` AS `row_id`,\n" +
+		"  `message` AS `message`\n" +
 		"ORDER BY `ts` DESC, `row_id` DESC\n" +
 		"LIMIT 5"
 
@@ -186,11 +186,11 @@ func TestBuildAggregateQueryWithFiveMinuteBucket(t *testing.T) {
 
 	want := "" +
 		"FROM `scopedb`.`otel`.`traces`\n" +
-		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (service_name = 'checkout') AND (start_timestamp >= '2026-04-23T00:00:00Z'::timestamp) AND (start_timestamp < '2026-04-23T01:00:00Z'::timestamp)\n" +
-		"GROUP BY floor(start_timestamp, n => 5, unit => 'minute') AS `ts_5m`, service_name AS `service_name`\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`service_name` = 'checkout') AND (`start_timestamp` >= '2026-04-23T00:00:00Z'::timestamp) AND (`start_timestamp` < '2026-04-23T01:00:00Z'::timestamp)\n" +
+		"GROUP BY floor(`start_timestamp`, n => 5, unit => 'minute') AS `ts_5m`, `service_name` AS `service_name`\n" +
 		"AGGREGATE\n" +
 		"  count() AS `count`,\n" +
-		"  avg(duration_ns) AS `avg_duration_ns`\n" +
+		"  avg(`duration_ns`) AS `avg_duration_ns`\n" +
 		"SELECT\n" +
 		"  `ts_5m`,\n" +
 		"  `service_name`,\n" +
