@@ -36,6 +36,8 @@ The primary HTTP contract should stay hand-written and live under `openapi/agent
 - the public surface should stay limited to `schema`, `schema/guide.md`, `search`, and `aggregate`
 - generated artifacts can be added later if the service adopts them
 
+The daemon also serves `/llms.txt` from the same HTTP server as an LLM-readable runtime map.
+
 ## Binary
 
 The runnable binary is:
