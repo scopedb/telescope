@@ -98,6 +98,36 @@ Send OTLP telemetry to the local runtime:
 
 The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
 
+### Send A Test Trace
+
+Use OpenTelemetry's `telemetrygen` container to send one trace without installing a local generator:
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.150.0 \
+  traces \
+  --otlp-endpoint host.docker.internal:4317 \
+  --otlp-insecure \
+  --service telescope-smoke \
+  --traces 1
+```
+
+Then query recent root spans through Telescope:
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/search \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "source": "executions_v1",
+    "time_range": {"start": "1970-01-01T00:00:00Z"},
+    "filter": {"eq": {"field": "service", "value": "telescope-smoke"}},
+    "project": ["ts", "service", "trace_id", "operation", "duration_ns"],
+    "limit": 5
+  }'
+```
+
+For existing tables with substantial telemetry, narrow the `time_range.start` value before querying.
+
 ### Signal Coverage
 
 Telescope currently focuses on traces and logs. Metrics ingestion is available, but the semantic fields, query patterns, and agent-facing guidance are still limited compared with trace and log workflows.
