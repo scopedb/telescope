@@ -58,7 +58,7 @@ docker compose --env-file services/gateway/deploy/.env \
 
 Change the `TELESCOPE_*_PORT` values if any default ports are already in use.
 
-## Verify The Runtime
+### Verify The Runtime
 
 Check that the HTTP API is alive:
 
@@ -90,7 +90,7 @@ curl -sS http://127.0.0.1:8080/mcp \
 
 The Docker deployment publishes the HTTP API/MCP port on `127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}` by default, so agent tools on the same host can use it without exposing query access on every interface.
 
-## Send Telemetry
+### Send Telemetry
 
 Send OTLP telemetry to the local runtime:
 
@@ -99,11 +99,13 @@ Send OTLP telemetry to the local runtime:
 
 The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
 
-## Signal Coverage
+### Signal Coverage
 
 Telescope currently focuses on traces and logs. Metrics ingestion is available, but the semantic fields, query patterns, and agent-facing guidance are still limited compared with trace and log workflows.
 
-## Agent / MCP Usage
+## Using Telescope
+
+### Agent / MCP Usage
 
 Telescope is intended to be used by developer agents as a small observability tool surface, not as a dashboard.
 
@@ -117,7 +119,7 @@ Recommended flow:
 
 The query surface accepts promoted semantic fields only. Raw `record` payloads remain available as evidence, but arbitrary `record.*` filters are intentionally not part of the default API.
 
-## Local Binary
+### Local Binary
 
 Build and run the same daemon directly:
 
@@ -137,7 +139,7 @@ TELESCOPE_SCOPEDB_API_KEY=sk_... \
 ./bin/telescope mcp
 ```
 
-## HTTP API And MCP Tools
+### HTTP API And MCP Tools
 
 Telescope exposes five MCP tools:
 
@@ -156,7 +158,7 @@ The daemon HTTP server exposes:
 - `POST /v1/aggregate`
 - `POST /mcp`
 
-## Develop
+## Development
 
 For table creation and routing details, see [docs/table-management.md](docs/table-management.md).
 
@@ -193,7 +195,7 @@ TELESCOPE_SCOPEDB_API_KEY=sk_... \
 make validate
 ```
 
-## Release Artifacts
+### Release Artifacts
 
 Build local release artifacts:
 
@@ -206,7 +208,9 @@ The artifact pipeline writes compressed binary bundles and `SHA256SUMS` under `d
 
 Publish the release image by pushing a version tag such as `v0.1.0`; CI publishes `ghcr.io/scopedb/telescope`.
 
-## Project Map
+## Project
+
+### Project Map
 
 - `services/gateway/collector`: collector configs and Docker packaging
 - `services/gateway/deploy`: Docker Compose deployment assets
@@ -214,11 +218,11 @@ Publish the release image by pushing a version tag such as `v0.1.0`; CI publishe
 - `packages/scopedbexporter`: ScopeDB OpenTelemetry Collector exporter
 - `docs`: design notes
 
-## Status
+### Status
 
 Telescope is an early prototype. The current focus is the agent-facing debugging loop, not dashboards or a managed control plane.
 
-## License
+### License
 
 Telescope is licensed under the [Apache License, Version 2.0](LICENSE).
 
