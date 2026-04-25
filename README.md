@@ -97,7 +97,11 @@ Send OTLP telemetry to the local runtime:
 - `localhost:4317` for OTLP gRPC
 - `localhost:4318` for OTLP HTTP
 
-The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes them through Telescope's semantic query layer.
+The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
+
+## Signal Coverage
+
+Telescope currently focuses on traces and logs. Metrics ingestion is available, but the semantic fields, query patterns, and agent-facing guidance are still limited compared with trace and log workflows.
 
 ## Agent / MCP Usage
 
