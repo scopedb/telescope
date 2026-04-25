@@ -86,16 +86,7 @@ telescope daemon
 
 This uses the embedded Collector config and creates the default tables automatically.
 
-Use the deployment config for long-running edge deployments or local runs that should match Docker behavior:
-
-```bash
-TELESCOPE_COLLECTOR_CONFIG=services/gateway/collector/config/deploy.yaml \
-telescope daemon
-```
-
-`TELESCOPE_COLLECTOR_CONFIG` replaces the embedded Collector config with a config URI or file path. The deploy config keeps the same table routes but enables a larger persistent sending queue under `/var/lib/telescope/queue`, so the path must be writable when used outside Docker.
-
-The Docker image includes this deploy config at `/etc/telescope/collector.yaml`, and Docker Compose sets `TELESCOPE_COLLECTOR_CONFIG` to that path.
+Docker uses the same embedded Collector config. Docker Compose sets `TELESCOPE_QUEUE_DIR=/var/lib/telescope/queue`, so the persistent queue is stored in the `scopedb-telescope-queue` volume.
 
 Keep one logical telemetry environment per `env` value unless you have a strong reason to split physical tables. `env` is stored as a column and is cheaper to change than table topology.
 
@@ -173,14 +164,14 @@ Important fields:
 | `tables.logs` | `scopedb.otel.logs` | Log table route. |
 | `tables.traces` | `scopedb.otel.traces` | Trace/span table route. |
 | `tables.metrics` | `scopedb.otel.metrics` | Metric table route. |
-| `create_tables_if_not_exist` | `false` in exporter defaults, `true` in Telescope daemon/deploy configs | Enables startup database/schema/table creation. |
+| `create_tables_if_not_exist` | `false` in exporter defaults, `true` in Telescope daemon config | Enables startup database/schema/table creation. |
 | `schema_version` | `v1` | Stored in every row for future migrations. |
 | `compression` | `zstd` | Use `none`, `gzip`, or `zstd`. |
 | `timeout` | `10s` | Also bounds startup table creation unless unset. |
 
-## Embedded Defaults vs Deploy Config
+## Embedded Defaults
 
-The embedded `telescope daemon` config is optimized for quick local startup:
+The embedded `telescope daemon` config is used by both the local binary and the Docker image:
 
 | Setting | Embedded daemon default |
 | --- | --- |
@@ -189,37 +180,27 @@ The embedded `telescope daemon` config is optimized for quick local startup:
 | OTLP HTTP | `0.0.0.0:4318` |
 | health | `0.0.0.0:13133` |
 | queue dir | `$HOME/.telescope/queue` |
-| queue size | `1000` |
-| queue consumers | `2` |
-| retry max elapsed | `5m` |
+| batch timeout | `30s` |
+| batch send size | `2000` |
+| batch max size | `2000` |
+| queue size | `5000` |
+| queue consumers | `1` |
+| retry initial interval | `5s` |
+| retry max interval | `60s` |
+| retry max elapsed | `10m` |
 
-The Docker/deploy config is optimized for a long-running edge daemon:
+Override the queue directory with `TELESCOPE_QUEUE_DIR` when running in a container or another environment that needs a specific writable volume.
 
-| Setting | Deploy config |
-| --- | --- |
-| queue dir | `/var/lib/telescope/queue` |
-| queue size | `10000` |
-| queue consumers | `4` |
-| retry max elapsed | `0s` (retry indefinitely) |
-
-Use `TELESCOPE_COLLECTOR_CONFIG` or `telescope daemon --collector-config` when you want the deploy behavior outside Docker.
+Use `TELESCOPE_COLLECTOR_CONFIG` or `telescope daemon --collector-config` only when you need to replace the embedded Collector config with a custom config URI or file path.
 
 ## Validating Configuration
 
-Validate the demo config:
+Validate the embedded config:
 
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
 TELESCOPE_SCOPEDB_API_KEY=dummy \
 make validate
-```
-
-Validate the deploy config:
-
-```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
-TELESCOPE_SCOPEDB_API_KEY=dummy \
-make validate-deploy
 ```
 
 The validation path checks Collector config shape and exporter config validation. It does not contact ScopeDB unless you actually start a pipeline.

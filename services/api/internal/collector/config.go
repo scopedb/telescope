@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 ScopeDB contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package collector
 
 const DefaultConfig = `
@@ -22,8 +38,9 @@ processors:
     limit_mib: 512
     spike_limit_mib: 128
   batch:
-    timeout: 5s
-    send_batch_size: 512
+    timeout: 30s
+    send_batch_size: 2000
+    send_batch_max_size: 2000
 
 exporters:
   scopedb:
@@ -36,13 +53,13 @@ exporters:
     sending_queue:
       enabled: true
       storage: file_storage
-      queue_size: 1000
-      num_consumers: 2
+      queue_size: 5000
+      num_consumers: 1
     retry_on_failure:
       enabled: true
-      initial_interval: 1s
-      max_interval: 30s
-      max_elapsed_time: 5m
+      initial_interval: 5s
+      max_interval: 60s
+      max_elapsed_time: 10m
 
 service:
   extensions: [health_check, file_storage]

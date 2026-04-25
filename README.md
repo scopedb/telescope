@@ -13,9 +13,17 @@ It is designed for the moment when an incident starts with partial context like 
 - Give agents a tiny tool surface: discover schema, search details, aggregate trends.
 - Run as a local or edge data-plane component, powered by your ScopeDB deployment.
 
+## Requirements
+
+- Docker with Docker Compose, for the recommended runtime path.
+- A reachable ScopeDB endpoint and API key.
+- OpenTelemetry clients, SDKs, or collectors that can export OTLP telemetry.
+
+Telescope uses ScopeDB as the storage and query backend. The daemon needs valid ScopeDB credentials to stay running, and the embedded collector config creates or verifies the default telemetry tables on startup.
+
 ## Quick Start
 
-Start the local runtime:
+Create a local environment file:
 
 ```bash
 cp services/gateway/deploy/.env.example services/gateway/deploy/.env
@@ -33,37 +41,41 @@ TELESCOPE_HTTP_PORT=8080
 TELESCOPE_HEALTH_PORT=13133
 ```
 
-Run Telescope:
+Run the published GHCR image:
 
 ```bash
-docker compose -f services/gateway/deploy/docker-compose.yaml up -d --build
+IMAGE=ghcr.io/scopedb/telescope:0.1.0 \
+docker compose --env-file services/gateway/deploy/.env \
+  -f services/gateway/deploy/docker-compose.yaml up -d
 ```
 
-Send OTLP telemetry to:
-
-- `localhost:4317` for OTLP gRPC
-- `localhost:4318` for OTLP HTTP
-
-The Docker deployment publishes the HTTP API/MCP port on `127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}` by default, so agent tools on the same host can use it without exposing query access on every interface.
-
-Change the `TELESCOPE_*_PORT` values if those ports are already in use.
-
-## Local Binary
-
-Build and run the same daemon directly:
+For source builds during development:
 
 ```bash
-make build
-
-TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-TELESCOPE_SCOPEDB_API_KEY=sk_... \
-./bin/telescope daemon
+docker compose --env-file services/gateway/deploy/.env \
+  -f services/gateway/deploy/docker-compose.yaml up -d --build
 ```
 
-Check that it is alive:
+Change the `TELESCOPE_*_PORT` values if any default ports are already in use.
+
+### Verify The Runtime
+
+Check that the HTTP API is alive:
 
 ```bash
 curl -sS http://127.0.0.1:8080/healthz
+```
+
+Expected response, with `version` matching the image or binary you are running:
+
+```json
+{"status":"ok","service":"telescope","version":"<version>"}
+```
+
+Read the LLM-facing runtime map:
+
+```bash
+curl -sS http://127.0.0.1:8080/llms.txt
 ```
 
 Initialize MCP over HTTP:
@@ -76,7 +88,50 @@ curl -sS http://127.0.0.1:8080/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
 ```
 
-For local agents that prefer stdio:
+The Docker deployment publishes the HTTP API/MCP port on `127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}` by default, so agent tools on the same host can use it without exposing query access on every interface.
+
+### Send Telemetry
+
+Send OTLP telemetry to the local runtime:
+
+- `localhost:4317` for OTLP gRPC
+- `localhost:4318` for OTLP HTTP
+
+The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
+
+### Signal Coverage
+
+Telescope currently focuses on traces and logs. Metrics ingestion is available, but the semantic fields, query patterns, and agent-facing guidance are still limited compared with trace and log workflows.
+
+## Using Telescope
+
+### Agent / MCP Usage
+
+Telescope is intended to be used by developer agents as a small observability tool surface, not as a dashboard.
+
+Recommended flow:
+
+1. Call `schema` or read `scopedb://telemetry/schema`.
+2. Use `schema_guide` to choose the right relation and fields.
+3. Use `search` when evidence rows matter.
+4. Use `aggregate` when volume, trend, or grouping matters.
+5. Hand off the result with cited rows and `applied_query`.
+
+The query surface accepts promoted semantic fields only. Raw `record` payloads remain available as evidence, but arbitrary `record.*` filters are intentionally not part of the default API.
+
+### Local Binary
+
+Build and run the same daemon directly:
+
+```bash
+make build
+
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_API_KEY=sk_... \
+./bin/telescope daemon
+```
+
+For local agents that prefer stdio MCP:
 
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
@@ -84,7 +139,7 @@ TELESCOPE_SCOPEDB_API_KEY=sk_... \
 ./bin/telescope mcp
 ```
 
-## Tools
+### HTTP API And MCP Tools
 
 Telescope exposes five MCP tools:
 
@@ -103,17 +158,7 @@ The daemon HTTP server exposes:
 - `POST /v1/aggregate`
 - `POST /mcp`
 
-## How Agents Should Use It
-
-1. Call `schema` or read `scopedb://telemetry/schema`.
-2. Use `schema_guide` to choose the right relation and fields.
-3. Use `search` when evidence rows matter.
-4. Use `aggregate` when volume, trend, or grouping matters.
-5. Hand off the result with cited rows and `applied_query`.
-
-The query surface accepts promoted semantic fields only. Raw `record` payloads remain available as evidence, but arbitrary `record.*` filters are intentionally not part of the default API.
-
-## Develop
+## Development
 
 For table creation and routing details, see [docs/table-management.md](docs/table-management.md).
 
@@ -121,6 +166,13 @@ Run all tests:
 
 ```bash
 make test
+```
+
+Check license headers:
+
+```bash
+cargo install hawkeye
+make license-check
 ```
 
 Run a focused package test from the repository root:
@@ -135,19 +187,30 @@ Build the local runtime:
 make build
 ```
 
-Validate collector configs:
+Validate the embedded collector config:
 
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
 make validate
-
-TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-TELESCOPE_SCOPEDB_API_KEY=sk_... \
-make validate-deploy
 ```
 
-## Project Map
+### Release Artifacts
+
+Build local release artifacts:
+
+```bash
+make artifacts
+make docker-build
+```
+
+The artifact pipeline writes compressed binary bundles and `SHA256SUMS` under `dist/`.
+
+Publish the release image by pushing a version tag such as `v0.1.0`; CI publishes `ghcr.io/scopedb/telescope`.
+
+## Project
+
+### Project Map
 
 - `services/gateway/collector`: collector configs and Docker packaging
 - `services/gateway/deploy`: Docker Compose deployment assets
@@ -155,8 +218,12 @@ make validate-deploy
 - `packages/scopedbexporter`: ScopeDB OpenTelemetry Collector exporter
 - `docs`: design notes
 
-## Status
+### Status
 
 Telescope is an early prototype. The current focus is the agent-facing debugging loop, not dashboards or a managed control plane.
+
+### License
+
+Telescope is licensed under the [Apache License, Version 2.0](LICENSE).
 
 For contribution rules, see `CONTRIBUTING.md`.
