@@ -34,17 +34,11 @@ Set your ScopeDB credentials in `services/gateway/deploy/.env`:
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
-TELESCOPE_ENV=default
-TELESCOPE_OTLP_GRPC_PORT=4317
-TELESCOPE_OTLP_HTTP_PORT=4318
-TELESCOPE_HTTP_PORT=8080
-TELESCOPE_HEALTH_PORT=13133
 ```
 
 Run the published GHCR image:
 
 ```bash
-IMAGE=ghcr.io/scopedb/telescope:0.1.0 \
 docker compose --env-file services/gateway/deploy/.env \
   -f services/gateway/deploy/docker-compose.yaml up -d
 ```
@@ -52,11 +46,14 @@ docker compose --env-file services/gateway/deploy/.env \
 For source builds during development:
 
 ```bash
+make docker-build VERSION=dev IMAGE=scopedb-telescope:dev
+
+IMAGE=scopedb-telescope:dev \
 docker compose --env-file services/gateway/deploy/.env \
-  -f services/gateway/deploy/docker-compose.yaml up -d --build
+  -f services/gateway/deploy/docker-compose.yaml up -d
 ```
 
-Change the `TELESCOPE_*_PORT` values if any default ports are already in use.
+The bootstrap file only needs the ScopeDB endpoint and API key. Docker Compose keeps the default ports unless you add explicit `TELESCOPE_*_PORT` overrides.
 
 ### Verify The Runtime
 
@@ -126,17 +123,29 @@ Build and run the same daemon directly:
 ```bash
 make build
 
+./bin/telescope daemon --env-file services/gateway/deploy/.env
+```
+
+The same bootstrap config can also come from environment variables:
+
+```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
 ./bin/telescope daemon
 ```
 
+Or from command flags:
+
+```bash
+./bin/telescope daemon \
+  --scopedb-endpoint https://<region>.scopedb.cloud \
+  --scopedb-api-key sk_...
+```
+
 For local agents that prefer stdio MCP:
 
 ```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-TELESCOPE_SCOPEDB_API_KEY=sk_... \
-./bin/telescope mcp
+./bin/telescope mcp --env-file services/gateway/deploy/.env
 ```
 
 ### HTTP API And MCP Tools

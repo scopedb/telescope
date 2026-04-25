@@ -79,12 +79,10 @@ Creation uses `CREATE ... IF NOT EXISTS`, so repeated daemon starts are expected
 Use the embedded daemon defaults for local bootstrap:
 
 ```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
-TELESCOPE_SCOPEDB_API_KEY=sk_... \
-telescope daemon
+telescope daemon --env-file services/gateway/deploy/.env
 ```
 
-This uses the embedded Collector config and creates the default tables automatically.
+The env file only needs `TELESCOPE_SCOPEDB_ENDPOINT` and `TELESCOPE_SCOPEDB_API_KEY`. You can provide the same values through environment variables or `--scopedb-endpoint` / `--scopedb-api-key` flags. This uses the embedded Collector config and creates the default tables automatically.
 
 Docker uses the same embedded Collector config. Docker Compose sets `TELESCOPE_QUEUE_DIR=/var/lib/telescope/queue`, so the persistent queue is stored in the `scopedb-telescope-queue` volume.
 

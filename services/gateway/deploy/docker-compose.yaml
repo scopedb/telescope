@@ -14,14 +14,11 @@
 
 services:
   scopedb-telescope:
-    image: ${IMAGE:-scopedb-telescope:0.1.0}
-    build:
-      context: ../../..
-      dockerfile: services/gateway/collector/Dockerfile
+    image: ${IMAGE:-ghcr.io/scopedb/telescope:0.1.0}
     restart: unless-stopped
     environment:
-      TELESCOPE_SCOPEDB_ENDPOINT: ${TELESCOPE_SCOPEDB_ENDPOINT}
-      TELESCOPE_SCOPEDB_API_KEY: ${TELESCOPE_SCOPEDB_API_KEY}
+      TELESCOPE_SCOPEDB_ENDPOINT: ${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}
+      TELESCOPE_SCOPEDB_API_KEY: ${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}
       TELESCOPE_ENV: ${TELESCOPE_ENV:-default}
       TELESCOPE_OTLP_GRPC_ADDR: 0.0.0.0:${TELESCOPE_OTLP_GRPC_PORT:-4317}
       TELESCOPE_OTLP_HTTP_ADDR: 0.0.0.0:${TELESCOPE_OTLP_HTTP_PORT:-4318}

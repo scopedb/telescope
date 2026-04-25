@@ -70,14 +70,19 @@ func run(args []string) error {
 func runDaemon(args []string) error {
 	flags := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	collectorConfig := flags.String("collector-config", strings.TrimSpace(os.Getenv("TELESCOPE_COLLECTOR_CONFIG")), "collector config URI or file path")
+	bootstrap := addBootstrapFlags(flags)
+	collectorConfig := flags.String("collector-config", "", "collector config URI or file path")
 	httpAddr := flags.String("http-addr", "", "HTTP API listen address; overrides TELESCOPE_HTTP_ADDR")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
 	}
 	if *httpAddr != "" {
 		_ = os.Setenv("TELESCOPE_HTTP_ADDR", *httpAddr)
 	}
+	collectorConfigURI := resolveCollectorConfig(*collectorConfig)
 
 	config, err := appruntime.LoadConfigFromEnv()
 	if err != nil {
@@ -95,7 +100,7 @@ func runDaemon(args []string) error {
 		return err
 	}
 
-	otelCollector, err := collector.New(*collectorConfig, version)
+	otelCollector, err := collector.New(collectorConfigURI, version)
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
 	}
@@ -147,7 +152,11 @@ func runDaemon(args []string) error {
 func runMCP(args []string) error {
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	bootstrap := addBootstrapFlags(flags)
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
 	}
 
@@ -179,6 +188,79 @@ func runCollector(args []string) error {
 	return command.Execute()
 }
 
+type bootstrapFlags struct {
+	envFile         *string
+	scopedbEndpoint *string
+	scopedbAPIKey   *string
+}
+
+func addBootstrapFlags(flags *flag.FlagSet) bootstrapFlags {
+	return bootstrapFlags{
+		envFile:         flags.String("env-file", "", "load bootstrap environment variables from a KEY=VALUE file"),
+		scopedbEndpoint: flags.String("scopedb-endpoint", "", "ScopeDB physical region endpoint; overrides TELESCOPE_SCOPEDB_ENDPOINT"),
+		scopedbAPIKey:   flags.String("scopedb-api-key", "", "ScopeDB API key; overrides TELESCOPE_SCOPEDB_API_KEY"),
+	}
+}
+
+func applyBootstrapFlags(flags bootstrapFlags) error {
+	if flags.envFile != nil && strings.TrimSpace(*flags.envFile) != "" {
+		if err := loadEnvFile(*flags.envFile); err != nil {
+			return err
+		}
+	}
+	setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", valueOf(flags.scopedbEndpoint))
+	setEnvIfValue("TELESCOPE_SCOPEDB_API_KEY", valueOf(flags.scopedbAPIKey))
+	return nil
+}
+
+func resolveCollectorConfig(flagValue string) string {
+	if strings.TrimSpace(flagValue) != "" {
+		return flagValue
+	}
+	return strings.TrimSpace(os.Getenv("TELESCOPE_COLLECTOR_CONFIG"))
+}
+
+func loadEnvFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("load env file %s: %w", path, err)
+	}
+	for index, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("load env file %s: line %d is not KEY=VALUE", path, index+1)
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("load env file %s: line %d has an empty key", path, index+1)
+		}
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, `"'`)
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			_ = os.Setenv(key, value)
+		}
+	}
+	return nil
+}
+
+func setEnvIfValue(key string, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	_ = os.Setenv(key, value)
+}
+
+func valueOf(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func collectorArgsIncludeConfig(args []string) bool {
 	for _, arg := range args {
 		if arg == "--config" || arg == "-c" || strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-c=") {
@@ -192,10 +274,19 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `Telescope
 
 Usage:
-  telescope daemon [--collector-config file] [--http-addr addr]
-  telescope mcp
+  telescope daemon [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
+  telescope mcp [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
   telescope collector <otelcol command>
   telescope version
+
+Bootstrap:
+  --env-file                 Load KEY=VALUE bootstrap config file
+  --scopedb-endpoint         ScopeDB physical region endpoint
+  --scopedb-api-key          ScopeDB API key
+
+Daemon options:
+  --collector-config         Collector config URI or file path, default embedded config
+  --http-addr                HTTP API listen address, overrides TELESCOPE_HTTP_ADDR
 
 Environment:
   TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
