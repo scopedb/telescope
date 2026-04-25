@@ -49,6 +49,8 @@ Required environment variables:
 - `TELESCOPE_SCOPEDB_ENDPOINT`
 - `TELESCOPE_SCOPEDB_API_KEY`
 
+The `daemon` and `mcp` commands can also load these values from `--env-file` or receive them through `--scopedb-endpoint` and `--scopedb-api-key` flags. Flag values override the process environment; the process environment overrides values loaded from an env file.
+
 Optional environment variables:
 
 - `TELESCOPE_ENV`: telemetry environment label, default `default`
@@ -64,7 +66,7 @@ Optional environment variables:
 Example:
 
 ```bash
-go run ./cmd/telescope daemon
+go run ./cmd/telescope daemon --env-file ../../services/gateway/deploy/.env
 ```
 
 Streamable HTTP MCP example:
@@ -80,7 +82,7 @@ curl -sS http://127.0.0.1:8080/mcp \
 stdio MCP example:
 
 ```bash
-go run ./cmd/telescope mcp
+go run ./cmd/telescope mcp --env-file ../../services/gateway/deploy/.env
 ```
 
 MCP tools:
