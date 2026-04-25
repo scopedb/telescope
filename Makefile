@@ -28,11 +28,11 @@ LD_FLAGS ?= -s -w -X main.version=$(VERSION)
 
 .PHONY: license-check
 license-check:
-	$(HAWKEYE) check
+	$(HAWKEYE) check --config licenserc.toml
 
 .PHONY: license-format
 license-format:
-	$(HAWKEYE) format --fail-if-updated=false
+	$(HAWKEYE) format --config licenserc.toml --fail-if-updated=false
 
 .PHONY: fmt-check
 fmt-check:
