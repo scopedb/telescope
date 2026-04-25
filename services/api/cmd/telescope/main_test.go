@@ -89,7 +89,15 @@ TELESCOPE_SCOPEDB_API_KEY=sk_file
 func TestResolveCollectorConfigPrefersFlagOverEnvironment(t *testing.T) {
 	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
 
-	if got := resolveCollectorConfig("file:/from-flag.yaml"); got != "file:/from-flag.yaml" {
+	if got := resolveCollectorConfig("file:/from-flag.yaml", true); got != "file:/from-flag.yaml" {
+		t.Fatalf("resolveCollectorConfig() = %q", got)
+	}
+}
+
+func TestResolveCollectorConfigAllowsEmptyFlagOverride(t *testing.T) {
+	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
+
+	if got := resolveCollectorConfig("", true); got != "" {
 		t.Fatalf("resolveCollectorConfig() = %q", got)
 	}
 }
@@ -97,7 +105,7 @@ func TestResolveCollectorConfigPrefersFlagOverEnvironment(t *testing.T) {
 func TestResolveCollectorConfigFallsBackToEnvironment(t *testing.T) {
 	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
 
-	if got := resolveCollectorConfig(""); got != "file:/from-env.yaml" {
+	if got := resolveCollectorConfig("", false); got != "file:/from-env.yaml" {
 		t.Fatalf("resolveCollectorConfig() = %q", got)
 	}
 }
@@ -107,6 +115,21 @@ func TestLoadEnvFileRejectsInvalidLine(t *testing.T) {
 	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT\n")
 
 	if err := loadEnvFile(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadEnvFileRejectsInvalidEnvironmentValue(t *testing.T) {
+	clearBootstrapEnv(t)
+	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT=https://bad\x00value\n")
+
+	if err := loadEnvFile(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestSetEnvIfValueRejectsInvalidEnvironmentValue(t *testing.T) {
+	if err := setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", "https://bad\x00value"); err == nil {
 		t.Fatal("expected error")
 	}
 }

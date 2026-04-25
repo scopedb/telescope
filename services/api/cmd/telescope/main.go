@@ -80,9 +80,11 @@ func runDaemon(args []string) error {
 		return err
 	}
 	if *httpAddr != "" {
-		_ = os.Setenv("TELESCOPE_HTTP_ADDR", *httpAddr)
+		if err := os.Setenv("TELESCOPE_HTTP_ADDR", *httpAddr); err != nil {
+			return fmt.Errorf("set TELESCOPE_HTTP_ADDR: %w", err)
+		}
 	}
-	collectorConfigURI := resolveCollectorConfig(*collectorConfig)
+	collectorConfigURI := resolveCollectorConfig(*collectorConfig, flagProvided(flags, "collector-config"))
 
 	config, err := appruntime.LoadConfigFromEnv()
 	if err != nil {
@@ -208,16 +210,30 @@ func applyBootstrapFlags(flags bootstrapFlags) error {
 			return err
 		}
 	}
-	setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", valueOf(flags.scopedbEndpoint))
-	setEnvIfValue("TELESCOPE_SCOPEDB_API_KEY", valueOf(flags.scopedbAPIKey))
+	if err := setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", valueOf(flags.scopedbEndpoint)); err != nil {
+		return err
+	}
+	if err := setEnvIfValue("TELESCOPE_SCOPEDB_API_KEY", valueOf(flags.scopedbAPIKey)); err != nil {
+		return err
+	}
 	return nil
 }
 
-func resolveCollectorConfig(flagValue string) string {
-	if strings.TrimSpace(flagValue) != "" {
+func resolveCollectorConfig(flagValue string, flagIsSet bool) string {
+	if flagIsSet {
 		return flagValue
 	}
 	return strings.TrimSpace(os.Getenv("TELESCOPE_COLLECTOR_CONFIG"))
+}
+
+func flagProvided(flags *flag.FlagSet, name string) bool {
+	provided := false
+	flags.Visit(func(current *flag.Flag) {
+		if current.Name == name {
+			provided = true
+		}
+	})
+	return provided
 }
 
 func loadEnvFile(path string) error {
@@ -241,17 +257,22 @@ func loadEnvFile(path string) error {
 		value = strings.TrimSpace(value)
 		value = strings.Trim(value, `"'`)
 		if strings.TrimSpace(os.Getenv(key)) == "" {
-			_ = os.Setenv(key, value)
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("load env file %s: line %d: set %q: %w", path, index+1, key, err)
+			}
 		}
 	}
 	return nil
 }
 
-func setEnvIfValue(key string, value string) {
+func setEnvIfValue(key string, value string) error {
 	if strings.TrimSpace(value) == "" {
-		return
+		return nil
 	}
-	_ = os.Setenv(key, value)
+	if err := os.Setenv(key, value); err != nil {
+		return fmt.Errorf("set %s: %w", key, err)
+	}
+	return nil
 }
 
 func valueOf(value *string) string {
