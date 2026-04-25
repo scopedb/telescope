@@ -39,3 +39,7 @@ Examples:
 
 Commits do not need to follow a semantic format.
 Keep them focused and easy to review.
+
+## License
+
+By contributing to Telescope, you agree that your contributions are licensed under the [Apache License, Version 2.0](LICENSE).
