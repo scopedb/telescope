@@ -29,12 +29,14 @@ Create a local environment file:
 cp services/gateway/deploy/.env.example services/gateway/deploy/.env
 ```
 
-Set your ScopeDB credentials in `services/gateway/deploy/.env`:
+Set your ScopeDB credentials in `services/gateway/deploy/.env` before starting Telescope:
 
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
 ```
+
+The example file leaves both values empty on purpose, so Docker Compose fails fast instead of starting a container with placeholder credentials.
 
 Run the published GHCR image:
 
