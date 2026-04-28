@@ -23,7 +23,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.number
+    || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -55,8 +56,8 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: services/gateway/collector/Dockerfile
+          file: Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}

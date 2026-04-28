@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +35,15 @@ import (
 	"github.com/scopedb/telescope/services/api/internal/collector"
 )
 
-var version = "dev"
+var version = "(unknown)"
+
+func init() {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if info.Main.Version != "" {
+			version = info.Main.Version
+		}
+	}
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

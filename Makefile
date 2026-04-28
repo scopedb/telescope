@@ -16,7 +16,6 @@ OTEL_VERSION ?= v0.150.0
 GOTOOLCHAIN ?= go1.25.3
 OCB ?= ./bin/builder
 HAWKEYE ?= hawkeye
-VERSION ?= 0.1.0
 IMAGE ?= scopedb-telescope:$(VERSION)
 DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
@@ -24,7 +23,7 @@ GATEWAY_COLLECTOR_DIR ?= services/gateway/collector
 GATEWAY_DEPLOY_DIR ?= services/gateway/deploy
 API_DIR ?= services/api
 TELESCOPE ?= ./bin/telescope
-LD_FLAGS ?= -s -w -X main.version=$(VERSION)
+LD_FLAGS ?= -s -w
 
 .PHONY: license-check
 license-check:
@@ -117,7 +116,7 @@ validate-configs: validate
 
 .PHONY: docker-build
 docker-build:
-	docker build --build-arg VERSION=$(VERSION) -f $(GATEWAY_COLLECTOR_DIR)/Dockerfile -t $(IMAGE) .
+	docker build -f Dockerfile -t $(IMAGE) .
 
 .PHONY: ci-runtime
 ci-runtime: validate-configs docker-build artifacts
