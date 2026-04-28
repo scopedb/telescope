@@ -16,7 +16,6 @@ OTEL_VERSION ?= v0.150.0
 GOTOOLCHAIN ?= go1.25.3
 OCB ?= ./bin/builder
 HAWKEYE ?= hawkeye
-IMAGE ?= scopedb-telescope:$(VERSION)
 DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 GATEWAY_COLLECTOR_DIR ?= services/gateway/collector
@@ -116,7 +115,7 @@ validate-configs: validate
 
 .PHONY: docker-build
 docker-build:
-	docker build -f Dockerfile -t $(IMAGE) .
+	docker build -f Dockerfile -t scopedb-telescope:ci .
 
 .PHONY: ci-runtime
 ci-runtime: validate-configs docker-build artifacts

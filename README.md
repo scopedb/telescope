@@ -48,9 +48,9 @@ docker compose --env-file services/gateway/deploy/.env \
 For source builds during development:
 
 ```bash
-make docker-build IMAGE=scopedb-telescope:dev
+make docker-build
 
-IMAGE=scopedb-telescope:dev \
+IMAGE=scopedb-telescope:ci \
 docker compose --env-file services/gateway/deploy/.env \
   -f services/gateway/deploy/docker-compose.yaml up -d
 ```
