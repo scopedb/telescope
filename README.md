@@ -265,6 +265,4 @@ Telescope is an early prototype. The current focus is the agent-facing debugging
 
 ### License
 
-Telescope is licensed under the [Apache License, Version 2.0](LICENSE).
-
-For contribution rules, see `CONTRIBUTING.md`.
+This project is licensed under [Apache License, Version 2.0](LICENSE).

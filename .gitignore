@@ -3,4 +3,3 @@ bin/
 dist/
 services/gateway/deploy/.env
 services/gateway/collector/_build/
-__pycache__/

@@ -21,14 +21,10 @@ includes = [
   "**/*.yml",
   "**/Dockerfile",
   "**/Makefile",
-  "Dockerfile",
-  "Makefile",
 ]
 
-excludes = [
-  "services/gateway/collector/_build/**",
-]
+excludes = ["services/gateway/collector/_build/**"]
 
 [properties]
+copyrightOwner = "ScopeDB, Inc."
 inceptionYear = 2026
-copyrightOwner = "ScopeDB contributors"
