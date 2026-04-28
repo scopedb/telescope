@@ -48,9 +48,9 @@ docker compose --env-file services/gateway/deploy/.env \
 For source builds during development:
 
 ```bash
-make docker-build VERSION=dev IMAGE=scopedb-telescope:dev
+make docker-build
 
-IMAGE=scopedb-telescope:dev \
+IMAGE=scopedb-telescope:ci \
 docker compose --env-file services/gateway/deploy/.env \
   -f services/gateway/deploy/docker-compose.yaml up -d
 ```
@@ -201,7 +201,7 @@ The daemon HTTP server exposes:
 
 ## Development
 
-For table creation and routing details, see [docs/table-management.md](docs/table-management.md).
+For table creation and routing details, see [Table Management](docs/table-management.md).
 
 Run all tests:
 
@@ -212,7 +212,7 @@ make test
 Check license headers:
 
 ```bash
-cargo install hawkeye
+cargo install hawkeye --locked
 make license-check
 ```
 
@@ -231,7 +231,7 @@ make build
 Validate the embedded collector config:
 
 ```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
+TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.<provider>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
 make validate
 ```
@@ -265,6 +265,4 @@ Telescope is an early prototype. The current focus is the agent-facing debugging
 
 ### License
 
-Telescope is licensed under the [Apache License, Version 2.0](LICENSE).
-
-For contribution rules, see `CONTRIBUTING.md`.
+This project is licensed under [Apache License, Version 2.0](LICENSE).
