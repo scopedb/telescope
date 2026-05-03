@@ -98,6 +98,8 @@ Send OTLP telemetry to the local runtime:
 
 The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
 
+One daemon can receive telemetry from every deployment environment. Set the OpenTelemetry resource attribute `deployment.environment.name` on producers, for example with `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production,service.name=api`; Telescope stores that value in the top-level `env` column for filtering and grouping. If no environment attribute is present, `env` is stored as `default`.
+
 ### Send A Test Trace
 
 Use OpenTelemetry's `telemetrygen` container to send one trace without installing a local generator:

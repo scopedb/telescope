@@ -10,6 +10,7 @@ Important notes:
 - Agents should inspect the schema before composing search or aggregate requests.
 - Query filters use promoted semantic field names only. The record field remains full-fidelity evidence, but arbitrary record paths are not accepted by the default search or aggregate filters.
 - Telemetry is stored in separate ScopeDB tables for logs, traces, and metrics.
+- A single daemon can contain many deployment environments. Filter or group on `env`; producers should set OpenTelemetry resource `deployment.environment.name`, otherwise Telescope falls back to `default`.
 
 ## Runtime Endpoints
 

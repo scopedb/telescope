@@ -63,7 +63,6 @@ type tableInitStatementResponse struct {
 
 func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 	cfg := testClientConfig("http://example.invalid")
-	cfg.Env = "demo"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
@@ -100,6 +99,9 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 			"body":                         "hello",
 			"timestamp_unix_nano":          "1713835425123456789",
 			"observed_timestamp_unix_nano": "1713835426123456789",
+			"resource": map[string]any{
+				"deployment.environment.name": "demo",
+			},
 		}, row["record"])
 
 		w.WriteHeader(http.StatusOK)
@@ -113,11 +115,13 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           "demo",
 		Records: []Record{{
 			"body":                         "hello",
 			"timestamp_unix_nano":          "1713835425123456789",
 			"observed_timestamp_unix_nano": "1713835426123456789",
+			"resource": map[string]any{
+				"deployment.environment.name": "demo",
+			},
 		}},
 	})
 	require.NoError(t, err)
@@ -126,7 +130,6 @@ func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
 func TestClientSendGzipAndBearer(t *testing.T) {
 	cfg := testClientConfig("http://example.invalid")
 	cfg.Compression = "gzip"
-	cfg.Env = "demo"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
@@ -152,7 +155,6 @@ func TestClientSendGzipAndBearer(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           "demo",
 		Records: []Record{{
 			"body":                         "hello",
 			"timestamp_unix_nano":          "1713835425123456789",
@@ -312,7 +314,6 @@ func TestClientSendUsesSignalSpecificTable(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           cfg.Env,
 		Records:       []Record{{"body": "hello"}},
 	})
 	require.NoError(t, err)
@@ -342,7 +343,6 @@ func TestClientSendUsesTraceSchema(t *testing.T) {
 
 	err = client.Send(context.Background(), signalTraces, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           cfg.Env,
 		Records: []Record{{
 			"name":                 "GET /checkout",
 			"kind":                 "server",
@@ -379,7 +379,6 @@ func TestClientSendUsesMetricSchema(t *testing.T) {
 
 	err = client.Send(context.Background(), signalMetrics, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           cfg.Env,
 		Records: []Record{{
 			"metric_name":               "cpu.utilization",
 			"type":                      "gauge",
@@ -406,7 +405,6 @@ func TestClientSendRetryableStatuses(t *testing.T) {
 
 			err = client.Send(context.Background(), signalLogs, &IngestPayload{
 				SchemaVersion: "v1",
-				Env:           cfg.Env,
 				Records:       []Record{{"body": "hello"}},
 			})
 			require.Error(t, err)
@@ -427,7 +425,6 @@ func TestClientSendPermanentStatus(t *testing.T) {
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{
 		SchemaVersion: "v1",
-		Env:           cfg.Env,
 		Records:       []Record{{"body": "hello"}},
 	})
 	require.Error(t, err)
@@ -438,7 +435,6 @@ func testClientConfig(endpoint string) *Config {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Env = "demo"
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",
 		Traces:  "public.vendor_otel_traces_test",

@@ -53,7 +53,6 @@ The `daemon` and `mcp` commands can also load these values from `--env-file` or 
 
 Optional environment variables:
 
-- `TELESCOPE_ENV`: telemetry environment label, default `default`
 - `TELESCOPE_HTTP_ADDR`: listen address, default `:8080`
 - `TELESCOPE_PORT`: alternate way to set the listen port when `TELESCOPE_HTTP_ADDR` is unset
 - `TELESCOPE_OTLP_GRPC_ADDR`: OTLP gRPC listen address, default `0.0.0.0:4317`
@@ -62,6 +61,8 @@ Optional environment variables:
 - `TELESCOPE_QUEUE_DIR`: persistent queue directory, default `$HOME/.telescope/queue`
 - `TELESCOPE_QUERY_TIMEOUT`: per-query timeout, default `15s`
 - `TELESCOPE_COLLECTOR_CONFIG`: collector config URI or file path; unset uses the embedded default config
+
+The daemon accepts telemetry for every deployment environment on the same OTLP listeners. Telescope derives the stored `env` column per row from OpenTelemetry attributes, preferring resource `deployment.environment.name` and falling back to `default` when no environment attribute is present.
 
 Example:
 

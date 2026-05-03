@@ -55,7 +55,6 @@ type Config struct {
 	Endpoint               string                                                   `mapstructure:"endpoint"`
 	Path                   string                                                   `mapstructure:"path"`
 	APIKey                 configopaque.String                                      `mapstructure:"api_key"`
-	Env                    string                                                   `mapstructure:"env"`
 	Tables                 TableRoutingConfig                                       `mapstructure:"tables"`
 	CreateTablesIfNotExist bool                                                     `mapstructure:"create_tables_if_not_exist"`
 	SchemaVersion          string                                                   `mapstructure:"schema_version"`
@@ -79,7 +78,6 @@ func createDefaultConfig() component.Config {
 
 	return &Config{
 		Path: "/v1/ingest",
-		Env:  defaultEnv,
 		Tables: TableRoutingConfig{
 			Logs:    defaultLogsTable,
 			Traces:  defaultTracesTable,
@@ -115,10 +113,6 @@ func (cfg *Config) Validate() error {
 
 	if strings.TrimSpace(string(cfg.APIKey)) == "" {
 		errs = append(errs, errors.New("api_key is required"))
-	}
-
-	if strings.TrimSpace(cfg.Env) == "" {
-		errs = append(errs, errors.New("env is required"))
 	}
 
 	for name, table := range map[string]string{

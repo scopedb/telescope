@@ -182,7 +182,7 @@ var Default = Registry{
 				"default": Ref("row_id"),
 			},
 		},
-		defaultDimensionField("env", "Logical deployment environment.", false, false),
+		defaultDimensionField("env", "Logical deployment environment derived per row from OpenTelemetry deployment environment attributes.", false, false),
 		defaultDimensionField("service", "Canonical service name.", true, true),
 		defaultDimensionField("version", "Service deployment version.", true, true),
 		defaultDimensionField("instance_id", "OTel-native service instance identity when present.", true, true),

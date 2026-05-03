@@ -27,22 +27,22 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalLogs,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"timestamp_unix_nano":          "1713835425123456789",
 				"observed_timestamp_unix_nano": "1713835426123456789",
 				"severity_number":              int64(17),
 				"resource": map[string]any{
-					"service.name":        "collector-a",
-					"service.version":     "1.2.3",
-					"service.instance.id": "collector-a-1",
-					"k8s.pod.name":        "collector-a-pod",
-					"k8s.namespace.name":  "payments",
-					"k8s.cluster.name":    "prod-us-east",
-					"container.name":      "collector",
-					"host.ip":             []any{"10.0.0.10", "127.0.0.1"},
-					"host.name":           "collector-a-node",
+					"service.name":                "collector-a",
+					"service.version":             "1.2.3",
+					"service.instance.id":         "collector-a-1",
+					"k8s.pod.name":                "collector-a-pod",
+					"k8s.namespace.name":          "payments",
+					"k8s.cluster.name":            "prod-us-east",
+					"container.name":              "collector",
+					"host.ip":                     []any{"10.0.0.10", "127.0.0.1"},
+					"host.name":                   "collector-a-node",
+					"deployment.environment.name": "production",
 				},
 			},
 			{
@@ -74,6 +74,8 @@ func TestScopeDBRowsProjectsTimestampColumns(t *testing.T) {
 		assert.Equal(t, "collector", rows[0]["container_name"])
 		assert.Equal(t, "10.0.0.10", rows[0]["host_ip"])
 		assert.Equal(t, "collector-a-node", rows[0]["host"])
+		assert.Equal(t, "production", rows[0]["env"])
+		assert.Equal(t, defaultEnv, rows[1]["env"])
 		assert.Equal(t, "2024-04-23T01:23:47.123456789Z", rows[1]["start_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:48.123456789Z", rows[1]["end_timestamp"])
 		assert.Equal(t, "2024-04-23T01:23:49.123456789Z", rows[2]["start_timestamp"])
@@ -88,6 +90,42 @@ func TestDeriveRowIDEncodesIngestIDAndOrdinal(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestScopeDBRowsDerivesEnvPerRecord(t *testing.T) {
+	payload := &IngestPayload{
+		SchemaVersion: "v1",
+		Signal:        signalLogs,
+		Records: []Record{
+			{
+				"resource": map[string]any{
+					"deployment.environment.name": "production",
+				},
+				"attributes": map[string]any{
+					"env": "ignored",
+				},
+			},
+			{
+				"resource": map[string]any{
+					"deployment.environment": "staging",
+				},
+			},
+			{
+				"attributes": map[string]any{
+					"env": "local",
+				},
+			},
+			{},
+		},
+	}
+
+	rows := payload.scopeDBRows()
+	if assert.Len(t, rows, 4) {
+		assert.Equal(t, "production", rows[0]["env"])
+		assert.Equal(t, "staging", rows[1]["env"])
+		assert.Equal(t, "local", rows[2]["env"])
+		assert.Equal(t, defaultEnv, rows[3]["env"])
+	}
+}
+
 func TestUnixNanoStringToRFC3339(t *testing.T) {
 	assert.Equal(t, "2024-04-23T01:23:45.123456789Z", unixNanoStringToRFC3339("1713835425123456789"))
 	assert.Equal(t, "", unixNanoStringToRFC3339(""))
@@ -98,7 +136,6 @@ func TestScopeDBRowsProjectsTraceSchemaColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalTraces,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"name":                 "GET /checkout",
@@ -124,7 +161,6 @@ func TestScopeDBRowsProjectsMetricSchemaColumns(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalMetrics,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"metric_name":               "cpu.utilization",
@@ -151,7 +187,6 @@ func TestScopeDBRowsProjectsLogMessage(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalLogs,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"message": "hello world",
@@ -177,7 +212,6 @@ func TestScopeDBRowsProjectsTraceAttributeFacets(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalTraces,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"name": "GET /checkout",
@@ -214,7 +248,6 @@ func TestScopeDBRowsProjectsMetricDistribution(t *testing.T) {
 	payload := &IngestPayload{
 		SchemaVersion: "v1",
 		Signal:        signalMetrics,
-		Env:           "demo",
 		Records: []Record{
 			{
 				"metric_name": "request.duration",
