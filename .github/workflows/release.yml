@@ -40,8 +40,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: telescope
-          sep-tags: " "
+          images: ghcr.io/scopedb/telescope
           tags: |
             type=semver,pattern={{raw}}
             type=edge,branch=main
