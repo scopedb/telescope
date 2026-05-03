@@ -15,7 +15,7 @@
 openapi: 3.1.0
 info:
   title: ScopeDB OTel Agent API
-  version: 0.1.0
+  version: 0.2.0
   summary: Draft agent-facing observability tools over the semantic OTel layer.
   description: |
     This contract defines a small agent-first API surface for developer agents.

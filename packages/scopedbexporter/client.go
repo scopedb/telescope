@@ -32,7 +32,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const userAgent = "telescope/0.1.0"
+const userAgent = "telescope/0.2.0"
 
 type Client struct {
 	cfg        *Config

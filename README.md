@@ -249,7 +249,7 @@ make docker-build
 
 The artifact pipeline writes compressed binary bundles and `SHA256SUMS` under `dist/`.
 
-Publish the release image by pushing a version tag such as `v0.1.0`; CI publishes `ghcr.io/scopedb/telescope`.
+Publish the release image by pushing a version tag such as `v0.2.0`; CI publishes `ghcr.io/scopedb/telescope`.
 
 ## Project
 
