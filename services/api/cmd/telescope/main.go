@@ -321,6 +321,8 @@ Daemon options:
 Environment:
   TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
   TELESCOPE_SCOPEDB_API_KEY    ScopeDB API key
+  TELESCOPE_SCOPEDB_DATABASE   ScopeDB database for embedded collector tables, default "scopedb"
+  TELESCOPE_SCOPEDB_SCHEMA     ScopeDB schema for embedded collector tables, default "otel"
   TELESCOPE_ENV                Telemetry environment label, default "default"
   TELESCOPE_HTTP_ADDR          HTTP API listen address, default :8080
   TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317

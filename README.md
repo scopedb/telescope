@@ -36,6 +36,17 @@ TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
 ```
 
+By default, the embedded collector writes to `scopedb.otel.logs`,
+`scopedb.otel.traces`, and `scopedb.otel.metrics`. Set
+`TELESCOPE_SCOPEDB_DATABASE` and `TELESCOPE_SCOPEDB_SCHEMA` to route the same
+tables into a different ScopeDB database/schema without maintaining a custom
+collector config:
+
+```bash
+TELESCOPE_SCOPEDB_DATABASE=slock_telescope_prod
+TELESCOPE_SCOPEDB_SCHEMA=otel
+```
+
 The example file leaves both values empty on purpose, so Docker Compose fails fast instead of starting a container with placeholder credentials.
 
 Run the published GHCR image:

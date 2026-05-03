@@ -48,6 +48,10 @@ exporters:
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     env: ${env:TELESCOPE_ENV}
+    tables:
+      logs: ${env:TELESCOPE_SCOPEDB_DATABASE}.${env:TELESCOPE_SCOPEDB_SCHEMA}.logs
+      traces: ${env:TELESCOPE_SCOPEDB_DATABASE}.${env:TELESCOPE_SCOPEDB_SCHEMA}.traces
+      metrics: ${env:TELESCOPE_SCOPEDB_DATABASE}.${env:TELESCOPE_SCOPEDB_SCHEMA}.metrics
     create_tables_if_not_exist: true
     schema_version: v1
     sending_queue:

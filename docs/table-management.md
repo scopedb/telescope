@@ -84,6 +84,24 @@ telescope daemon --env-file services/gateway/deploy/.env
 
 The env file only needs `TELESCOPE_SCOPEDB_ENDPOINT` and `TELESCOPE_SCOPEDB_API_KEY`. You can provide the same values through environment variables or `--scopedb-endpoint` / `--scopedb-api-key` flags. This uses the embedded Collector config and creates the default tables automatically.
 
+Set `TELESCOPE_SCOPEDB_DATABASE` and `TELESCOPE_SCOPEDB_SCHEMA` when you want
+the embedded Collector config to write its standard tables into a non-default
+ScopeDB database/schema:
+
+```bash
+TELESCOPE_SCOPEDB_DATABASE=telemetry_prod
+TELESCOPE_SCOPEDB_SCHEMA=otel
+```
+
+The embedded table routes become:
+
+```yaml
+tables:
+  logs: telemetry_prod.otel.logs
+  traces: telemetry_prod.otel.traces
+  metrics: telemetry_prod.otel.metrics
+```
+
 Docker uses the same embedded Collector config. Docker Compose sets `TELESCOPE_QUEUE_DIR=/var/lib/telescope/queue`, so the persistent queue is stored in the `scopedb-telescope-queue` volume.
 
 Keep one logical telemetry environment per `env` value unless you have a strong reason to split physical tables. `env` is stored as a column and is cheaper to change than table topology.
@@ -159,9 +177,9 @@ Important fields:
 | `path` | `/v1/ingest` | ScopeDB ingest API path. |
 | `api_key` | none | Required; sent as `Authorization: Bearer <api_key>`. |
 | `env` | `default` | Stored in every row; preferred first-level environment separator. |
-| `tables.logs` | `scopedb.otel.logs` | Log table route. |
-| `tables.traces` | `scopedb.otel.traces` | Trace/span table route. |
-| `tables.metrics` | `scopedb.otel.metrics` | Metric table route. |
+| `tables.logs` | `${TELESCOPE_SCOPEDB_DATABASE}.${TELESCOPE_SCOPEDB_SCHEMA}.logs` in embedded config; `scopedb.otel.logs` in exporter defaults | Log table route. |
+| `tables.traces` | `${TELESCOPE_SCOPEDB_DATABASE}.${TELESCOPE_SCOPEDB_SCHEMA}.traces` in embedded config; `scopedb.otel.traces` in exporter defaults | Trace/span table route. |
+| `tables.metrics` | `${TELESCOPE_SCOPEDB_DATABASE}.${TELESCOPE_SCOPEDB_SCHEMA}.metrics` in embedded config; `scopedb.otel.metrics` in exporter defaults | Metric table route. |
 | `create_tables_if_not_exist` | `false` in exporter defaults, `true` in Telescope daemon config | Enables startup database/schema/table creation. |
 | `schema_version` | `v1` | Stored in every row for future migrations. |
 | `compression` | `zstd` | Use `none`, `gzip`, or `zstd`. |
@@ -178,6 +196,8 @@ The embedded `telescope daemon` config is used by both the local binary and the 
 | OTLP HTTP | `0.0.0.0:4318` |
 | health | `0.0.0.0:13133` |
 | queue dir | `$HOME/.telescope/queue` |
+| ScopeDB database | `scopedb` |
+| ScopeDB schema | `otel` |
 | batch timeout | `30s` |
 | batch send size | `2000` |
 | batch max size | `2000` |

@@ -64,6 +64,9 @@ func TestSettingsConfigURI(t *testing.T) {
 			if tt.wantYAML && !strings.Contains(uris[0], "exporters:") {
 				t.Fatalf("expected embedded collector config, got %q", uris[0])
 			}
+			if tt.wantYAML && !strings.Contains(uris[0], "${env:TELESCOPE_SCOPEDB_DATABASE}.${env:TELESCOPE_SCOPEDB_SCHEMA}.traces") {
+				t.Fatalf("expected embedded collector config to route tables through database/schema env vars, got %q", uris[0])
+			}
 		})
 	}
 }
@@ -87,6 +90,8 @@ func TestApplyDefaultEnv(t *testing.T) {
 	t.Setenv("TELESCOPE_HEALTH_ADDR", "")
 	t.Setenv("TELESCOPE_QUEUE_DIR", "")
 	t.Setenv("TELESCOPE_ENV", "")
+	t.Setenv("TELESCOPE_SCOPEDB_DATABASE", "")
+	t.Setenv("TELESCOPE_SCOPEDB_SCHEMA", "")
 
 	Settings("", "test")
 
@@ -104,6 +109,26 @@ func TestApplyDefaultEnv(t *testing.T) {
 	}
 	if got := getenv(t, "TELESCOPE_ENV"); got != "default" {
 		t.Fatalf("expected default telemetry env, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_SCOPEDB_DATABASE"); got != "scopedb" {
+		t.Fatalf("expected default ScopeDB database, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_SCOPEDB_SCHEMA"); got != "otel" {
+		t.Fatalf("expected default ScopeDB schema, got %q", got)
+	}
+}
+
+func TestApplyDefaultEnvPreservesScopeDBDatabaseAndSchema(t *testing.T) {
+	t.Setenv("TELESCOPE_SCOPEDB_DATABASE", "telemetry_prod")
+	t.Setenv("TELESCOPE_SCOPEDB_SCHEMA", "private_otel")
+
+	Settings("", "test")
+
+	if got := getenv(t, "TELESCOPE_SCOPEDB_DATABASE"); got != "telemetry_prod" {
+		t.Fatalf("expected configured ScopeDB database to be preserved, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_SCOPEDB_SCHEMA"); got != "private_otel" {
+		t.Fatalf("expected configured ScopeDB schema to be preserved, got %q", got)
 	}
 }
 

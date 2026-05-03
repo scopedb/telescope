@@ -28,6 +28,8 @@ func ApplyDefaultEnv() {
 	setDefaultEnv("TELESCOPE_HEALTH_ADDR", "0.0.0.0:13133")
 	setDefaultEnv("TELESCOPE_QUEUE_DIR", defaultQueueDir())
 	setDefaultEnv("TELESCOPE_ENV", "default")
+	setDefaultEnv("TELESCOPE_SCOPEDB_DATABASE", "scopedb")
+	setDefaultEnv("TELESCOPE_SCOPEDB_SCHEMA", "otel")
 }
 
 func setDefaultEnv(key string, value string) {
