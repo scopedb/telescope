@@ -37,10 +37,15 @@ const (
 	signalMetrics = "metrics"
 )
 
+var envAttributeKeys = [...]string{
+	"deployment.environment.name",
+	"deployment.environment",
+	"env",
+}
+
 type IngestPayload struct {
 	SchemaVersion string         `json:"schema_version"`
 	Signal        string         `json:"signal"`
-	Env           string         `json:"env"`
 	Resource      map[string]any `json:"resource,omitempty"`
 	Records       []Record       `json:"records"`
 }
@@ -62,7 +67,6 @@ func newPayload(cfg *Config, signal string) *IngestPayload {
 	return &IngestPayload{
 		SchemaVersion: cfg.SchemaVersion,
 		Signal:        signal,
-		Env:           cfg.Env,
 		Records:       make([]Record, 0),
 	}
 }
@@ -76,7 +80,7 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 			"ingest_ts":      ingestTS,
 			"signal":         p.Signal,
 			"schema_version": p.SchemaVersion,
-			"env":            p.Env,
+			"env":            envForRecord(record),
 			"record":         map[string]any(record),
 			"row_id":         deriveRowID(ingestID, uint32(i)),
 		}
@@ -118,6 +122,28 @@ func (p *IngestPayload) scopeDBRows() []map[string]any {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func envForRecord(record Record) string {
+	if value := firstStringForKeys(recordResource(record), envAttributeKeys); value != "" {
+		return value
+	}
+	if value := firstStringForKeys(recordAttributes(record), envAttributeKeys); value != "" {
+		return value
+	}
+	return defaultEnv
+}
+
+func firstStringForKeys(values map[string]any, keys [3]string) string {
+	if values == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := firstString(values[key]); value != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func projectSignalColumns(row map[string]any, signal string, record Record) {
@@ -356,11 +382,7 @@ func projectResourceColumns(row map[string]any, record Record) {
 }
 
 func recordResource(record Record) map[string]any {
-	resource, ok := record["resource"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return resource
+	return recordMap(record["resource"])
 }
 
 func recordResourceString(record Record, key string) string {
@@ -427,19 +449,22 @@ func recordAttributeInt(record Record, keys ...string) (int64, bool) {
 }
 
 func recordAttributes(record Record) map[string]any {
-	attributes, ok := record["attributes"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return attributes
+	return recordMap(record["attributes"])
 }
 
 func recordScope(record Record) map[string]any {
-	scope, ok := record["scope"].(map[string]any)
-	if !ok {
+	return recordMap(record["scope"])
+}
+
+func recordMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case Record:
+		return map[string]any(typed)
+	default:
 		return nil
 	}
-	return scope
 }
 
 func newIngestID() uint32 {

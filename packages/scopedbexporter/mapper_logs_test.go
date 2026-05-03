@@ -31,7 +31,6 @@ func TestMapLogs(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "https://scopedb.invalid"
 	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Env = "demo"
 
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()

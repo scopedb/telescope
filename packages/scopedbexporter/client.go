@@ -72,9 +72,6 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	if payload.SchemaVersion == "" {
 		payload.SchemaVersion = c.cfg.SchemaVersion
 	}
-	if payload.Env == "" {
-		payload.Env = c.cfg.Env
-	}
 
 	table, err := parseTableRef(c.cfg.tableForSignal(signal))
 	if err != nil {

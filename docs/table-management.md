@@ -1,6 +1,6 @@
 # Table Management
 
-Telescope writes OpenTelemetry logs, traces, and metrics into three ScopeDB tables. The recommended path is to let Telescope create and maintain the initial table layout, then only customize table routing when you need environment isolation, migration control, or a non-default database/schema.
+Telescope writes OpenTelemetry logs, traces, and metrics into three ScopeDB tables. A single daemon is expected to accept telemetry from all deployment environments, with `env` derived from each OpenTelemetry record instead of from daemon configuration. The recommended path is to let Telescope create and maintain the initial table layout, then only customize table routing when you need hard storage isolation, migration control, or a non-default database/schema.
 
 This document is the operational guide for table creation and routing. If you just want a working local daemon, the embedded defaults are enough.
 
@@ -29,10 +29,10 @@ All tables include shared columns such as `ingest_ts`, `schema_version`, `env`, 
 
 The important split is:
 
-- `env` is a logical label stored in every row.
+- `env` is a logical label stored in every row and derived from OpenTelemetry resource or record attributes.
 - `tables.*` is physical storage routing.
 
-Prefer changing `env` first. Change table routes only when storage topology, retention, indexing, access policy, or migration control needs to differ.
+Prefer setting the standard OpenTelemetry deployment environment attribute first. Change table routes only when storage topology, retention, indexing, access policy, or migration control needs to differ.
 
 ## Default Physical Layout
 
@@ -86,15 +86,25 @@ The env file only needs `TELESCOPE_SCOPEDB_ENDPOINT` and `TELESCOPE_SCOPEDB_API_
 
 Docker uses the same embedded Collector config. Docker Compose sets `TELESCOPE_QUEUE_DIR=/var/lib/telescope/queue`, so the persistent queue is stored in the `scopedb-telescope-queue` volume.
 
-Keep one logical telemetry environment per `env` value unless you have a strong reason to split physical tables. `env` is stored as a column and is cheaper to change than table topology.
+Send all logical telemetry environments to the same daemon unless you have a strong reason to split physical tables or ScopeDB credentials. `env` is stored as a column and is cheaper to vary than table topology.
 
 ## Choosing Env vs Tables
 
-Prefer changing `env` when you want to distinguish:
+Prefer setting OpenTelemetry environment attributes when you want to distinguish:
 
 - local, staging, and production telemetry in the same physical tables
 - temporary test traffic from normal traffic
 - multiple apps that can share retention and access policy
+
+Telescope derives the top-level `env` column with this precedence:
+
+1. resource `deployment.environment.name`
+2. resource `deployment.environment`
+3. resource `env`
+4. record attribute `deployment.environment.name`
+5. record attribute `deployment.environment`
+6. record attribute `env`
+7. `default`
 
 Prefer changing `tables.*` when you need:
 
@@ -115,7 +125,6 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    env: default
     create_tables_if_not_exist: true
     schema_version: v1
 ```
@@ -128,7 +137,6 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    env: production
     tables:
       logs: telemetry_prod.otel.logs
       traces: telemetry_prod.otel.traces
@@ -149,7 +157,7 @@ exporters:
       storage: file_storage
 ```
 
-In this example, `env: production` is still a row value. The three `tables.*` routes choose physical tables in database `telemetry_prod` and schema `otel`.
+In this example, the three `tables.*` routes choose physical tables in database `telemetry_prod` and schema `otel`. Row-level `env` still comes from each OpenTelemetry record.
 
 Important fields:
 
@@ -158,7 +166,6 @@ Important fields:
 | `endpoint` | none | Required ScopeDB physical region endpoint. |
 | `path` | `/v1/ingest` | ScopeDB ingest API path. |
 | `api_key` | none | Required; sent as `Authorization: Bearer <api_key>`. |
-| `env` | `default` | Stored in every row; preferred first-level environment separator. |
 | `tables.logs` | `scopedb.otel.logs` | Log table route. |
 | `tables.traces` | `scopedb.otel.traces` | Trace/span table route. |
 | `tables.metrics` | `scopedb.otel.metrics` | Metric table route. |
@@ -228,7 +235,7 @@ Telescope's initial table schema is intentionally append-friendly:
 
 When a raw OpenTelemetry attribute becomes important for repeated queries, prefer promoting it in the exporter/schema and semantic layer rather than relying on arbitrary `record` filters. This keeps agent queries predictable and lets ScopeDB index/materialize the field intentionally.
 
-For a breaking schema migration, prefer creating new tables or a new env first, running both paths briefly, and then switching readers once the new tables have enough coverage.
+For a breaking schema migration, prefer creating new tables first, running both paths briefly, and then switching readers once the new tables have enough coverage.
 
 ## Troubleshooting
 

@@ -61,17 +61,6 @@ func TestConfigValidateEmptyAPIKey(t *testing.T) {
 	assert.ErrorContains(t, err, "api_key is required")
 }
 
-func TestConfigValidateEmptyEnv(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Env = ""
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "env is required")
-}
-
 func TestConfigValidateInvalidCompression(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "https://scopedb.invalid"
@@ -98,7 +87,6 @@ func TestCreateDefaultConfig(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 
 	assert.Equal(t, defaultPath, cfg.Path)
-	assert.Equal(t, defaultEnv, cfg.Env)
 	assert.Equal(t, defaultLogsTable, cfg.Tables.Logs)
 	assert.Equal(t, defaultTracesTable, cfg.Tables.Traces)
 	assert.Equal(t, defaultMetricsTable, cfg.Tables.Metrics)

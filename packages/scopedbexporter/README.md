@@ -12,7 +12,6 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    env: default
     tables:
       logs: scopedb.otel.logs
       traces: scopedb.otel.traces
@@ -38,6 +37,7 @@ Notes:
 - `api_key` uses `configopaque.String`, so it is redacted when config values are logged
 - the exporter always sends `Authorization: Bearer <api_key>`
 - built-in defaults route signals to `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`
+- each row's `env` value is derived from OpenTelemetry attributes, preferring resource `deployment.environment.name` and falling back to `default`
 - table routes accept `table`, `schema.table`, or `database.schema.table`
 - `tables.logs`, `tables.traces`, and `tables.metrics` are required and must point to distinct tables
 - `create_tables_if_not_exist` ensures the configured database, schema, and table exist for every configured route during exporter startup

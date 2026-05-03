@@ -139,6 +139,9 @@ func TestGetSchemaGuide(t *testing.T) {
 	if !strings.Contains(body, "promoted semantic field names only") || !strings.Contains(body, "`record` field is full-fidelity evidence payload") {
 		t.Fatalf("missing query surface guidance: %s", body)
 	}
+	if !strings.Contains(body, "resource `deployment.environment.name`") || !strings.Contains(body, "record attribute `env`") {
+		t.Fatalf("missing env derivation guidance: %s", body)
+	}
 }
 
 func TestPostSearchUsesTimeTopByDefault(t *testing.T) {

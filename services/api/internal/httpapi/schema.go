@@ -100,6 +100,7 @@ func renderSchemaGuide(registry semantic.Registry) string {
 	builder.WriteString("# ScopeDB OTel Schema Guide\n\n")
 	builder.WriteString("This guide is generated from the canonical JSON schema. Use `/v1/schema` for machine-readable introspection and this document for agent-friendly planning hints.\n")
 	builder.WriteString("\nQuery filters, projections, sorting, grouping, and measures use promoted semantic field names only. The `record` field is full-fidelity evidence payload for inspection and citation, not the default arbitrary-path query surface. If a raw attribute becomes important, promote or materialize it before relying on it for repeated debugging queries.\n")
+	builder.WriteString("\nThe `env` field is row-level and may contain many deployment environments in one daemon. Telescope derives it from OpenTelemetry attributes in this order: resource `deployment.environment.name`, resource `deployment.environment`, resource `env`, record attribute `deployment.environment.name`, record attribute `deployment.environment`, record attribute `env`, then `default`.\n")
 
 	for _, relation := range registry.Relations {
 		builder.WriteString("\n## `")
