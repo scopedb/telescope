@@ -119,3 +119,14 @@ type Registry struct {
 	Relations []RelationSpec
 	Intents   []IntentSpec
 }
+
+type AttributeFieldSpec struct {
+	Name        string
+	Attribute   string
+	Type        FieldType
+	Description string
+	Relations   []string
+	Stability   Stability
+	Searchable  bool
+	Patternable bool
+}

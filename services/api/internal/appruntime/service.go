@@ -24,7 +24,6 @@ import (
 	"github.com/scopedb/telescope/services/api/internal/httpapi"
 	"github.com/scopedb/telescope/services/api/internal/mcpserver"
 	"github.com/scopedb/telescope/services/api/internal/scopedbexec"
-	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
 type App struct {
@@ -35,7 +34,13 @@ type App struct {
 func New(config Config, version string) (*App, error) {
 	runner := scopedbexec.New(config.ScopeDBEndpoint, config.ScopeDBAPIKey, config.QueryTimeout)
 
-	service, err := httpapi.NewService(semantic.Default, runner, version)
+	registry, err := SemanticRegistryForProfile(config.SemanticProfile)
+	if err != nil {
+		runner.Close()
+		return nil, fmt.Errorf("build semantic registry: %w", err)
+	}
+
+	service, err := httpapi.NewService(registry, runner, version)
 	if err != nil {
 		runner.Close()
 		return nil, fmt.Errorf("build service: %w", err)

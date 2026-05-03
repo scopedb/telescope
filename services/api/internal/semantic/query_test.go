@@ -104,6 +104,53 @@ func TestBuildAggregateQuery(t *testing.T) {
 	}
 }
 
+func TestBuildAggregateQueryWithCustomTraceAttribute(t *testing.T) {
+	registry, err := Default.WithAttributeFields(AttributeFieldSpec{
+		Name:        "route_pattern",
+		Description: "Application-owned low-cardinality route pattern.",
+		Relations:   []string{"executions_v1", "spans_v1"},
+		Searchable:  true,
+		Patternable: true,
+	})
+	if err != nil {
+		t.Fatalf("WithAttributeFields: %v", err)
+	}
+	filter := mustFilter(t, `{"exists":"route_pattern"}`)
+
+	query, err := registry.BuildQuery(QuerySpec{
+		Relation: "executions_v1",
+		Filter:   filter,
+		GroupBy:  []GroupBySpec{{Field: "route_pattern"}},
+		Aggregates: []AggregateSpec{
+			{Op: "count", Alias: "count"},
+			{Op: "p95", Field: "duration_ns", Alias: "p95_duration_ns"},
+		},
+		OrderBy: []OrderSpec{{Field: "p95_duration_ns", Direction: "desc"}},
+		Limit:   20,
+	})
+	if err != nil {
+		t.Fatalf("build query: %v", err)
+	}
+
+	want := "" +
+		"FROM `scopedb`.`otel`.`traces`\n" +
+		"WHERE ((parent_span_id IS NULL) OR (parent_span_id = '')) AND (`record`['attributes']['route_pattern'] IS NOT NULL)\n" +
+		"GROUP BY `record`['attributes']['route_pattern'] AS `route_pattern`\n" +
+		"AGGREGATE\n" +
+		"  count() AS `count`,\n" +
+		"  approx_quantile(`duration_ns`::float, quantile => 0.95) AS `p95_duration_ns`\n" +
+		"SELECT\n" +
+		"  `route_pattern`,\n" +
+		"  `count`,\n" +
+		"  `p95_duration_ns`\n" +
+		"ORDER BY `p95_duration_ns` DESC\n" +
+		"LIMIT 20"
+
+	if got := query.ScopeQL(); got != want {
+		t.Fatalf("unexpected ScopeQL:\n%s", got)
+	}
+}
+
 func TestBuildQueryWithTimeRangeAndRowIDTieBreaker(t *testing.T) {
 	start := time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 23, 1, 0, 0, 0, time.UTC)

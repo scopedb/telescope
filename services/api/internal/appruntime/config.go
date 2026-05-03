@@ -28,6 +28,7 @@ type Config struct {
 	ScopeDBEndpoint string
 	ScopeDBAPIKey   string
 	QueryTimeout    time.Duration
+	SemanticProfile string
 }
 
 func LoadConfigFromEnv() (Config, error) {
@@ -59,11 +60,13 @@ func LoadConfigFromEnv() (Config, error) {
 		}
 		queryTimeout = parsed
 	}
+	semanticProfile := strings.TrimSpace(os.Getenv("TELESCOPE_SEMANTIC_PROFILE"))
 
 	return Config{
 		ListenAddr:      listenAddr,
 		ScopeDBEndpoint: endpoint,
 		ScopeDBAPIKey:   apiKey,
 		QueryTimeout:    queryTimeout,
+		SemanticProfile: semanticProfile,
 	}, nil
 }

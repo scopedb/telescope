@@ -328,6 +328,7 @@ Environment:
   TELESCOPE_HEALTH_ADDR        Collector health listen address, default 0.0.0.0:13133
   TELESCOPE_QUEUE_DIR          Persistent queue directory, default $HOME/.telescope/queue
   TELESCOPE_QUERY_TIMEOUT      ScopeDB query timeout, default 15s
+  TELESCOPE_SEMANTIC_PROFILE   Optional semantic field extension profile, supported: slock
   TELESCOPE_COLLECTOR_CONFIG   Collector config URI or file path, default embedded config
 `)
 }

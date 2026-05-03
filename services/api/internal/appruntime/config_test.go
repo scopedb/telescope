@@ -60,6 +60,14 @@ func TestLoadConfigFromEnv(t *testing.T) {
 			wantAddr: ":8080",
 			wantTime: 45 * time.Second,
 		},
+		{
+			name: "passes through semantic profile",
+			env: map[string]string{
+				"TELESCOPE_SEMANTIC_PROFILE": "slock",
+			},
+			wantAddr: ":8080",
+			wantTime: 15 * time.Second,
+		},
 	}
 
 	for _, tt := range tests {
@@ -85,6 +93,9 @@ func TestLoadConfigFromEnv(t *testing.T) {
 			}
 			if cfg.QueryTimeout != tt.wantTime {
 				t.Fatalf("QueryTimeout = %v, want %v", cfg.QueryTimeout, tt.wantTime)
+			}
+			if got := cfg.SemanticProfile; got != tt.env["TELESCOPE_SEMANTIC_PROFILE"] {
+				t.Fatalf("SemanticProfile = %q, want %q", got, tt.env["TELESCOPE_SEMANTIC_PROFILE"])
 			}
 		})
 	}
@@ -155,4 +166,5 @@ func clearConfigEnv(t *testing.T) {
 	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "")
 	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "")
 	t.Setenv("TELESCOPE_QUERY_TIMEOUT", "")
+	t.Setenv("TELESCOPE_SEMANTIC_PROFILE", "")
 }

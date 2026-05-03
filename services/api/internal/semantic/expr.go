@@ -51,6 +51,27 @@ func (e RefExpr) Validate() error {
 	return nil
 }
 
+type AttributeExpr struct {
+	Name string
+}
+
+func Attribute(name string) Expr {
+	return AttributeExpr{Name: name}
+}
+
+func (AttributeExpr) exprNode() {}
+
+func (e AttributeExpr) ScopeQL() string {
+	return fmt.Sprintf("%s['attributes'][%s]", Ref("record").ScopeQL(), scopeql.String(e.Name).ScopeQL())
+}
+
+func (e AttributeExpr) Validate() error {
+	if strings.TrimSpace(e.Name) == "" {
+		return errors.New("attribute expression name is required")
+	}
+	return nil
+}
+
 type CallExpr struct {
 	Name string
 	Args []Expr

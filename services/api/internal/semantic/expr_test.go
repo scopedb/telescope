@@ -25,6 +25,13 @@ func TestRefExprScopeQL(t *testing.T) {
 	}
 }
 
+func TestAttributeExprScopeQL(t *testing.T) {
+	expr := Attribute("route_pattern")
+	if got := expr.ScopeQL(); got != "`record`['attributes']['route_pattern']" {
+		t.Fatalf("unexpected ScopeQL: got %q", got)
+	}
+}
+
 func TestCallExprScopeQL(t *testing.T) {
 	expr := Call("coalesce", Ref("service"), Ref("service_fallback"))
 	if got := expr.ScopeQL(); got != "coalesce(`service`, `service_fallback`)" {
