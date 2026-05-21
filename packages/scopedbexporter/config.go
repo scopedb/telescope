@@ -85,7 +85,7 @@ func createDefaultConfig() component.Config {
 		},
 		SchemaVersion:  defaultSchemaVersion,
 		Compression:    defaultCompression,
-		Timeout:        exporterhelper.TimeoutConfig{Timeout: 30 * time.Second},
+		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
 		SendingQueue:   configoptional.Some(queueCfg),
 	}
