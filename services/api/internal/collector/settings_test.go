@@ -64,6 +64,9 @@ func TestSettingsConfigURI(t *testing.T) {
 			if tt.wantYAML && !strings.Contains(uris[0], "exporters:") {
 				t.Fatalf("expected embedded collector config, got %q", uris[0])
 			}
+			if tt.wantYAML && !strings.Contains(uris[0], "\n  batch:\n    timeout: ${env:TELESCOPE_OTEL_BATCH_TIMEOUT}\n    send_batch_size: ${env:TELESCOPE_OTEL_BATCH_SIZE}\n    send_batch_max_size: ${env:TELESCOPE_OTEL_BATCH_MAX_SIZE}\n") {
+				t.Fatalf("expected embedded batch env knobs, got %q", uris[0])
+			}
 		})
 	}
 }
@@ -86,6 +89,9 @@ func TestApplyDefaultEnv(t *testing.T) {
 	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", "")
 	t.Setenv("TELESCOPE_HEALTH_ADDR", "")
 	t.Setenv("TELESCOPE_QUEUE_DIR", "")
+	t.Setenv("TELESCOPE_OTEL_BATCH_TIMEOUT", "5s")
+	t.Setenv("TELESCOPE_OTEL_BATCH_SIZE", "")
+	t.Setenv("TELESCOPE_OTEL_BATCH_MAX_SIZE", "")
 
 	Settings("", "test")
 
@@ -100,6 +106,15 @@ func TestApplyDefaultEnv(t *testing.T) {
 	}
 	if got := getenv(t, "TELESCOPE_QUEUE_DIR"); got != "/tmp/telescope-home/.telescope/queue" {
 		t.Fatalf("expected default queue dir under HOME, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_OTEL_BATCH_TIMEOUT"); got != "5s" {
+		t.Fatalf("expected existing batch timeout to be preserved, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_OTEL_BATCH_SIZE"); got != "2000" {
+		t.Fatalf("expected default batch size, got %q", got)
+	}
+	if got := getenv(t, "TELESCOPE_OTEL_BATCH_MAX_SIZE"); got != "2000" {
+		t.Fatalf("expected default batch max size, got %q", got)
 	}
 }
 

@@ -185,9 +185,9 @@ The embedded `telescope daemon` config is used by both the local binary and the 
 | OTLP HTTP | `0.0.0.0:4318` |
 | health | `0.0.0.0:13133` |
 | queue dir | `$HOME/.telescope/queue` |
-| batch timeout | `30s` |
-| batch send size | `2000` |
-| batch max size | `2000` |
+| batch timeout | `TELESCOPE_OTEL_BATCH_TIMEOUT`, default `30s` |
+| batch send size | `TELESCOPE_OTEL_BATCH_SIZE`, default `2000` |
+| batch max size | `TELESCOPE_OTEL_BATCH_MAX_SIZE`, default `2000` |
 | queue size | `5000` |
 | queue consumers | `1` |
 | retry initial interval | `5s` |
@@ -195,6 +195,8 @@ The embedded `telescope daemon` config is used by both the local binary and the 
 | retry max elapsed | `10m` |
 
 Override the queue directory with `TELESCOPE_QUEUE_DIR` when running in a container or another environment that needs a specific writable volume.
+
+Tune the embedded Collector batch processor with `TELESCOPE_OTEL_BATCH_TIMEOUT`, `TELESCOPE_OTEL_BATCH_SIZE`, and `TELESCOPE_OTEL_BATCH_MAX_SIZE`. Smaller batches can drain persistent queues with lower per-request latency when the backend is slow; larger batches reduce request volume when the backend can ingest them comfortably. These knobs only affect the embedded config. Custom configs supplied through `TELESCOPE_COLLECTOR_CONFIG` must define their own batch processor settings.
 
 Use `TELESCOPE_COLLECTOR_CONFIG` or `telescope daemon --collector-config` only when you need to replace the embedded Collector config with a custom config URI or file path.
 

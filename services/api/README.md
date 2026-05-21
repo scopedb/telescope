@@ -59,6 +59,9 @@ Optional environment variables:
 - `TELESCOPE_OTLP_HTTP_ADDR`: OTLP HTTP listen address, default `0.0.0.0:4318`
 - `TELESCOPE_HEALTH_ADDR`: collector health listen address, default `0.0.0.0:13133`
 - `TELESCOPE_QUEUE_DIR`: persistent queue directory, default `$HOME/.telescope/queue`
+- `TELESCOPE_OTEL_BATCH_TIMEOUT`: embedded Collector batch timeout, default `30s`
+- `TELESCOPE_OTEL_BATCH_SIZE`: embedded Collector send batch size, default `2000`
+- `TELESCOPE_OTEL_BATCH_MAX_SIZE`: embedded Collector send batch max size, default `2000`
 - `TELESCOPE_QUERY_TIMEOUT`: per-query timeout, default `15s`
 - `TELESCOPE_COLLECTOR_CONFIG`: collector config URI or file path; unset uses the embedded default config
 

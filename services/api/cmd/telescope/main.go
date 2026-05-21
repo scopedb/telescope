@@ -326,6 +326,9 @@ Environment:
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318
   TELESCOPE_HEALTH_ADDR        Collector health listen address, default 0.0.0.0:13133
   TELESCOPE_QUEUE_DIR          Persistent queue directory, default $HOME/.telescope/queue
+  TELESCOPE_OTEL_BATCH_TIMEOUT Embedded Collector batch timeout, default 30s
+  TELESCOPE_OTEL_BATCH_SIZE    Embedded Collector send batch size, default 2000
+  TELESCOPE_OTEL_BATCH_MAX_SIZE Embedded Collector send batch max size, default 2000
   TELESCOPE_QUERY_TIMEOUT      ScopeDB query timeout, default 15s
   TELESCOPE_COLLECTOR_CONFIG   Collector config URI or file path, default embedded config
 `)

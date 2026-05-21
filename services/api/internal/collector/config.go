@@ -38,9 +38,9 @@ processors:
     limit_mib: 512
     spike_limit_mib: 128
   batch:
-    timeout: 30s
-    send_batch_size: 2000
-    send_batch_max_size: 2000
+    timeout: ${env:TELESCOPE_OTEL_BATCH_TIMEOUT}
+    send_batch_size: ${env:TELESCOPE_OTEL_BATCH_SIZE}
+    send_batch_max_size: ${env:TELESCOPE_OTEL_BATCH_MAX_SIZE}
 
 exporters:
   scopedb:
