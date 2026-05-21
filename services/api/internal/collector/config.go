@@ -47,6 +47,7 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
+    timeout: 30s
     create_tables_if_not_exist: true
     schema_version: v1
     sending_queue:

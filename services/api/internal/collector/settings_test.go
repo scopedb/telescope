@@ -64,6 +64,9 @@ func TestSettingsConfigURI(t *testing.T) {
 			if tt.wantYAML && !strings.Contains(uris[0], "exporters:") {
 				t.Fatalf("expected embedded collector config, got %q", uris[0])
 			}
+			if tt.wantYAML && !strings.Contains(uris[0], "\n  scopedb:\n    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}\n    path: /v1/ingest\n    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}\n    timeout: 30s\n") {
+				t.Fatalf("expected embedded scopedb exporter timeout, got %q", uris[0])
+			}
 		})
 	}
 }

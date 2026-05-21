@@ -18,6 +18,7 @@ package scopedbexporter
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,6 +94,7 @@ func TestCreateDefaultConfig(t *testing.T) {
 	assert.False(t, cfg.CreateTablesIfNotExist)
 	assert.Equal(t, defaultSchemaVersion, cfg.SchemaVersion)
 	assert.Equal(t, defaultCompression, cfg.Compression)
+	assert.Equal(t, 30*time.Second, cfg.Timeout.Timeout)
 	assert.True(t, cfg.RetryOnFailure.Enabled)
 	assert.True(t, cfg.SendingQueue.HasValue())
 	assert.Equal(t, int64(10_000), cfg.SendingQueue.Get().QueueSize)
