@@ -30,7 +30,7 @@ license-check:
 
 .PHONY: license-format
 license-format:
-	$(HAWKEYE) format --config licenserc.toml --fail-if-updated=false
+	$(HAWKEYE) format --config licenserc.toml
 
 .PHONY: fmt-check
 fmt-check:
@@ -56,7 +56,7 @@ test:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check test
+ci-go: license-check fmt-check tidy-check test
 
 .PHONY: build-ocb
 build-ocb:
