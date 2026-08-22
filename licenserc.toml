@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-headerPath = "Apache-2.0.txt"
+[header]
+builtin = "Apache-2.0"
 
+[files]
 includes = [
   "**/*.go",
   "**/*.toml",
@@ -25,6 +27,6 @@ includes = [
 
 excludes = ["services/gateway/collector/_build/**"]
 
-[properties]
-copyrightOwner = "ScopeDB, Inc."
-inceptionYear = 2026
+[props]
+copyright_owner = "ScopeDB, Inc."
+inception_year = 2026

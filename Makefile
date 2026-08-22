@@ -30,7 +30,7 @@ license-check:
 
 .PHONY: license-format
 license-format:
-	$(HAWKEYE) format --config licenserc.toml --fail-if-updated=false
+	$(HAWKEYE) format --config licenserc.toml
 
 .PHONY: fmt-check
 fmt-check:
