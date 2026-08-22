@@ -56,7 +56,7 @@ test:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check test
+ci-go: license-check fmt-check tidy-check test
 
 .PHONY: build-ocb
 build-ocb:
