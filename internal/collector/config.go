@@ -18,8 +18,6 @@ package collector
 
 const defaultConfig = `
 extensions:
-  health_check:
-    endpoint: ${env:TELESCOPE_HEALTH_ADDR}
   file_storage:
     directory: ${env:TELESCOPE_QUEUE_DIR}
     create_directory: true
@@ -60,7 +58,7 @@ exporters:
       max_elapsed_time: 10m
 
 service:
-  extensions: [health_check, file_storage]
+  extensions: [file_storage]
   pipelines:
     traces:
       receivers: [otlp]

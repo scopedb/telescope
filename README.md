@@ -26,7 +26,7 @@ Create the local configuration files:
 
 ```bash
 cp deploy/.env.example deploy/.env
-cp deploy/ingestion.example.yaml deploy/ingestion.yaml
+cp deploy/telescope.example.yaml deploy/telescope.yaml
 ```
 
 Set the ScopeDB credentials in `deploy/.env`:
@@ -36,7 +36,7 @@ TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
 ```
 
-Then edit `deploy/ingestion.yaml`. Only configured signals are accepted and started:
+Then edit `deploy/telescope.yaml`. Only configured signals are accepted and started:
 
 ```yaml
 signals:
@@ -57,9 +57,9 @@ Validate the destination table and mapping before deployment:
 ```bash
 docker run --rm \
   --env-file deploy/.env \
-  -v "$PWD/deploy/ingestion.yaml:/etc/telescope/ingestion.yaml:ro" \
+  -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
   ghcr.io/scopedb/telescope:latest \
-  ingestion check --config /etc/telescope/ingestion.yaml
+  validate /etc/telescope/telescope.yaml
 ```
 
 Start Telescope:
@@ -108,7 +108,7 @@ service:
 
 ## Verify Ingestion
 
-The daemon exposes a small operational HTTP surface on `127.0.0.1:8080` in the Docker deployment:
+Telescope exposes its operational HTTP surface on `127.0.0.1:8080` in the Docker deployment:
 
 ```bash
 curl -sS http://127.0.0.1:8080/healthz
@@ -118,19 +118,27 @@ curl -sS http://127.0.0.1:8080/v1/ingestion/status
 
 The ingestion status reports only configured signals, including receiver and write counters, queue utilization, table routes, destination validation, and the latest write result.
 
+For a human-readable summary:
+
+```bash
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yaml \
+  exec telescope telescope status
+```
+
 To send a synthetic signal and wait for the exact exporter acknowledgement:
 
 ```bash
 docker compose --env-file deploy/.env \
   -f deploy/docker-compose.yaml \
-  exec telescope telescope ingestion test --signal traces
+  exec telescope telescope verify
 ```
 
 Expected output:
 
 ```text
-probe probe-...: OTLP accepted
-probe probe-...: ScopeDB write confirmed
+traces: OTLP accepted (probe-...)
+traces: ScopeDB append committed (probe-...)
 ```
 
 ## Local Binary
@@ -140,20 +148,19 @@ Build and run the embedded Collector:
 ```bash
 make build
 
-./bin/telescope daemon \
-  --env-file deploy/.env \
-  --ingestion-config deploy/ingestion.yaml
+./bin/telescope validate --env-file deploy/.env deploy/telescope.yaml
+./bin/telescope run --env-file deploy/.env deploy/telescope.yaml
 ```
 
 Commands:
 
-- `telescope daemon`: run the configured Collector and operational endpoints
-- `telescope ingestion check`: validate an ingestion configuration and its destination tables
-- `telescope ingestion test`: test one running signal pipeline end to end
-- `telescope collector`: run the upstream Collector command with Telescope's component set
+- `telescope validate`: validate the configuration and its destination tables
+- `telescope run`: run Telescope from the same configuration
+- `telescope verify`: verify all enabled signal pipelines end to end
+- `telescope status`: show a running Telescope's ingestion state
 - `telescope version`: print the build version
 
-The daemon requires one explicit ingestion choice: `--ingestion-config`, `--ingestion-profile starter`, or `--collector-config`. The equivalent environment variables are `TELESCOPE_INGESTION_CONFIG`, `TELESCOPE_INGESTION_PROFILE`, and `TELESCOPE_COLLECTOR_CONFIG`.
+`validate` and `run` use the same `telescope.yaml` contract; `verify` and `status` discover the enabled signals from the running instance. `validate --offline` checks the file without connecting to ScopeDB. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 
@@ -166,7 +173,7 @@ make build
 
 Project layout:
 
-- `cmd/telescope`: Telescope CLI and daemon entrypoint
+- `cmd/telescope`: Telescope CLI and runtime entrypoint
 - `internal/collector`: embedded Collector configuration and component factories
 - `internal/status`: operational health, readiness, and ingestion status endpoints
 - `deploy`: Docker Compose deployment assets

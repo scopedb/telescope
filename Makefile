@@ -88,12 +88,7 @@ checksums:
 
 .PHONY: validate
 validate: build
-	TELESCOPE_SCOPEDB_ENDPOINT="$${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
-	TELESCOPE_SCOPEDB_API_KEY="$${TELESCOPE_SCOPEDB_API_KEY:?TELESCOPE_SCOPEDB_API_KEY is required}" \
-	TELESCOPE_OTLP_GRPC_ADDR="$${TELESCOPE_OTLP_GRPC_ADDR:-0.0.0.0:4317}" \
-	TELESCOPE_OTLP_HTTP_ADDR="$${TELESCOPE_OTLP_HTTP_ADDR:-0.0.0.0:4318}" \
-	TELESCOPE_HEALTH_ADDR="$${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
-	$(abspath $(TELESCOPE)) collector validate
+	$(abspath $(TELESCOPE)) validate --offline deploy/telescope.example.yaml
 
 .PHONY: docker-build
 docker-build:
@@ -104,6 +99,6 @@ ci-runtime: validate docker-build artifacts
 
 .PHONY: demo
 demo:
-	@echo "Export TELESCOPE_SCOPEDB_ENDPOINT and TELESCOPE_SCOPEDB_API_KEY, then run:"
-	@echo "  ./bin/telescope daemon --ingestion-profile starter"
+	@echo "Copy deploy/telescope.example.yaml to deploy/telescope.yaml, configure its mappings, then run:"
+	@echo "  ./bin/telescope run --env-file deploy/.env deploy/telescope.yaml"
 	@echo "Use telemetrygen to send logs, traces, and metrics to the configured OTLP ports."

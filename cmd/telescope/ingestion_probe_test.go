@@ -45,7 +45,7 @@ func TestMarshalIngestionProbeSupportsEverySignal(t *testing.T) {
 	}
 }
 
-func TestRunIngestionTestWaitsForExactProbe(t *testing.T) {
+func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 	var mu sync.RWMutex
 	lastProbeIDs := []string{"different-probe"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,17 +80,28 @@ func TestRunIngestionTestWaitsForExactProbe(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := runIngestionTest([]string{
-		"--signal", "traces",
+	err := runVerify([]string{
 		"--otlp-endpoint", server.URL,
 		"--status-endpoint", server.URL + "/status",
 		"--timeout", "2s",
+		"traces",
 	})
 	require.NoError(t, err)
 	mu.RLock()
 	defer mu.RUnlock()
 	require.NotEmpty(t, lastProbeIDs)
 	assert.True(t, strings.HasPrefix(lastProbeIDs[0], "probe-"))
+}
+
+func TestVerifySignalsDefaultsToEnabledSignals(t *testing.T) {
+	status := statusapi.IngestionStatusResponse{Signals: []statusapi.IngestionSignalStatus{
+		{Signal: "logs"},
+		{Signal: "metrics"},
+	}}
+
+	signals, err := verifySignals(nil, status)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"logs", "metrics"}, signals)
 }
 
 func probeIDFromOTLP(t *testing.T, signal string, payload []byte) string {

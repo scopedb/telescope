@@ -31,7 +31,7 @@ import (
 )
 
 func TestLoadAndRenderIngestionConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ingestion.yaml")
+	path := filepath.Join(t.TempDir(), "telescope.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 signals:
   traces:
@@ -41,7 +41,7 @@ signals:
       name: span.name
 `), 0o600))
 
-	ingestion, err := LoadIngestionConfig(path)
+	ingestion, err := LoadConfig(path)
 	require.NoError(t, err)
 	traceConfig, enabled := ingestion.Signal("traces")
 	require.True(t, enabled)
@@ -49,7 +49,7 @@ signals:
 	assert.Equal(t, "span.name", traceConfig.Mapping["name"])
 	assert.Equal(t, []string{"traces"}, ingestion.EnabledSignals())
 
-	uri, err := ConfigURIForIngestion(ingestion)
+	uri, err := ConfigURI(ingestion)
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(uri, "yaml:"))
 	var rendered map[string]any
@@ -92,19 +92,19 @@ func mapKeys(values map[string]any) []string {
 	return keys
 }
 
-func TestLoadIngestionConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ingestion.yaml")
+func TestLoadConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "telescope.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("unknown: true\n"), 0o600))
 
-	_, err := LoadIngestionConfig(path)
+	_, err := LoadConfig(path)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "field unknown not found")
 }
 
-func TestDeploymentIngestionExampleIsValid(t *testing.T) {
-	path := filepath.Join("..", "..", "deploy", "ingestion.example.yaml")
+func TestDeploymentConfigExampleIsValid(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "telescope.example.yaml")
 
-	config, err := LoadIngestionConfig(path)
+	config, err := LoadConfig(path)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"traces"}, config.EnabledSignals())
 }

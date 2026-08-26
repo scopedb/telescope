@@ -47,6 +47,9 @@ func init() {
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "telescope: %v\n", err)
 		os.Exit(1)
 	}
@@ -59,12 +62,16 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
-	case "daemon":
-		return runDaemon(args[1:])
-	case "collector":
-		return runCollector(args[1:])
-	case "ingestion":
-		return runIngestion(args[1:])
+	case "run":
+		return runTelescope(args[1:])
+	case "validate":
+		return runValidate(args[1:])
+	case "verify":
+		return runVerify(args[1:])
+	case "status":
+		return runStatus(args[1:])
+	case "advanced":
+		return runAdvanced(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
@@ -76,13 +83,10 @@ func run(args []string) error {
 	}
 }
 
-func runDaemon(args []string) error {
-	flags := flag.NewFlagSet("daemon", flag.ContinueOnError)
+func runTelescope(args []string) error {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	bootstrap := addBootstrapFlags(flags)
-	collectorConfig := flags.String("collector-config", "", "collector config URI or file path")
-	ingestionConfig := flags.String("ingestion-config", "", "Telescope tables and mappings YAML file")
-	ingestionProfile := flags.String("ingestion-profile", "", "built-in ingestion profile (starter)")
 	httpAddr := flags.String("http-addr", "", "operational HTTP listen address; overrides TELESCOPE_HTTP_ADDR")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -90,18 +94,19 @@ func runDaemon(args []string) error {
 	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
 	}
-	listenAddr := resolveHTTPListenAddr(*httpAddr)
-	collectorConfigURI, err := resolveDaemonConfig(
-		*collectorConfig,
-		flagProvided(flags, "collector-config"),
-		*ingestionConfig,
-		flagProvided(flags, "ingestion-config"),
-		*ingestionProfile,
-		flagProvided(flags, "ingestion-profile"),
-	)
+	configPath, err := telescopeConfigPath(flags)
 	if err != nil {
 		return err
 	}
+	ingestion, err := collector.LoadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	collectorConfigURI, err := collector.ConfigURI(ingestion)
+	if err != nil {
+		return fmt.Errorf("render Telescope config: %w", err)
+	}
+	listenAddr := resolveHTTPListenAddr(*httpAddr)
 
 	otelCollector, err := collector.New(collectorConfigURI, version)
 	if err != nil {
@@ -131,11 +136,11 @@ func runDaemon(args []string) error {
 		errCh <- nil
 	}()
 
-	fmt.Fprintf(os.Stderr, "telescope daemon started: http=%s otlp_grpc=%s otlp_http=%s health=%s\n",
+	fmt.Fprintf(os.Stderr, "telescope starting: config=%s http=%s otlp_grpc=%s otlp_http=%s\n",
+		configPath,
 		listenAddr,
 		os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"),
 		os.Getenv("TELESCOPE_OTLP_HTTP_ADDR"),
-		os.Getenv("TELESCOPE_HEALTH_ADDR"),
 	)
 
 	var runErr error
@@ -156,12 +161,17 @@ func runDaemon(args []string) error {
 	return runErr
 }
 
+func runAdvanced(args []string) error {
+	if len(args) == 0 || args[0] != "collector" {
+		return errors.New("usage: telescope advanced collector <otelcol command>")
+	}
+	return runCollector(args[1:])
+}
+
 func runCollector(args []string) error {
 	settings := collector.Settings("", version)
-	if collectorArgsIncludeConfig(args) {
-		settings.ConfigProviderSettings.ResolverSettings.URIs = nil
-	}
 	command := otelcol.NewCommand(settings)
+	command.SilenceErrors = true
 	command.SetArgs(args)
 	return command.Execute()
 }
@@ -193,16 +203,6 @@ func applyBootstrapFlags(flags bootstrapFlags) error {
 		return err
 	}
 	return nil
-}
-
-func flagProvided(flags *flag.FlagSet, name string) bool {
-	provided := false
-	flags.Visit(func(current *flag.Flag) {
-		if current.Name == name {
-			provided = true
-		}
-	})
-	return provided
 }
 
 func loadEnvFile(path string) error {
@@ -261,34 +261,22 @@ func resolveHTTPListenAddr(flagValue string) string {
 	return ":8080"
 }
 
-func collectorArgsIncludeConfig(args []string) bool {
-	for _, arg := range args {
-		if arg == "--config" || arg == "-c" || strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-c=") {
-			return true
-		}
-	}
-	return false
-}
-
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `Telescope
 
 Usage:
-  telescope daemon [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
-  telescope ingestion check (--config file | --profile starter)
-  telescope ingestion test --signal (logs | traces | metrics)
-  telescope collector <otelcol command>
+  telescope validate [options] [telescope.yaml]
+  telescope run [options] [telescope.yaml]
+  telescope verify [options] [logs | traces | metrics ...]
+  telescope status [options]
   telescope version
 
-Bootstrap:
+Connection options:
   --env-file                 Load KEY=VALUE bootstrap config file
   --scopedb-endpoint         ScopeDB physical region endpoint
   --scopedb-api-key          ScopeDB API key
 
-Daemon options:
-  --ingestion-config         Tables and mappings YAML for the embedded Collector
-  --ingestion-profile        Explicit built-in profile; currently starter
-  --collector-config         Full Collector config URI or file path
+Run options:
   --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR
 
 Environment:
@@ -297,15 +285,10 @@ Environment:
   TELESCOPE_HTTP_ADDR          Operational HTTP listen address, default :8080
   TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318
-  TELESCOPE_HEALTH_ADDR        Collector health listen address, default 0.0.0.0:13133
   TELESCOPE_QUEUE_DIR          Persistent queue directory, default $HOME/.telescope/queue
   TELESCOPE_QUEUE_MAX_BYTES    Logical queued telemetry byte capacity, default 536870912 (512 MiB)
-  TELESCOPE_OTEL_BATCH_TIMEOUT Embedded Collector batch timeout, default 30s
-  TELESCOPE_OTEL_BATCH_SIZE    Embedded Collector send batch size, default 2000
-  TELESCOPE_OTEL_BATCH_MAX_SIZE Embedded Collector send batch max size, default 2000
-  TELESCOPE_INTERNAL_METRICS_URL Collector metrics URL for ingestion status, default http://127.0.0.1:8888/metrics
-  TELESCOPE_INGESTION_CONFIG   Tables and mappings YAML file
-  TELESCOPE_INGESTION_PROFILE  Built-in ingestion profile; currently starter
-  TELESCOPE_COLLECTOR_CONFIG   Full Collector config URI or file path
+
+Advanced:
+  telescope advanced collector <otelcol command>
 `)
 }

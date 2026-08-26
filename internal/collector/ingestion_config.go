@@ -27,32 +27,32 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func LoadIngestionConfig(path string) (scopedbexporter.IngestionConfig, error) {
+func LoadConfig(path string) (scopedbexporter.IngestionConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("read ingestion config %s: %w", path, err)
+		return scopedbexporter.IngestionConfig{}, fmt.Errorf("read Telescope config %s: %w", path, err)
 	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var config scopedbexporter.IngestionConfig
 	if err := decoder.Decode(&config); err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode ingestion config %s: %w", path, err)
+		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode ingestion config %s: multiple YAML documents are not supported", path)
+			return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: multiple YAML documents are not supported", path)
 		}
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode ingestion config %s: %w", path, err)
+		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
 	}
 	if err := config.Validate(); err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("validate ingestion config %s: %w", path, err)
+		return scopedbexporter.IngestionConfig{}, fmt.Errorf("validate Telescope config %s: %w", path, err)
 	}
 	return config, nil
 }
 
-func ConfigURIForIngestion(config scopedbexporter.IngestionConfig) (string, error) {
+func ConfigURI(config scopedbexporter.IngestionConfig) (string, error) {
 	if err := config.Validate(); err != nil {
 		return "", err
 	}

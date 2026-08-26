@@ -17,10 +17,8 @@
 package collector
 
 import (
-	"fmt"
 	"strings"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/provider/envprovider"
@@ -39,10 +37,12 @@ func settings(configURI string, version string, disableGracefulShutdown bool) ot
 	applyDefaultEnv()
 
 	configURI = strings.TrimSpace(configURI)
-	if configURI == "" {
-		configURI = starterConfigURI()
-	} else if !strings.Contains(configURI, ":") {
+	if configURI != "" && !strings.Contains(configURI, ":") {
 		configURI = "file:" + configURI
+	}
+	var configURIs []string
+	if configURI != "" {
+		configURIs = []string{configURI}
 	}
 
 	return otelcol.CollectorSettings{
@@ -55,7 +55,7 @@ func settings(configURI string, version string, disableGracefulShutdown bool) ot
 		DisableGracefulShutdown: disableGracefulShutdown,
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
 			ResolverSettings: confmap.ResolverSettings{
-				URIs: []string{configURI},
+				URIs: configURIs,
 				ProviderFactories: []confmap.ProviderFactory{
 					envprovider.NewFactory(),
 					fileprovider.NewFactory(),
@@ -73,14 +73,6 @@ func settings(configURI string, version string, disableGracefulShutdown bool) ot
 			yamlprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.56.0",
 		},
 	}
-}
-
-func starterConfigURI() string {
-	uri, err := ConfigURIForIngestion(scopedbexporter.StarterIngestionConfig())
-	if err != nil {
-		panic(fmt.Sprintf("render built-in starter config: %v", err))
-	}
-	return uri
 }
 
 func New(configURI string, version string) (*otelcol.Collector, error) {

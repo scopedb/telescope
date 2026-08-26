@@ -44,9 +44,6 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-24.04
-    env:
-      TELESCOPE_SCOPEDB_ENDPOINT: https://scopedb.invalid
-      TELESCOPE_SCOPEDB_API_KEY: dummy
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6

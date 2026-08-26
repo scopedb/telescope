@@ -57,76 +57,9 @@ Missing and null source values are omitted. Selected empty strings and numeric z
 
 The full source selector reference is in the [ScopeDB exporter README](../packages/scopedbexporter/README.md#mapping-sources).
 
-## Starter Profile Tables
-
-The explicitly selected `starter` profile enables three routes:
-
-```yaml
-signals:
-  logs:
-    table: scopedb.otel.logs
-  traces:
-    table: scopedb.otel.traces
-  metrics:
-    table: scopedb.otel.metrics
-```
-
-The corresponding starter mappings require these columns:
-
-| Signal | Columns |
-| --- | --- |
-| Logs | `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `service`, `status`, `severity_number`, `message` |
-| Traces | `start_timestamp`, `end_timestamp`, `trace_id`, `span_id`, `parent_span_id`, `service`, `span_name`, `span_kind`, `status_code`, `duration_ns` |
-| Metrics | `record_timestamp`, `start_timestamp`, `service`, `metric_name`, `metric_type`, `temporality`, `unit`, `int_value`, `double_value`, `distribution` |
-
-A minimal compatible layout is:
-
-```sql
-CREATE TABLE scopedb.otel.logs (
-  record_timestamp timestamp,
-  observed_timestamp timestamp,
-  trace_id string,
-  span_id string,
-  service string,
-  status string,
-  severity_number int,
-  message string
-);
-
-CREATE TABLE scopedb.otel.traces (
-  start_timestamp timestamp,
-  end_timestamp timestamp,
-  trace_id string,
-  span_id string,
-  parent_span_id string,
-  service string,
-  span_name string,
-  span_kind string,
-  status_code string,
-  duration_ns int
-);
-
-CREATE TABLE scopedb.otel.metrics (
-  record_timestamp timestamp,
-  start_timestamp timestamp,
-  service string,
-  metric_name string,
-  metric_type string,
-  temporality string,
-  unit string,
-  int_value int,
-  double_value float,
-  distribution object
-);
-```
-
-Create the database and schema first if they do not already exist, and add the physical layout appropriate for the workload. The example deliberately does not prescribe partition, cluster, retention, or index settings.
-
-The starter mapping is only a bootstrap convenience. Production configurations should name their own tables and mappings. Logs, traces, and metrics may share one physical table if all mapped columns are compatible; Telescope does not require distinct routes.
-
 ## Ingestion Configuration and Validation
 
-For user-owned tables, put only the routes and mappings in an ingestion file; Collector receivers, batching, persistence, compression, and retry remain Telescope-owned:
+Put only the routes and mappings in `telescope.yaml`; Collector receivers, batching, persistence, compression, and retry remain Telescope-owned:
 
 ```yaml
 signals:
@@ -142,30 +75,28 @@ Only configured signals get Collector pipelines. The example accepts traces with
 Validate the mapping against the live destination before accepting OTLP:
 
 ```bash
-telescope ingestion check \
-  --config ./ingestion.yaml \
+telescope validate \
   --scopedb-endpoint https://<region>.scopedb.cloud \
-  --scopedb-api-key sk_...
+  --scopedb-api-key sk_... \
+  ./telescope.yaml
 
-telescope daemon \
-  --ingestion-config ./ingestion.yaml \
+telescope run \
   --scopedb-endpoint https://<region>.scopedb.cloud \
-  --scopedb-api-key sk_...
+  --scopedb-api-key sk_... \
+  ./telescope.yaml
 ```
 
 The check command prints `signal -> table -> destination column -> OTel source`, then describes every configured destination. It reports missing columns and statically known type mismatches, including the destination column, selector, produced type, and actual ScopeDB type. Attribute-key selectors and `log.body` are runtime-typed, so Telescope checks that their columns exist but does not guess a type. Telescope never modifies the table.
 
-Daemon startup performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
+`telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 
 Full Collector configuration can still be checked without contacting ScopeDB:
 
 ```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
-TELESCOPE_SCOPEDB_API_KEY=dummy \
 make validate
 ```
 
-Use `telescope ingestion test --signal <signal>` after startup to send one synthetic OTLP record and wait for its exact ScopeDB append acknowledgement. The probe does not query mapped columns.
+Use `telescope verify` after startup to test every enabled signal and wait for exact ScopeDB append acknowledgements. The probes do not query mapped columns.
 
 ## Mapping Changes
 
@@ -173,7 +104,7 @@ Treat a mapping change like an application-to-database contract change:
 
 1. Apply compatible DDL first.
 2. Update the mapping.
-3. Run `telescope ingestion check`, then restart or roll out Telescope.
+3. Run `telescope validate`, then restart or roll out Telescope.
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.
 

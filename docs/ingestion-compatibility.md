@@ -32,7 +32,7 @@ The following shared context is available to every signal mapping:
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
-`telescope ingestion check` checks every selected destination column before deployment. Daemon startup repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type.
+`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type.
 
 ## Logs
 

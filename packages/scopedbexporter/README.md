@@ -57,8 +57,6 @@ exporters:
 
 The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. Signal routes may point to the same table when their mappings target a compatible schema.
 
-The built-in starter configuration uses `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics` with small mappings for timestamps, service identity, signal identity, correlation, and primary values. The Telescope daemon requires users to select this profile explicitly; it is not a storage contract.
-
 ## Mapping Sources
 
 Sources shared by all signals:

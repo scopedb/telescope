@@ -29,7 +29,7 @@ COPY --from=builder /out/telescope /usr/local/bin/telescope
 
 VOLUME ["/var/lib/telescope/queue"]
 
-EXPOSE 4317 4318 8080 13133
+EXPOSE 4317 4318 8080
 
 ENTRYPOINT ["/usr/local/bin/telescope"]
-CMD ["daemon"]
+CMD ["run", "/etc/telescope/telescope.yaml"]

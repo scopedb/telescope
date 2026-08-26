@@ -147,8 +147,17 @@ func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {
 
 func validTestConfig() *Config {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Tables, cfg.Mappings = StarterIngestionConfig().exporterConfig()
 	cfg.Endpoint = "https://scopedb.invalid"
 	cfg.APIKey = configopaque.String("test-api-key")
+	cfg.Tables = TableRoutingConfig{
+		Logs:    "test.logs",
+		Traces:  "test.traces",
+		Metrics: "test.metrics",
+	}
+	cfg.Mappings = SignalMappingConfig{
+		Logs:    map[string]string{"message": "log.message"},
+		Traces:  map[string]string{"name": "span.name"},
+		Metrics: map[string]string{"name": "metric.name"},
+	}
 	return cfg
 }

@@ -81,16 +81,8 @@ github.com/mostynb/go-grpc-compression v1.2.3 h1:42/BKWMy0KEJGSdWvzqIyOZ95YcR9mL
 github.com/mostynb/go-grpc-compression v1.2.3/go.mod h1:AghIxF3P57umzqM9yz795+y1Vjs47Km/Y2FE6ouQ7Lg=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
-github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0 h1:DgoF9xy5KGhb2uBXBGmdpoOSeBEXgzror1DVJzlV3is=
-github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0/go.mod h1:8aKKR2DqpKNUqWZ+GV/t0DbAwmJT6QeXz4AkiyIwCak=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0 h1:3VcejMxG5+0GkpgWVIipeNlJjRipSsC7s++GVh7H5EY=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0/go.mod h1:mlZhpuRzbSlJP/dcfDsOySJxSO/kVITeLuZn+6KbVOM=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.150.0 h1:/NVBt08VvI5AnWf56WwYT/N1z6ygvt07mYsfizl2Zl8=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.150.0/go.mod h1:RImnAxo2peqFLEUDLtI1upVAuPYywpRebYGnZ/6r51Y=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/healthcheck v0.150.0 h1:s5V8dz22Q/ZamoG9gDl3FUGOuPWHfgg5+rJWMiC7dUg=
-github.com/open-telemetry/opentelemetry-collector-contrib/internal/healthcheck v0.150.0/go.mod h1:ZW8Ju9GfFl4n+ECq+f/M2NUHYqunnb9/EfbM0g/wYQM=
-github.com/open-telemetry/opentelemetry-collector-contrib/pkg/status v0.150.0 h1:tTsLH1CNY3gtQAig1cpUwhTalszdJynitkID/KHQO38=
-github.com/open-telemetry/opentelemetry-collector-contrib/pkg/status v0.150.0/go.mod h1:LekRbCvy+oEIdEl+KxUO7NABHCGjAHVvB2+r/cK3T+8=
 github.com/pierrec/lz4/v4 v4.1.26 h1:GrpZw1gZttORinvzBdXPUXATeqlJjqUG/D87TKMnhjY=
 github.com/pierrec/lz4/v4 v4.1.26/go.mod h1:EoQMVJgeeEOMsCqCzqFm2O0cJvljX2nGZjcRIPL34O4=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

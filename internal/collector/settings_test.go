@@ -27,12 +27,9 @@ func TestSettingsConfigURI(t *testing.T) {
 		name      string
 		configURI string
 		wantURI   string
-		wantYAML  bool
 	}{
 		{
-			name:     "empty config uses embedded yaml",
-			wantURI:  "yaml:",
-			wantYAML: true,
+			name: "empty config has no implicit mapping",
 		},
 		{
 			name:      "bare path becomes file uri",
@@ -55,28 +52,17 @@ func TestSettingsConfigURI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := Settings(tt.configURI, "test")
 			uris := settings.ConfigProviderSettings.ResolverSettings.URIs
+			if tt.wantURI == "" {
+				if len(uris) != 0 {
+					t.Fatalf("expected no config URI, got %q", uris)
+				}
+				return
+			}
 			if len(uris) != 1 {
 				t.Fatalf("expected one config URI, got %d", len(uris))
 			}
 			if !strings.HasPrefix(uris[0], tt.wantURI) {
 				t.Fatalf("expected URI prefix %q, got %q", tt.wantURI, uris[0])
-			}
-			if !tt.wantYAML {
-				return
-			}
-			if !strings.Contains(uris[0], "exporters:") {
-				t.Fatalf("expected embedded collector config, got %q", uris[0])
-			}
-			for _, want := range []string{
-				"${env:TELESCOPE_OTEL_BATCH_TIMEOUT}",
-				"${env:TELESCOPE_OTEL_BATCH_SIZE}",
-				"${env:TELESCOPE_OTEL_BATCH_MAX_SIZE}",
-				"${env:TELESCOPE_QUEUE_MAX_BYTES}",
-				"sizer: bytes",
-			} {
-				if !strings.Contains(uris[0], want) {
-					t.Fatalf("expected embedded config to contain %q, got %q", want, uris[0])
-				}
 			}
 		})
 	}
@@ -88,9 +74,9 @@ func TestSettingsGracefulShutdownMode(t *testing.T) {
 		t.Fatal("standalone collector settings should preserve graceful shutdown")
 	}
 
-	daemon := settings("", "test", true)
-	if !daemon.DisableGracefulShutdown {
-		t.Fatal("daemon collector settings should let the daemon own shutdown")
+	embedded := settings("", "test", true)
+	if !embedded.DisableGracefulShutdown {
+		t.Fatal("embedded collector settings should let Telescope own shutdown")
 	}
 }
 
@@ -98,7 +84,6 @@ func TestApplyDefaultEnv(t *testing.T) {
 	t.Setenv("HOME", "/tmp/telescope-home")
 	t.Setenv("TELESCOPE_OTLP_GRPC_ADDR", "127.0.0.1:14317")
 	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", "")
-	t.Setenv("TELESCOPE_HEALTH_ADDR", "")
 	t.Setenv("TELESCOPE_QUEUE_DIR", "")
 	t.Setenv("TELESCOPE_QUEUE_MAX_BYTES", "")
 	t.Setenv("TELESCOPE_OTEL_BATCH_TIMEOUT", "5s")
@@ -112,9 +97,6 @@ func TestApplyDefaultEnv(t *testing.T) {
 	}
 	if got := getenv(t, "TELESCOPE_OTLP_HTTP_ADDR"); got != "0.0.0.0:4318" {
 		t.Fatalf("expected default OTLP HTTP addr, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_HEALTH_ADDR"); got != "0.0.0.0:13133" {
-		t.Fatalf("expected default health addr, got %q", got)
 	}
 	if got := getenv(t, "TELESCOPE_QUEUE_DIR"); got != "/tmp/telescope-home/.telescope/queue" {
 		t.Fatalf("expected default queue dir under HOME, got %q", got)

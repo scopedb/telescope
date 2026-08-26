@@ -14,8 +14,8 @@
 
 services:
   telescope:
-    image: ${IMAGE:-ghcr.io/scopedb/telescope:0.2.0}
-    command: ["daemon", "--ingestion-config", "/etc/telescope/ingestion.yaml"]
+    image: ${IMAGE:-ghcr.io/scopedb/telescope:latest}
+    command: ["run", "/etc/telescope/telescope.yaml"]
     restart: unless-stopped
     environment:
       TELESCOPE_SCOPEDB_ENDPOINT: ${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}
@@ -23,15 +23,13 @@ services:
       TELESCOPE_OTLP_GRPC_ADDR: 0.0.0.0:${TELESCOPE_OTLP_GRPC_PORT:-4317}
       TELESCOPE_OTLP_HTTP_ADDR: 0.0.0.0:${TELESCOPE_OTLP_HTTP_PORT:-4318}
       TELESCOPE_HTTP_ADDR: 0.0.0.0:${TELESCOPE_HTTP_PORT:-8080}
-      TELESCOPE_HEALTH_ADDR: 0.0.0.0:${TELESCOPE_HEALTH_PORT:-13133}
       TELESCOPE_QUEUE_DIR: /var/lib/telescope/queue
     ports:
       - "${TELESCOPE_OTLP_GRPC_PORT:-4317}:${TELESCOPE_OTLP_GRPC_PORT:-4317}"
       - "${TELESCOPE_OTLP_HTTP_PORT:-4318}:${TELESCOPE_OTLP_HTTP_PORT:-4318}"
       - "127.0.0.1:${TELESCOPE_HTTP_PORT:-8080}:${TELESCOPE_HTTP_PORT:-8080}"
-      - "${TELESCOPE_HEALTH_PORT:-13133}:${TELESCOPE_HEALTH_PORT:-13133}"
     volumes:
-      - ${TELESCOPE_INGESTION_CONFIG:?TELESCOPE_INGESTION_CONFIG is required}:/etc/telescope/ingestion.yaml:ro
+      - ./telescope.yaml:/etc/telescope/telescope.yaml:ro
       - scopedb-telescope-queue:/var/lib/telescope/queue
 
 volumes:

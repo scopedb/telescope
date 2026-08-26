@@ -45,24 +45,18 @@ import (
 )
 
 const (
-	defaultProbeOTLPEndpoint   = "http://127.0.0.1:4318"
-	defaultProbeStatusEndpoint = "http://127.0.0.1:8080/v1/ingestion/status"
+	defaultOTLPEndpoint   = "http://127.0.0.1:4318"
+	defaultStatusEndpoint = "http://127.0.0.1:8080/v1/ingestion/status"
 )
 
-func runIngestionTest(args []string) error {
-	flags := flag.NewFlagSet("ingestion test", flag.ContinueOnError)
+func runVerify(args []string) error {
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	signal := flags.String("signal", "", "OTLP signal to test: logs, traces, or metrics")
-	otlpEndpoint := flags.String("otlp-endpoint", defaultProbeOTLPEndpoint, "OTLP HTTP base endpoint")
-	statusEndpoint := flags.String("status-endpoint", defaultProbeStatusEndpoint, "Telescope ingestion status endpoint")
-	timeout := flags.Duration("timeout", 45*time.Second, "time to wait for a confirmed ScopeDB append")
+	otlpEndpoint := flags.String("otlp-endpoint", defaultOTLPEndpoint, "OTLP HTTP base endpoint")
+	statusEndpoint := flags.String("status-endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
+	timeout := flags.Duration("timeout", 45*time.Second, "time to wait for each confirmed ScopeDB append")
 	if err := flags.Parse(args); err != nil {
 		return err
-	}
-
-	selectedSignal := strings.TrimSpace(*signal)
-	if selectedSignal != "logs" && selectedSignal != "traces" && selectedSignal != "metrics" {
-		return errors.New("--signal must be one of logs, traces, or metrics")
 	}
 	if *timeout <= 0 {
 		return errors.New("--timeout must be greater than zero")
@@ -75,34 +69,86 @@ func runIngestionTest(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read ingestion status before probe: %w", err)
 	}
-	baselineSignal, ok := findSignalStatus(baseline, selectedSignal)
-	if !ok {
-		return fmt.Errorf("%s signal is not enabled in the running Telescope", selectedSignal)
+	signals, err := verifySignals(flags.Args(), baseline)
+	if err != nil {
+		return err
 	}
-	if !baselineSignal.Ready {
-		return fmt.Errorf("%s signal is not ready: %s", selectedSignal, baselineSignal.LastError)
+
+	var errs []error
+	for _, signal := range signals {
+		baselineSignal, _ := findSignalStatus(baseline, signal)
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), *timeout)
+		err := verifySignal(probeCtx, client, signal, baselineSignal, *otlpEndpoint, *statusEndpoint)
+		probeCancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", signal, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func verifySignals(requested []string, status statusapi.IngestionStatusResponse) ([]string, error) {
+	if len(requested) == 0 {
+		if len(status.Signals) == 0 {
+			return nil, errors.New("the running Telescope has no enabled signals")
+		}
+		signals := make([]string, 0, len(status.Signals))
+		for _, signal := range status.Signals {
+			signals = append(signals, signal.Signal)
+		}
+		return signals, nil
+	}
+
+	seen := make(map[string]bool, len(requested))
+	signals := make([]string, 0, len(requested))
+	for _, raw := range requested {
+		signal := strings.TrimSpace(raw)
+		if signal != "logs" && signal != "traces" && signal != "metrics" {
+			return nil, fmt.Errorf("unsupported signal %q; choose logs, traces, or metrics", raw)
+		}
+		if !seen[signal] {
+			seen[signal] = true
+			signals = append(signals, signal)
+		}
+	}
+	return signals, nil
+}
+
+func verifySignal(
+	ctx context.Context,
+	client *http.Client,
+	signal string,
+	baseline statusapi.IngestionSignalStatus,
+	otlpEndpoint string,
+	statusEndpoint string,
+) error {
+	if baseline.Signal == "" {
+		return fmt.Errorf("signal is not enabled in the running Telescope")
+	}
+	if !baseline.Ready {
+		return fmt.Errorf("signal is not ready: %s", baseline.LastError)
 	}
 
 	probeID, err := newProbeID()
 	if err != nil {
 		return err
 	}
-	payload, err := marshalIngestionProbe(selectedSignal, probeID, time.Now().UTC())
+	payload, err := marshalIngestionProbe(signal, probeID, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	probeURL, err := appendEndpointPath(*otlpEndpoint, "/v1/"+selectedSignal)
+	probeURL, err := appendEndpointPath(otlpEndpoint, "/v1/"+signal)
 	if err != nil {
 		return fmt.Errorf("invalid OTLP endpoint: %w", err)
 	}
-	if err := sendIngestionProbe(ctx, client, probeURL, selectedSignal, payload); err != nil {
+	if err := sendIngestionProbe(ctx, client, probeURL, signal, payload); err != nil {
 		return fmt.Errorf("OTLP rejected probe %s: %w", probeID, err)
 	}
-	fmt.Fprintf(os.Stdout, "probe %s: OTLP accepted\n", probeID)
+	fmt.Fprintf(os.Stdout, "%s: OTLP accepted (%s)\n", signal, probeID)
 
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	lastStatus := baselineSignal
+	lastStatus := baseline
 	var lastReadErr error
 	for {
 		select {
@@ -116,19 +162,19 @@ func runIngestionTest(args []string) error {
 			}
 			return fmt.Errorf("probe %s was accepted by OTLP but its ScopeDB append was not confirmed: %s", probeID, detail)
 		case <-ticker.C:
-			status, err := readIngestionStatus(ctx, client, *statusEndpoint)
+			status, err := readIngestionStatus(ctx, client, statusEndpoint)
 			if err != nil {
 				lastReadErr = err
 				continue
 			}
 			lastReadErr = nil
-			current, ok := findSignalStatus(status, selectedSignal)
+			current, ok := findSignalStatus(status, signal)
 			if !ok {
-				return fmt.Errorf("%s signal was disabled while waiting for probe %s", selectedSignal, probeID)
+				return fmt.Errorf("signal was disabled while waiting for probe %s", probeID)
 			}
 			lastStatus = current
 			if containsString(current.LastProbeIDs, probeID) {
-				fmt.Fprintf(os.Stdout, "probe %s: ScopeDB write confirmed\n", probeID)
+				fmt.Fprintf(os.Stdout, "%s: ScopeDB append committed (%s)\n", signal, probeID)
 				return nil
 			}
 		}
@@ -243,6 +289,9 @@ func readIngestionStatus(ctx context.Context, client *http.Client, endpoint stri
 	parsed, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return status, fmt.Errorf("invalid status endpoint %q", endpoint)
+	}
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = "/v1/ingestion/status"
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {

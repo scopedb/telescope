@@ -35,7 +35,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 )
@@ -364,10 +363,8 @@ func TestClassifyAppendError(t *testing.T) {
 }
 
 func testClientConfig(endpoint string) *Config {
-	cfg := createDefaultConfig().(*Config)
-	_, cfg.Mappings = StarterIngestionConfig().exporterConfig()
+	cfg := validTestConfig()
 	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",
 		Traces:  "public.vendor_otel_traces_test",

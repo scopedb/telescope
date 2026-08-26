@@ -17,7 +17,6 @@
 package collector
 
 import (
-	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
@@ -40,14 +39,12 @@ func factories() (otelcol.Factories, error) {
 
 	factories.Extensions, err = otelcol.MakeFactoryMap[extension.Factory](
 		filestorage.NewFactory(),
-		healthcheckextension.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
 	factories.ExtensionModules = map[component.Type]string{
-		filestorage.NewFactory().Type():          "github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0",
-		healthcheckextension.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0",
+		filestorage.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0",
 	}
 
 	factories.Receivers, err = otelcol.MakeFactoryMap[receiver.Factory](
