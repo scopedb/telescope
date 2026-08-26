@@ -53,6 +53,15 @@ func (r fakeCollectorMetricsReader) Endpoint() string {
 	return r.endpoint
 }
 
+type fakeQueueStorageReader struct {
+	allocatedBytes int64
+	err            error
+}
+
+func (r fakeQueueStorageReader) AllocatedBytes() (int64, error) {
+	return r.allocatedBytes, r.err
+}
+
 func TestGetIngestionStatus(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
 	service := newService("test")
@@ -91,6 +100,7 @@ func TestGetIngestionStatus(t *testing.T) {
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
+	service.queueStorage = fakeQueueStorageReader{allocatedBytes: 8192}
 
 	server := newServer(service)
 	request := httptest.NewRequest(http.MethodGet, "/v1/ingestion/status", nil)
@@ -103,6 +113,8 @@ func TestGetIngestionStatus(t *testing.T) {
 	assert.Equal(t, "ready", response.State)
 	assert.Equal(t, now, response.GeneratedAt)
 	assert.True(t, response.InternalTelemetry.Available)
+	assert.True(t, response.QueueStorage.Available)
+	assert.Equal(t, int64(8192), response.QueueStorage.AllocatedBytes)
 	require.Len(t, response.Signals, 2)
 	assert.Equal(t, "ready", response.Signals[0].State)
 	assert.True(t, response.Signals[0].DestinationVerified)
@@ -137,6 +149,21 @@ func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
 	assert.False(t, response.InternalTelemetry.Available)
 	assert.Equal(t, "connection refused", response.InternalTelemetry.Error)
 	assert.Equal(t, "degraded", response.Signals[0].State)
+}
+
+func TestIngestionStatusReportsUnavailableQueueStorage(t *testing.T) {
+	service := newService("test")
+	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
+		Signals: map[string]scopedbexporter.SignalRuntimeStatus{},
+	}}
+	service.ingestionMetrics = fakeCollectorMetricsReader{}
+	service.queueStorage = fakeQueueStorageReader{err: errors.New("permission denied")}
+
+	response := service.IngestionStatus(context.Background())
+
+	assert.False(t, response.QueueStorage.Available)
+	assert.Zero(t, response.QueueStorage.AllocatedBytes)
+	assert.Equal(t, "permission denied", response.QueueStorage.Error)
 }
 
 func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {

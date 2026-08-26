@@ -49,6 +49,10 @@ func TestWriteStatus(t *testing.T) {
 	var output bytes.Buffer
 	writeStatus(&output, statusapi.IngestionStatusResponse{
 		State: "degraded",
+		QueueStorage: statusapi.IngestionQueueStorage{
+			Available:      true,
+			AllocatedBytes: 8192,
+		},
 		Signals: []statusapi.IngestionSignalStatus{{
 			Signal:   "traces",
 			State:    "degraded",
@@ -71,5 +75,16 @@ func TestWriteStatus(t *testing.T) {
 	assert.Contains(t, output.String(), "traces")
 	assert.Contains(t, output.String(), "DROPPED")
 	assert.Contains(t, output.String(), "256 B/1 KiB")
+	assert.Contains(t, output.String(), "queue storage: 8 KiB allocated")
 	assert.Contains(t, output.String(), "destination unavailable")
+}
+
+func TestWriteStatusReportsUnavailableQueueStorage(t *testing.T) {
+	var output bytes.Buffer
+	writeStatus(&output, statusapi.IngestionStatusResponse{
+		State:        "ready",
+		QueueStorage: statusapi.IngestionQueueStorage{Error: "permission denied"},
+	})
+
+	assert.Contains(t, output.String(), "queue storage: unavailable (permission denied)")
 }

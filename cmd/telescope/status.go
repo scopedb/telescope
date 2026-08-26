@@ -72,6 +72,11 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		)
 	}
 	_ = table.Flush()
+	if status.QueueStorage.Available {
+		fmt.Fprintf(w, "queue storage: %s allocated\n", formatBytes(status.QueueStorage.AllocatedBytes))
+	} else if status.QueueStorage.Error != "" {
+		fmt.Fprintf(w, "queue storage: unavailable (%s)\n", status.QueueStorage.Error)
+	}
 	if !status.InternalTelemetry.Available && status.InternalTelemetry.Error != "" {
 		fmt.Fprintf(w, "internal telemetry: %s\n", status.InternalTelemetry.Error)
 	}

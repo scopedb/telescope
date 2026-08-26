@@ -242,6 +242,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	runtime := s.ingestionRuntime.Snapshot()
 	metrics, metricsErr := s.ingestionMetrics.Read(ctx)
 	metricsAvailable := metricsErr == nil
+	storageBytes, storageErr := s.queueStorage.AllocatedBytes()
 	response := IngestionStatusResponse{
 		GeneratedAt: s.now(),
 		Listeners: IngestionListeners{
@@ -252,10 +253,17 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			Available: metricsAvailable,
 			Endpoint:  s.ingestionMetrics.Endpoint(),
 		},
+		QueueStorage: IngestionQueueStorage{
+			Available:      storageErr == nil,
+			AllocatedBytes: storageBytes,
+		},
 		Signals: make([]IngestionSignalStatus, 0, len(runtime.Signals)),
 	}
 	if metricsErr != nil {
 		response.InternalTelemetry.Error = metricsErr.Error()
+	}
+	if storageErr != nil {
+		response.QueueStorage.Error = storageErr.Error()
 	}
 
 	for _, signal := range configuredSignalNames(runtime) {

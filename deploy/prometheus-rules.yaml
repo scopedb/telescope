@@ -1,0 +1,60 @@
+# Copyright 2026 ScopeDB, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+groups:
+  - name: telescope
+    rules:
+      - record: telescope_queue_storage_allocated_bytes:max_over_time_24h
+        expr: max_over_time(telescope_queue_storage_allocated_bytes[24h])
+
+      - alert: TelescopeQueueNearCapacity
+        expr: telescope_ingestion_queue_bytes / telescope_ingestion_queue_capacity_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Telescope queue is above 80% capacity
+          description: '{{ $labels.signal }} delivery to {{ $labels.table }} is close to refusing new telemetry.'
+
+      - alert: TelescopeDroppedTelemetry
+        expr: increase(telescope_ingestion_dropped_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Telescope dropped telemetry
+          description: '{{ $labels.signal }} delivery to {{ $labels.table }} dropped telemetry because of {{ $labels.reason }}.'
+
+      - alert: TelescopeDeliveryStalled
+        expr: |
+          (telescope_ingestion_queue_bytes > 0)
+          and on (signal, table)
+          (time() - telescope_ingestion_last_success_timestamp_seconds > 300)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Telescope delivery is stalled
+          description: '{{ $labels.signal }} has queued telemetry but has not written to {{ $labels.table }} recently.'
+
+      - alert: TelescopeDestinationUnverified
+        expr: |
+          (telescope_ingestion_destination_verified == 0)
+          and on (signal, table)
+          (telescope_ingestion_queue_bytes > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Telescope destination is not verified
+          description: '{{ $labels.signal }} is queueing telemetry for unverified table {{ $labels.table }}.'

@@ -95,6 +95,7 @@ Current reasons are:
 - successfully written and ultimately dropped records;
 - drops split into exhausted retry, queue refusal, and permanent rejection counts;
 - exporter queue enqueue failures, current size, capacity, and configured unit;
+- filesystem blocks allocated to the persistent queue directory;
 - the configured ScopeDB table;
 - last write attempt, success, failure, duration, and error;
 - whether the destination has been verified by a table check or successful append;
@@ -108,9 +109,11 @@ Receiver, final exporter outcome, and queue counts come directly from the OpenTe
 
 `invalid_items_by_reason` counts invalid metrics, while the delivery counters use each signal's native unit: log records, spans, or metric points. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
 
-When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. They are not the file-storage directory's exact disk usage.
+When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. `queue_storage.allocated_bytes` separately reports filesystem blocks allocated to files in `TELESCOPE_QUEUE_DIR`; it does not treat the queue database's logical file length as current disk use.
 
-The endpoint uses the Collector's local Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves that endpoint. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
+`GET /metrics` exposes the same delivery facts as stable Prometheus metrics. This includes accepted, written, and finally dropped items; logical queue size and capacity; last write success; destination verification; and allocated queue storage. Load [`deploy/prometheus-rules.yaml`](../deploy/prometheus-rules.yaml) for the baseline alerts. Disk high-water history belongs in Prometheus and is calculated with `max_over_time`; Telescope does not retain another history database. The endpoint returns `503` rather than publishing false zeroes when Collector metrics are unavailable.
+
+Both operational endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
 
 ## Known `v1` Gaps
 

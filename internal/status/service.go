@@ -31,6 +31,7 @@ type service struct {
 	now              func() time.Time
 	ingestionRuntime exporterStatusReader
 	ingestionMetrics collectorMetricsReader
+	queueStorage     queueStorageReader
 }
 
 func newService(version string) *service {
@@ -39,6 +40,7 @@ func newService(version string) *service {
 		now:              func() time.Time { return time.Now().UTC() },
 		ingestionRuntime: scopedbexporter.DefaultStatusRegistry,
 		ingestionMetrics: newPrometheusCollectorMetricsReader(),
+		queueStorage:     newDirectoryQueueStorageReader(),
 	}
 }
 

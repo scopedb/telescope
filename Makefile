@@ -125,7 +125,9 @@ docker-smoke: docker-build
 		docker logs "$$cid"; \
 		exit 1; \
 	fi; \
-	docker exec "$$cid" telescope status --endpoint http://127.0.0.1:8080 >/dev/null
+	docker exec "$$cid" telescope status --endpoint http://127.0.0.1:8080 >/dev/null; \
+	curl --fail --silent --show-error "http://$$address/metrics" \
+		| grep --quiet '^telescope_ingestion_queue_capacity_bytes'
 
 .PHONY: ci-runtime
 ci-runtime: validate docker-smoke artifacts

@@ -29,6 +29,7 @@ type IngestionStatusResponse struct {
 	GeneratedAt       time.Time                  `json:"generated_at"`
 	Listeners         IngestionListeners         `json:"listeners"`
 	InternalTelemetry IngestionInternalTelemetry `json:"internal_telemetry"`
+	QueueStorage      IngestionQueueStorage      `json:"queue_storage"`
 	Signals           []IngestionSignalStatus    `json:"signals"`
 }
 
@@ -41,6 +42,12 @@ type IngestionInternalTelemetry struct {
 	Available bool   `json:"available"`
 	Endpoint  string `json:"endpoint"`
 	Error     string `json:"error,omitempty"`
+}
+
+type IngestionQueueStorage struct {
+	Available      bool   `json:"available"`
+	AllocatedBytes int64  `json:"allocated_bytes"`
+	Error          string `json:"error,omitempty"`
 }
 
 type IngestionSignalStatus struct {

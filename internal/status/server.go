@@ -17,9 +17,12 @@
 package status
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"github.com/prometheus/common/expfmt"
 )
 
 type Server struct {
@@ -36,6 +39,7 @@ func newServer(service *service) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.getHealth)
 	mux.HandleFunc("GET /readyz", server.getReadiness)
+	mux.HandleFunc("GET /metrics", server.getMetrics)
 	mux.HandleFunc("GET /v1/ingestion/status", server.getIngestionStatus)
 	server.handler = mux
 	return server
@@ -65,6 +69,22 @@ func (s *Server) getReadiness(w http.ResponseWriter, request *http.Request) {
 
 func (s *Server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.IngestionStatus(request.Context()))
+}
+
+func (s *Server) getMetrics(w http.ResponseWriter, request *http.Request) {
+	snapshot := s.service.IngestionStatus(request.Context())
+	if !snapshot.InternalTelemetry.Available {
+		http.Error(w, snapshot.InternalTelemetry.Error, http.StatusServiceUnavailable)
+		return
+	}
+	var body bytes.Buffer
+	if err := writePrometheusMetrics(&body, snapshot); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", string(expfmt.FmtText))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body.Bytes())
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
