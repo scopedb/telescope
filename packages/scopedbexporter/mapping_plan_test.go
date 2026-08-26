@@ -115,4 +115,22 @@ func TestSelectorTypeCompatibility(t *testing.T) {
 	assert.False(t, selectorTypeFor("log.severity_number").compatibleWith(scopedb.StringDataType))
 	assert.True(t, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibleWith(scopedb.StringDataType))
 	assert.True(t, selectorTypeFor("span.events").compatibleWith(scopedb.ObjectDataType))
+	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibilityWith(scopedb.StringDataType))
+	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.IntDataType))
+	assert.Equal(t, MappingIncompatible, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.StringDataType))
+	assert.Equal(t, MappingCompatible, selectorTypeFor("log.body").compatibilityWith(scopedb.AnyDataType))
+}
+
+func TestMappingPlanReportsAllSelectorErrorsWithSuggestion(t *testing.T) {
+	_, err := compileMappingPlan(signalTraces, "analytics.spans", map[string]string{
+		"bad-name": "span.start_tim",
+		"service":  `resource.attribute["service.name"]`,
+		"status":   "span.status.mesage",
+	})
+	require.Error(t, err)
+
+	assert.ErrorContains(t, err, `destination column "bad-name" must be an unquoted ScopeDB identifier`)
+	assert.ErrorContains(t, err, `column "bad-name": unsupported traces source "span.start_tim"; did you mean "span.start_time"?`)
+	assert.ErrorContains(t, err, `column "service": unsupported traces source "resource.attribute[\"service.name\"]"; did you mean "resource.attributes[\"service.name\"]"?`)
+	assert.ErrorContains(t, err, `column "status": unsupported traces source "span.status.mesage"; did you mean "span.status.message"?`)
 }

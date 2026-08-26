@@ -58,11 +58,12 @@ func (cfg IngestionConfig) Validate() error {
 			continue
 		}
 		prefix := "signals." + signal
-		if strings.TrimSpace(signalConfig.Table) == "" {
+		table := signalConfig.Table
+		if strings.TrimSpace(table) == "" {
 			errs = append(errs, fmt.Errorf("%s.table is required", prefix))
-			continue
+			table = "placeholder"
 		}
-		if _, err := compileMappingPlan(signal, signalConfig.Table, signalConfig.Mapping); err != nil {
+		if _, err := compileMappingPlan(signal, table, signalConfig.Mapping); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", prefix, err))
 		}
 	}
@@ -100,8 +101,20 @@ func (cfg IngestionConfig) Signal(signal string) (SignalIngestionConfig, bool) {
 // CheckIngestionDestinations validates an ingestion mapping against its live
 // ScopeDB tables without starting OTLP listeners or writing data.
 func CheckIngestionDestinations(ctx context.Context, endpoint string, apiKey string, ingestion IngestionConfig) error {
+	_, err := InspectIngestionDestinations(ctx, endpoint, apiKey, ingestion)
+	return err
+}
+
+// InspectIngestionDestinations returns the catalog type check for each mapped
+// column without starting OTLP listeners or writing data.
+func InspectIngestionDestinations(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	ingestion IngestionConfig,
+) ([]SignalDestinationValidation, error) {
 	if err := ingestion.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	tables, mappings := ingestion.exporterConfig()
 	cfg := createDefaultConfig().(*Config)
@@ -110,22 +123,27 @@ func CheckIngestionDestinations(ctx context.Context, endpoint string, apiKey str
 	cfg.Tables = tables
 	cfg.Mappings = mappings
 	if err := cfg.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 
 	client, err := newClient(cfg, zap.NewNop())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer client.Close()
 
 	var errs []error
+	validations := make([]SignalDestinationValidation, 0, len(ingestion.EnabledSignals()))
 	for _, signal := range ingestion.EnabledSignals() {
-		if err := client.ValidateDestination(ctx, signal); err != nil {
+		validation, err := client.inspectDestination(ctx, signal)
+		if validation.Signal != "" {
+			validations = append(validations, validation)
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", signal, err))
 		}
 	}
-	return errors.Join(errs...)
+	return validations, errors.Join(errs...)
 }
 
 func (cfg IngestionConfig) exporterConfig() (TableRoutingConfig, SignalMappingConfig) {

@@ -144,7 +144,7 @@ func verifySignal(
 	if err := sendIngestionProbe(ctx, client, probeURL, signal, payload); err != nil {
 		return fmt.Errorf("OTLP rejected probe %s: %w", probeID, err)
 	}
-	fmt.Fprintf(os.Stdout, "%s: OTLP accepted (%s)\n", signal, probeID)
+	fmt.Fprintf(os.Stdout, "%s: OTLP accepted synthetic probe (%s)\n", signal, probeID)
 
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -174,7 +174,7 @@ func verifySignal(
 			}
 			lastStatus = current
 			if containsString(current.LastProbeIDs, probeID) {
-				fmt.Fprintf(os.Stdout, "%s: ScopeDB append committed (%s)\n", signal, probeID)
+				fmt.Fprintf(os.Stdout, "%s: ScopeDB append committed synthetic probe (%s)\n", signal, probeID)
 				return nil
 			}
 		}

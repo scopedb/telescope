@@ -67,8 +67,9 @@ func TestIngestionConfigRequiresOneCompleteSignal(t *testing.T) {
 	assert.ErrorContains(t, err, "at least one signal is required")
 
 	err = (IngestionConfig{Signals: IngestionSignalsConfig{
-		Traces: SignalIngestionConfig{Mapping: map[string]string{"name": "span.name"}},
+		Traces: SignalIngestionConfig{Mapping: map[string]string{"name": "span.nam"}},
 	}}).Validate()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "signals.traces.table is required")
+	assert.ErrorContains(t, err, `did you mean "span.name"?`)
 }

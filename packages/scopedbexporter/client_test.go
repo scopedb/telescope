@@ -154,6 +154,11 @@ func TestClientValidateDestination(t *testing.T) {
 	defer client.Close()
 
 	require.NoError(t, client.ValidateDestination(context.Background(), signalLogs))
+	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	require.NoError(t, err)
+	require.Len(t, validation.Columns, 1)
+	assert.Equal(t, "string", validation.Columns[0].TargetType)
+	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
 	cfg.Mappings.Logs["service"] = `resource.attributes["service.name"]`
 	client, err = NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
@@ -190,10 +195,13 @@ func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	err = client.ValidateDestination(context.Background(), signalLogs)
+	validation, err := client.inspectDestination(context.Background(), signalLogs)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "severity (log.severity_number produces int, table has string)")
 	assert.NotContains(t, err.Error(), "tenant")
+	require.Len(t, validation.Columns, 2)
+	assert.Equal(t, MappingIncompatible, validation.Columns[0].Compatibility)
+	assert.Equal(t, MappingRuntimeDependent, validation.Columns[1].Compatibility)
 }
 
 func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {

@@ -17,6 +17,7 @@
 package scopedbexporter
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -27,6 +28,80 @@ import (
 
 var attributeSourcePattern = regexp.MustCompile(`^(resource|scope|log|span|datapoint)\.attributes\["([^"]+)"\]$`)
 var metadataSourcePattern = regexp.MustCompile(`^metric\.metadata\["([^"]+)"\]$`)
+
+var commonSourceSelectors = []string{
+	"resource.attributes",
+	"resource.schema_url",
+	"resource.dropped_attributes_count",
+	"scope.name",
+	"scope.version",
+	"scope.attributes",
+	"scope.schema_url",
+	"scope.dropped_attributes_count",
+}
+
+var signalSourceSelectors = map[string][]string{
+	signalLogs: {
+		"log.timestamp",
+		"log.observed_timestamp",
+		"log.timestamp_unix_nano",
+		"log.observed_timestamp_unix_nano",
+		"log.trace_id",
+		"log.span_id",
+		"log.event_name",
+		"log.severity_text",
+		"log.severity_number",
+		"log.flags",
+		"log.dropped_attributes_count",
+		"log.body",
+		"log.message",
+		"log.attributes",
+	},
+	signalTraces: {
+		"span.trace_id",
+		"span.span_id",
+		"span.parent_span_id",
+		"span.trace_state",
+		"span.flags",
+		"span.name",
+		"span.kind",
+		"span.start_time",
+		"span.end_time",
+		"span.start_time_unix_nano",
+		"span.end_time_unix_nano",
+		"span.duration_ns",
+		"span.status.code",
+		"span.status.message",
+		"span.attributes",
+		"span.dropped_attributes_count",
+		"span.events",
+		"span.dropped_events_count",
+		"span.links",
+		"span.dropped_links_count",
+	},
+	signalMetrics: {
+		"metric.name",
+		"metric.description",
+		"metric.unit",
+		"metric.type",
+		"metric.metadata",
+		"metric.temporality",
+		"metric.is_monotonic",
+		"datapoint.timestamp",
+		"datapoint.start_time",
+		"datapoint.timestamp_unix_nano",
+		"datapoint.start_time_unix_nano",
+		"datapoint.flags",
+		"datapoint.attributes",
+		"datapoint.value",
+		"datapoint.value_type",
+		"datapoint.int_value",
+		"datapoint.double_value",
+		"datapoint.number_value",
+		"datapoint.distribution",
+		"datapoint.exemplars",
+	},
+}
 
 type recordGetter func(Record) (any, bool)
 
@@ -58,13 +133,18 @@ type mappingPlan struct {
 	columns []mappedColumn
 }
 
+func (t selectorType) runtimeDependent() bool {
+	return t == selectorTypeDynamic || t == selectorTypeNumber
+}
+
 func compileMappingPlan(signal string, table string, columns map[string]string) (*mappingPlan, error) {
+	var errs []error
 	ref, err := parseTableRef(table)
 	if err != nil {
-		return nil, err
+		errs = append(errs, err)
 	}
 	if len(columns) == 0 {
-		return nil, fmt.Errorf("at least one destination column is required")
+		errs = append(errs, fmt.Errorf("at least one destination column is required"))
 	}
 
 	names := make([]string, 0, len(columns))
@@ -75,13 +155,19 @@ func compileMappingPlan(signal string, table string, columns map[string]string) 
 
 	plan := &mappingPlan{signal: signal, table: ref, columns: make([]mappedColumn, 0, len(names))}
 	for _, name := range names {
+		valid := true
 		if !tablePartPattern.MatchString(name) {
-			return nil, fmt.Errorf("destination column %q must be an unquoted ScopeDB identifier", name)
+			errs = append(errs, fmt.Errorf("destination column %q must be an unquoted ScopeDB identifier", name))
+			valid = false
 		}
 		source := strings.TrimSpace(columns[name])
 		getter, err := compileRecordGetter(signal, source)
 		if err != nil {
-			return nil, fmt.Errorf("column %q: %w", name, err)
+			errs = append(errs, fmt.Errorf("column %q: %w", name, err))
+			valid = false
+		}
+		if !valid {
+			continue
 		}
 		plan.columns = append(plan.columns, mappedColumn{
 			name:       name,
@@ -89,6 +175,9 @@ func compileMappingPlan(signal string, table string, columns map[string]string) 
 			sourceType: selectorTypeFor(source),
 			get:        getter,
 		})
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return plan, nil
 }
@@ -145,32 +234,46 @@ func selectorTypeFor(source string) selectorType {
 }
 
 func (t selectorType) compatibleWith(actual scopedb.DataType) bool {
-	if actual == scopedb.AnyDataType || t == selectorTypeDynamic {
-		return true
+	return t.compatibilityWith(actual) != MappingIncompatible
+}
+
+func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatibility {
+	if actual == scopedb.AnyDataType {
+		return MappingCompatible
+	}
+	if t == selectorTypeDynamic {
+		return MappingRuntimeDependent
+	}
+	if t == selectorTypeNumber {
+		if actual == scopedb.IntDataType || actual == scopedb.FloatDataType {
+			return MappingRuntimeDependent
+		}
+		return MappingIncompatible
 	}
 
+	compatible := false
 	switch t {
 	case selectorTypeString:
-		return actual == scopedb.StringDataType
+		compatible = actual == scopedb.StringDataType
 	case selectorTypeTimestamp:
-		return actual == scopedb.TimestampDataType || actual == scopedb.StringDataType
+		compatible = actual == scopedb.TimestampDataType || actual == scopedb.StringDataType
 	case selectorTypeInt:
-		return actual == scopedb.IntDataType
+		compatible = actual == scopedb.IntDataType
 	case selectorTypeUInt:
-		return actual == scopedb.UIntDataType || actual == scopedb.IntDataType
+		compatible = actual == scopedb.UIntDataType || actual == scopedb.IntDataType
 	case selectorTypeFloat:
-		return actual == scopedb.FloatDataType
+		compatible = actual == scopedb.FloatDataType
 	case selectorTypeBoolean:
-		return actual == scopedb.BooleanDataType
+		compatible = actual == scopedb.BooleanDataType
 	case selectorTypeObject:
-		return actual == scopedb.ObjectDataType
+		compatible = actual == scopedb.ObjectDataType
 	case selectorTypeArray:
-		return actual == scopedb.ArrayDataType || actual == scopedb.ObjectDataType
-	case selectorTypeNumber:
-		return actual == scopedb.IntDataType || actual == scopedb.FloatDataType
-	default:
-		return false
+		compatible = actual == scopedb.ArrayDataType || actual == scopedb.ObjectDataType
 	}
+	if compatible {
+		return MappingCompatible
+	}
+	return MappingIncompatible
 }
 
 func compileRecordGetter(signal string, source string) (recordGetter, error) {
@@ -202,9 +305,69 @@ func compileRecordGetter(signal string, source string) (recordGetter, error) {
 		return nil, fmt.Errorf("unsupported signal %q", signal)
 	}
 	if getter == nil {
+		if suggestion := suggestSource(signal, source); suggestion != "" {
+			return nil, fmt.Errorf("unsupported %s source %q; did you mean %q?", signal, source, suggestion)
+		}
 		return nil, fmt.Errorf("unsupported %s source %q", signal, source)
 	}
 	return getter, nil
+}
+
+func suggestSource(signal string, source string) string {
+	if source == "" {
+		return ""
+	}
+	comparedSource := source
+	suffix := ""
+	if bracket := strings.IndexByte(source, '['); bracket > 0 {
+		comparedSource = source[:bracket]
+		suffix = source[bracket:]
+	}
+	candidates := make([]string, 0, len(commonSourceSelectors)+len(signalSourceSelectors[signal]))
+	candidates = append(candidates, commonSourceSelectors...)
+	candidates = append(candidates, signalSourceSelectors[signal]...)
+	best := ""
+	bestDistance := len(comparedSource) + 1
+	for _, candidate := range candidates {
+		distance := editDistance(comparedSource, candidate)
+		if distance < bestDistance {
+			best = candidate
+			bestDistance = distance
+		}
+	}
+	maxDistance := max(2, len(comparedSource)/4)
+	if bestDistance > maxDistance {
+		return ""
+	}
+	suggestion := best + suffix
+	if suggestion == source {
+		return ""
+	}
+	return suggestion
+}
+
+func editDistance(left string, right string) int {
+	previous := make([]int, len(right)+1)
+	for index := range previous {
+		previous[index] = index
+	}
+	for leftIndex := 1; leftIndex <= len(left); leftIndex++ {
+		current := make([]int, len(right)+1)
+		current[0] = leftIndex
+		for rightIndex := 1; rightIndex <= len(right); rightIndex++ {
+			cost := 1
+			if left[leftIndex-1] == right[rightIndex-1] {
+				cost = 0
+			}
+			current[rightIndex] = min(
+				current[rightIndex-1]+1,
+				previous[rightIndex]+1,
+				previous[rightIndex-1]+cost,
+			)
+		}
+		previous = current
+	}
+	return previous[len(right)]
 }
 
 func commonRecordGetter(source string) recordGetter {

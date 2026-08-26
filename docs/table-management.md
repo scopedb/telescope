@@ -88,7 +88,18 @@ telescope run \
   ./telescope.yaml
 ```
 
-The check command prints `signal -> table -> destination column -> OTel source`, then describes every configured destination. It reports missing columns and statically known type mismatches, including the destination column, selector, produced type, and actual ScopeDB type. Attribute-key selectors and `log.body` are runtime-typed, so Telescope checks that their columns exist but does not guess a type. Telescope never modifies the table.
+The check command prints `signal -> table -> destination column -> OTel source`, then describes every configured destination. It reports all invalid selectors in one run, suggests close selector names, and reports missing columns or statically known type mismatches. Attribute-key selectors, `log.body`, and `datapoint.value` are runtime-dependent, so catalog validation checks their columns without guessing a type.
+
+Use representative OTLP JSON or protobuf to inspect those values before deployment:
+
+```bash
+telescope validate \
+  --sample logs=logs.otlp.json \
+  --sample metrics=metrics.otlp.pb \
+  ./telescope.yaml
+```
+
+Each sample is decoded and passed through the production mapper. Telescope reports coverage and observed types for every mapped column, compares them with the live destination type, and prints the first three projected NDJSON rows. It does not append the sample. `--offline` keeps the projection and omits the destination comparison. A sample only describes the records it contains; an unobserved selector is reported as such rather than treated as compatible.
 
 `telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 
@@ -98,7 +109,7 @@ Full Collector configuration can still be checked without contacting ScopeDB:
 make validate
 ```
 
-Use `telescope verify` after startup to test delivery for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms the path from synthetic OTLP input through mapping and append; it does not query mapped columns.
+Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `validate --sample` for the mapping itself.
 
 ## Mapping Changes
 

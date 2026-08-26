@@ -96,14 +96,19 @@ func (c *Client) Close() {
 }
 
 func (c *Client) ValidateDestination(ctx context.Context, signal string) error {
+	_, err := c.inspectDestination(ctx, signal)
+	return err
+}
+
+func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalDestinationValidation, error) {
 	plan, ok := c.plans[signal]
 	if !ok {
-		return fmt.Errorf("no mapping plan for signal %q", signal)
+		return SignalDestinationValidation{}, fmt.Errorf("no mapping plan for signal %q", signal)
 	}
 
 	description, err := c.table(plan.table).Describe(ctx)
 	if err != nil {
-		return fmt.Errorf("describe target table %s: %w", plan.table.String(), err)
+		return SignalDestinationValidation{}, fmt.Errorf("describe target table %s: %w", plan.table.String(), err)
 	}
 	available := make(map[string]scopedb.DataType, len(description.Columns))
 	for _, column := range description.Columns {
@@ -111,13 +116,27 @@ func (c *Client) ValidateDestination(ctx context.Context, signal string) error {
 	}
 	var missing []string
 	var incompatible []string
+	validation := SignalDestinationValidation{
+		Signal:  signal,
+		Columns: make([]DestinationColumnValidation, 0, len(plan.columns)),
+	}
 	for _, column := range plan.columns {
 		dataType, ok := available[column.name]
 		if !ok {
 			missing = append(missing, column.name)
+			validation.Columns = append(validation.Columns, DestinationColumnValidation{
+				MappingColumnDescription: describeMappedColumn(column),
+				Compatibility:            MappingMissing,
+			})
 			continue
 		}
-		if !column.sourceType.compatibleWith(dataType) {
+		compatibility := column.sourceType.compatibilityWith(dataType)
+		validation.Columns = append(validation.Columns, DestinationColumnValidation{
+			MappingColumnDescription: describeMappedColumn(column),
+			TargetType:               string(dataType),
+			Compatibility:            compatibility,
+		})
+		if compatibility == MappingIncompatible {
 			incompatible = append(incompatible, fmt.Sprintf(
 				"%s (%s produces %s, table has %s)",
 				column.name, column.source, column.sourceType, dataType,
@@ -135,7 +154,7 @@ func (c *Client) ValidateDestination(ctx context.Context, signal string) error {
 			"target table %s has incompatible mapped columns: %s", plan.table.String(), strings.Join(incompatible, "; "),
 		))
 	}
-	return errors.Join(validationErrors...)
+	return validation, errors.Join(validationErrors...)
 }
 
 func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload) error {

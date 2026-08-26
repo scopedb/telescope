@@ -18,11 +18,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +38,8 @@ func runValidate(args []string) error {
 	bootstrap := addBootstrapFlags(flags)
 	offline := flags.Bool("offline", false, "validate configuration without connecting to ScopeDB")
 	timeout := flags.Duration("timeout", 30*time.Second, "destination validation timeout")
+	var samples sampleFlags
+	flags.Var(&samples, "sample", "preview a real OTLP payload as signal=path; repeat for multiple signals")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -55,25 +57,45 @@ func runValidate(args []string) error {
 	if _, err := collector.ConfigURI(ingestion); err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)
 	}
+	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion)
+	if err != nil {
+		return err
+	}
+	previews, err := loadMappingSamples(samples.paths, ingestion)
+	if err != nil {
+		return err
+	}
 
-	printConfigPlan(os.Stdout, ingestion)
-	fmt.Fprintln(os.Stdout, "configuration: ok")
+	printConfigPlan(os.Stdout, descriptions)
+	printConfigurationSummary(os.Stdout, descriptions)
+
+	var destinations []scopedbexporter.SignalDestinationValidation
+	var validationErrors []error
 	if *offline {
-		return nil
+		fmt.Fprintln(os.Stdout, "destination: skipped (--offline)")
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		destinations, err = scopedbexporter.InspectIngestionDestinations(
+			ctx,
+			strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT")),
+			strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_API_KEY")),
+			ingestion,
+		)
+		if err != nil {
+			fmt.Fprintln(os.Stdout, "destination: check failed")
+			validationErrors = append(validationErrors, fmt.Errorf("destination validation failed: %w", err))
+		} else {
+			printDestinationSummary(os.Stdout, destinations)
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
-	if err := scopedbexporter.CheckIngestionDestinations(
-		ctx,
-		strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT")),
-		strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_API_KEY")),
-		ingestion,
-	); err != nil {
-		return fmt.Errorf("destination validation failed: %w", err)
+	for _, sample := range previews {
+		if err := printMappingPreview(os.Stdout, sample, destinations); err != nil {
+			validationErrors = append(validationErrors, err)
+		}
 	}
-	fmt.Fprintln(os.Stdout, "destination: ok")
-	return nil
+	return errors.Join(validationErrors...)
 }
 
 func telescopeConfigPath(flags *flag.FlagSet) (string, error) {
@@ -87,17 +109,48 @@ func telescopeConfigPath(flags *flag.FlagSet) (string, error) {
 	}
 }
 
-func printConfigPlan(w io.Writer, config scopedbexporter.IngestionConfig) {
-	for _, signal := range config.EnabledSignals() {
-		signalConfig, _ := config.Signal(signal)
-		fmt.Fprintf(w, "%s -> %s\n", signal, signalConfig.Table)
-		columns := make([]string, 0, len(signalConfig.Mapping))
-		for column := range signalConfig.Mapping {
-			columns = append(columns, column)
-		}
-		sort.Strings(columns)
-		for _, column := range columns {
-			fmt.Fprintf(w, "  %s <- %s\n", column, signalConfig.Mapping[column])
+func printConfigPlan(w io.Writer, descriptions []scopedbexporter.SignalMappingDescription) {
+	for _, description := range descriptions {
+		fmt.Fprintf(w, "%s -> %s\n", description.Signal, description.Table)
+		for _, column := range description.Columns {
+			selectorType := column.SelectorType
+			if column.RuntimeDependent {
+				selectorType += ", runtime"
+			}
+			fmt.Fprintf(w, "  %s <- %s [%s]\n", column.Column, column.Source, selectorType)
 		}
 	}
+}
+
+func printConfigurationSummary(w io.Writer, descriptions []scopedbexporter.SignalMappingDescription) {
+	total, runtimeDependent := mappingCounts(descriptions)
+	fmt.Fprintf(w, "configuration: ok (selectors=%d, fixed=%d, runtime-dependent=%d)\n", total, total-runtimeDependent, runtimeDependent)
+}
+
+func printDestinationSummary(w io.Writer, validations []scopedbexporter.SignalDestinationValidation) {
+	total := 0
+	runtimeDependent := 0
+	for _, validation := range validations {
+		for _, column := range validation.Columns {
+			total++
+			if column.Compatibility == scopedbexporter.MappingRuntimeDependent {
+				runtimeDependent++
+			}
+		}
+	}
+	fmt.Fprintf(w, "destination: ok (columns=%d, catalog-compatible=%d, runtime-unchecked=%d)\n", total, total-runtimeDependent, runtimeDependent)
+}
+
+func mappingCounts(descriptions []scopedbexporter.SignalMappingDescription) (int, int) {
+	total := 0
+	runtimeDependent := 0
+	for _, description := range descriptions {
+		for _, column := range description.Columns {
+			total++
+			if column.RuntimeDependent {
+				runtimeDependent++
+			}
+		}
+	}
+	return total, runtimeDependent
 }

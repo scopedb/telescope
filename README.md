@@ -62,6 +62,16 @@ docker run --rm \
   validate /etc/telescope/telescope.yaml
 ```
 
+For runtime-typed selectors such as attributes and `log.body`, preview a real OTLP JSON or protobuf payload before deployment:
+
+```bash
+telescope validate --offline \
+  --sample traces=traces.otlp.json \
+  deploy/telescope.yaml
+```
+
+The preview shows source coverage and observed types, then prints the exact projected NDJSON without writing to ScopeDB. Omit `--offline` to include destination column types and detect sample/type mismatches.
+
 Start Telescope:
 
 ```bash
@@ -144,8 +154,8 @@ docker compose --env-file deploy/.env \
 Expected output:
 
 ```text
-traces: OTLP accepted (probe-...)
-traces: ScopeDB append committed (probe-...)
+traces: OTLP accepted synthetic probe (probe-...)
+traces: ScopeDB append committed synthetic probe (probe-...)
 ```
 
 ## Local Binary
@@ -162,7 +172,7 @@ make build
 Commands:
 
 - Setup:
-  - `telescope validate`: validate the configuration and its destination tables
+  - `telescope validate`: validate selectors and destination tables; `--sample signal=path` previews real OTLP data
   - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
 - Operations:
   - `telescope status`: report local receiver, queue, and ScopeDB delivery state
@@ -170,7 +180,7 @@ Commands:
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`validate` and `run` use the same `telescope.yaml` contract. `status` and `verify` are operational tools for a running instance, not additional setup stages; both discover enabled signals from that instance. `validate --offline` checks the file without connecting to ScopeDB. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`validate` and `run` use the same `telescope.yaml` contract. `status` and `verify` are operational tools for a running instance, not additional setup stages; both discover enabled signals from that instance. `validate --offline` checks the file and can preview samples without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 

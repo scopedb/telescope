@@ -322,7 +322,7 @@ Usage:
     telescope status [options]                     Report local delivery state
 
   Diagnostics:
-    telescope verify [options] [signals...]        Wait for confirmed ScopeDB appends
+    telescope verify [options] [signals...]        Verify synthetic OTLP-to-append delivery
 
   Other:
     telescope version                              Print the build version
@@ -331,6 +331,10 @@ Connection options:
   --env-file                 Load KEY=VALUE bootstrap config file
   --scopedb-endpoint         ScopeDB physical region endpoint
   --scopedb-api-key          ScopeDB API key
+
+Validate options:
+  --offline                  Skip ScopeDB destination checks
+  --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
 
 Run options:
   --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR
