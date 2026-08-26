@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -112,13 +113,19 @@ func runTelescope(args []string) error {
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
 	}
+	operationalServer := statusapi.New(version)
 	httpServer := &http.Server{
 		Addr:    listenAddr,
-		Handler: statusapi.New(version),
+		Handler: operationalServer,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	fmt.Fprintf(os.Stderr, "telescope starting: config=%s signals=%s\n",
+		configPath,
+		strings.Join(ingestion.EnabledSignals(), ","),
+	)
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -136,12 +143,17 @@ func runTelescope(args []string) error {
 		errCh <- nil
 	}()
 
-	fmt.Fprintf(os.Stderr, "telescope starting: config=%s http=%s otlp_grpc=%s otlp_http=%s\n",
-		configPath,
-		listenAddr,
-		os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"),
-		os.Getenv("TELESCOPE_OTLP_HTTP_ADDR"),
-	)
+	readinessDone := make(chan struct{})
+	go func() {
+		defer close(readinessDone)
+		reportReadiness(
+			ctx,
+			operationalServer.Ready,
+			os.Stderr,
+			200*time.Millisecond,
+			listenAddr,
+		)
+	}()
 
 	var runErr error
 	select {
@@ -157,8 +169,45 @@ func runTelescope(args []string) error {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil && runErr == nil {
 		runErr = fmt.Errorf("shutdown http: %w", err)
 	}
+	<-readinessDone
+	if runErr == nil {
+		fmt.Fprintln(os.Stderr, "telescope stopped")
+	}
 
 	return runErr
+}
+
+func reportReadiness(
+	ctx context.Context,
+	ready func(context.Context) bool,
+	w io.Writer,
+	interval time.Duration,
+	httpAddr string,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if ready(ctx) {
+			fmt.Fprintf(
+				w,
+				"telescope ready: otlp_grpc=%s otlp_http=%s http=%s\n",
+				os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"),
+				os.Getenv("TELESCOPE_OTLP_HTTP_ADDR"),
+				httpAddr,
+			)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func runAdvanced(args []string) error {

@@ -17,32 +17,44 @@
 package status
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 )
 
-type server struct {
+type Server struct {
 	service *service
+	handler http.Handler
 }
 
-func New(version string) http.Handler {
+func New(version string) *Server {
 	return newServer(newService(version))
 }
 
-func newServer(service *service) http.Handler {
-	server := &server{service: service}
+func newServer(service *service) *Server {
+	server := &Server{service: service}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.getHealth)
 	mux.HandleFunc("GET /readyz", server.getReadiness)
 	mux.HandleFunc("GET /v1/ingestion/status", server.getIngestionStatus)
-	return mux
+	server.handler = mux
+	return server
 }
 
-func (s *server) getHealth(w http.ResponseWriter, request *http.Request) {
+func (s *Server) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	s.handler.ServeHTTP(w, request)
+}
+
+func (s *Server) Ready(ctx context.Context) bool {
+	_, ready := s.service.Readiness(ctx)
+	return ready
+}
+
+func (s *Server) getHealth(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.Health(request.Context()))
 }
 
-func (s *server) getReadiness(w http.ResponseWriter, request *http.Request) {
+func (s *Server) getReadiness(w http.ResponseWriter, request *http.Request) {
 	response, ready := s.service.Readiness(request.Context())
 	if !ready {
 		writeJSON(w, http.StatusServiceUnavailable, response)
@@ -51,7 +63,7 @@ func (s *server) getReadiness(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
+func (s *Server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.IngestionStatus(request.Context()))
 }
 

@@ -60,6 +60,9 @@ signals:
 	assert.Equal(t, map[string]any{"traces": "app.spans"}, tables)
 	assert.Equal(t, "zstd", scopeDB["compression"])
 	service := rendered["service"].(map[string]any)
+	telemetry := service["telemetry"].(map[string]any)
+	logs := telemetry["logs"].(map[string]any)
+	assert.Equal(t, "warn", logs["level"])
 	pipelines := service["pipelines"].(map[string]any)
 	assert.Equal(t, []string{"traces"}, mapKeys(pipelines))
 

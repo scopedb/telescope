@@ -17,10 +17,13 @@
 package status
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
 
 func TestGetHealth(t *testing.T) {
@@ -37,5 +40,19 @@ func TestGetHealth(t *testing.T) {
 	}
 	if response.Status != "ok" || response.Service != serviceName || response.Version != "test" {
 		t.Fatalf("unexpected health response: %#v", response)
+	}
+}
+
+func TestServerReady(t *testing.T) {
+	service := newService("test")
+	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
+		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
+			"traces": {Signal: "traces", Ready: true},
+		},
+	}}
+	service.ingestionMetrics = fakeCollectorMetricsReader{}
+
+	if !newServer(service).Ready(context.Background()) {
+		t.Fatal("expected server to report ready")
 	}
 }

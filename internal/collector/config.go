@@ -59,6 +59,9 @@ exporters:
 
 service:
   extensions: [file_storage]
+  telemetry:
+    logs:
+      level: warn
   pipelines:
     traces:
       receivers: [otlp]
