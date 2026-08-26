@@ -31,8 +31,8 @@ import (
 
 	"go.opentelemetry.io/collector/otelcol"
 
-	"github.com/scopedb/telescope/services/api/internal/appruntime"
 	"github.com/scopedb/telescope/services/api/internal/collector"
+	"github.com/scopedb/telescope/services/api/internal/httpapi"
 )
 
 var version = "(unknown)"
@@ -61,8 +61,6 @@ func run(args []string) error {
 	switch args[0] {
 	case "daemon":
 		return runDaemon(args[1:])
-	case "mcp":
-		return runMCP(args[1:])
 	case "collector":
 		return runCollector(args[1:])
 	case "ingestion":
@@ -85,18 +83,14 @@ func runDaemon(args []string) error {
 	collectorConfig := flags.String("collector-config", "", "collector config URI or file path")
 	ingestionConfig := flags.String("ingestion-config", "", "Telescope tables and mappings YAML file")
 	ingestionProfile := flags.String("ingestion-profile", "", "built-in ingestion profile (starter)")
-	httpAddr := flags.String("http-addr", "", "HTTP API listen address; overrides TELESCOPE_HTTP_ADDR")
+	httpAddr := flags.String("http-addr", "", "operational HTTP listen address; overrides TELESCOPE_HTTP_ADDR")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
 	}
-	if *httpAddr != "" {
-		if err := os.Setenv("TELESCOPE_HTTP_ADDR", *httpAddr); err != nil {
-			return fmt.Errorf("set TELESCOPE_HTTP_ADDR: %w", err)
-		}
-	}
+	listenAddr := resolveHTTPListenAddr(*httpAddr)
 	collectorConfigURI, err := resolveDaemonConfig(
 		*collectorConfig,
 		flagProvided(flags, "collector-config"),
@@ -109,25 +103,13 @@ func runDaemon(args []string) error {
 		return err
 	}
 
-	config, err := appruntime.LoadConfigFromEnv()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	app, err := appruntime.New(config, version)
-	if err != nil {
-		return err
-	}
-	defer app.Close()
-
-	httpServer, err := app.HTTPServer(version)
-	if err != nil {
-		return err
-	}
-
 	otelCollector, err := collector.New(collectorConfigURI, version)
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
+	}
+	httpServer := &http.Server{
+		Addr:    listenAddr,
+		Handler: httpapi.New(version),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -142,7 +124,7 @@ func runDaemon(args []string) error {
 		errCh <- nil
 	}()
 	go func() {
-		if err := httpServer.Start(config.ListenAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("http: %w", err)
 			return
 		}
@@ -150,7 +132,7 @@ func runDaemon(args []string) error {
 	}()
 
 	fmt.Fprintf(os.Stderr, "telescope daemon started: http=%s otlp_grpc=%s otlp_http=%s health=%s\n",
-		config.ListenAddr,
+		listenAddr,
 		os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"),
 		os.Getenv("TELESCOPE_OTLP_HTTP_ADDR"),
 		os.Getenv("TELESCOPE_HEALTH_ADDR"),
@@ -172,35 +154,6 @@ func runDaemon(args []string) error {
 	}
 
 	return runErr
-}
-
-func runMCP(args []string) error {
-	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
-	bootstrap := addBootstrapFlags(flags)
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return err
-	}
-
-	config, err := appruntime.LoadConfigFromEnv()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	app, err := appruntime.New(config, version)
-	if err != nil {
-		return err
-	}
-	defer app.Close()
-
-	server, err := app.MCPServer(version)
-	if err != nil {
-		return err
-	}
-	return server.Serve(context.Background(), os.Stdin, os.Stdout)
 }
 
 func runCollector(args []string) error {
@@ -298,6 +251,16 @@ func valueOf(value *string) string {
 	return *value
 }
 
+func resolveHTTPListenAddr(flagValue string) string {
+	if value := strings.TrimSpace(flagValue); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv("TELESCOPE_HTTP_ADDR")); value != "" {
+		return value
+	}
+	return ":8080"
+}
+
 func collectorArgsIncludeConfig(args []string) bool {
 	for _, arg := range args {
 		if arg == "--config" || arg == "-c" || strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-c=") {
@@ -312,7 +275,6 @@ func printUsage() {
 
 Usage:
   telescope daemon [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
-  telescope mcp [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
   telescope ingestion check (--config file | --profile starter)
   telescope ingestion test --signal (logs | traces | metrics)
   telescope collector <otelcol command>
@@ -327,12 +289,12 @@ Daemon options:
   --ingestion-config         Tables and mappings YAML for the embedded Collector
   --ingestion-profile        Explicit built-in profile; currently starter
   --collector-config         Full Collector config URI or file path
-  --http-addr                HTTP API listen address, overrides TELESCOPE_HTTP_ADDR
+  --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR
 
 Environment:
   TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
   TELESCOPE_SCOPEDB_API_KEY    ScopeDB API key
-  TELESCOPE_HTTP_ADDR          HTTP API listen address, default :8080
+  TELESCOPE_HTTP_ADDR          Operational HTTP listen address, default :8080
   TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318
   TELESCOPE_HEALTH_ADDR        Collector health listen address, default 0.0.0.0:13133
@@ -342,7 +304,6 @@ Environment:
   TELESCOPE_OTEL_BATCH_SIZE    Embedded Collector send batch size, default 2000
   TELESCOPE_OTEL_BATCH_MAX_SIZE Embedded Collector send batch max size, default 2000
   TELESCOPE_INTERNAL_METRICS_URL Collector metrics URL for ingestion status, default http://127.0.0.1:8888/metrics
-  TELESCOPE_QUERY_TIMEOUT      ScopeDB query timeout, default 15s
   TELESCOPE_INGESTION_CONFIG   Tables and mappings YAML file
   TELESCOPE_INGESTION_PROFILE  Built-in ingestion profile; currently starter
   TELESCOPE_COLLECTOR_CONFIG   Full Collector config URI or file path

@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/scopedb/telescope/packages/scopedbexporter"
-	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
 type fakeExporterStatusReader struct {
@@ -56,8 +55,7 @@ func (r fakeCollectorMetricsReader) Endpoint() string {
 
 func TestGetIngestionStatus(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
-	service, err := NewService(semantic.Default, &fakeRunner{}, "test")
-	require.NoError(t, err)
+	service := NewService("test")
 	service.now = func() time.Time { return now }
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
@@ -92,8 +90,7 @@ func TestGetIngestionStatus(t *testing.T) {
 		}},
 	}
 
-	server, err := NewWithService(service)
-	require.NoError(t, err)
+	server := NewWithService(service)
 	request := httptest.NewRequest(http.MethodGet, "/v1/ingestion/status", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
@@ -118,8 +115,7 @@ func TestGetIngestionStatus(t *testing.T) {
 }
 
 func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
-	service, err := NewService(semantic.Default, &fakeRunner{}, "test")
-	require.NoError(t, err)
+	service := NewService("test")
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {Signal: "logs", Ready: true, DestinationVerified: true},
@@ -139,8 +135,7 @@ func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
 }
 
 func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
-	service, err := NewService(semantic.Default, &fakeRunner{}, "test")
-	require.NoError(t, err)
+	service := NewService("test")
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"traces": {
@@ -155,8 +150,7 @@ func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
 		Signals: map[string]collectorSignalMetrics{"traces": {}},
 	}}
 
-	server, err := NewWithService(service)
-	require.NoError(t, err)
+	server := NewWithService(service)
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)

@@ -110,6 +110,27 @@ func TestSetEnvIfValueRejectsInvalidEnvironmentValue(t *testing.T) {
 	}
 }
 
+func TestResolveHTTPListenAddr(t *testing.T) {
+	tests := []struct {
+		name     string
+		flag     string
+		addr     string
+		expected string
+	}{
+		{name: "default", expected: ":8080"},
+		{name: "environment", addr: "127.0.0.1:9090", expected: "127.0.0.1:9090"},
+		{name: "flag before environment", flag: "127.0.0.1:7070", addr: "127.0.0.1:9090", expected: "127.0.0.1:7070"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TELESCOPE_HTTP_ADDR", tt.addr)
+			if got := resolveHTTPListenAddr(tt.flag); got != tt.expected {
+				t.Fatalf("resolveHTTPListenAddr() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func clearBootstrapEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "")

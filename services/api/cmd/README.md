@@ -1,7 +1,3 @@
 # cmd
 
-This directory stores the runnable Telescope entrypoint.
-
-Current binary:
-
-- `telescope`: unified runtime with `daemon`, `ingestion check`, `ingestion test`, `mcp`, `collector`, and `version` commands
+This directory contains the `telescope` entrypoint with `daemon`, `ingestion check`, `ingestion test`, `collector`, and `version` commands.
