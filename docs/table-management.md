@@ -157,8 +157,6 @@ The check command prints `signal -> table -> destination column -> OTel source`,
 
 Daemon startup performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 
-`create_tables_if_not_exist: true` is rejected. Remove it from older configs and provision the tables separately.
-
 Full Collector configuration can still be checked without contacting ScopeDB:
 
 ```bash

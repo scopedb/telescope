@@ -27,8 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/scopedb/telescope/internal/collector"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
-	"github.com/scopedb/telescope/services/api/internal/collector"
 )
 
 func runIngestion(args []string) error {

@@ -69,7 +69,7 @@ signals:
 	provider, err := otelcol.NewConfigProvider(settings.ConfigProviderSettings)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
-	factories, err := Factories()
+	factories, err := factories()
 	require.NoError(t, err)
 	resolved, err := provider.Get(context.Background(), factories)
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestLoadIngestionConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 }
 
 func TestDeploymentIngestionExampleIsValid(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "gateway", "deploy", "ingestion.example.yaml")
+	path := filepath.Join("..", "..", "deploy", "ingestion.example.yaml")
 
 	config, err := LoadIngestionConfig(path)
 	require.NoError(t, err)

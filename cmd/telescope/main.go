@@ -31,8 +31,8 @@ import (
 
 	"go.opentelemetry.io/collector/otelcol"
 
-	"github.com/scopedb/telescope/services/api/internal/collector"
-	"github.com/scopedb/telescope/services/api/internal/httpapi"
+	"github.com/scopedb/telescope/internal/collector"
+	statusapi "github.com/scopedb/telescope/internal/status"
 )
 
 var version = "(unknown)"
@@ -109,7 +109,7 @@ func runDaemon(args []string) error {
 	}
 	httpServer := &http.Server{
 		Addr:    listenAddr,
-		Handler: httpapi.New(version),
+		Handler: statusapi.New(version),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

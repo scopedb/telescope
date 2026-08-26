@@ -61,14 +61,22 @@ func TestSettingsConfigURI(t *testing.T) {
 			if !strings.HasPrefix(uris[0], tt.wantURI) {
 				t.Fatalf("expected URI prefix %q, got %q", tt.wantURI, uris[0])
 			}
-			if tt.wantYAML && !strings.Contains(uris[0], "exporters:") {
+			if !tt.wantYAML {
+				return
+			}
+			if !strings.Contains(uris[0], "exporters:") {
 				t.Fatalf("expected embedded collector config, got %q", uris[0])
 			}
-			if tt.wantYAML && !strings.Contains(uris[0], "\n  batch:\n    timeout: ${env:TELESCOPE_OTEL_BATCH_TIMEOUT}\n    send_batch_size: ${env:TELESCOPE_OTEL_BATCH_SIZE}\n    send_batch_max_size: ${env:TELESCOPE_OTEL_BATCH_MAX_SIZE}\n") {
-				t.Fatalf("expected embedded batch env knobs, got %q", uris[0])
-			}
-			if tt.wantYAML && !strings.Contains(uris[0], "\n      sizer: bytes\n      queue_size: ${env:TELESCOPE_QUEUE_MAX_BYTES}\n") {
-				t.Fatalf("expected byte-sized persistent queue, got %q", uris[0])
+			for _, want := range []string{
+				"${env:TELESCOPE_OTEL_BATCH_TIMEOUT}",
+				"${env:TELESCOPE_OTEL_BATCH_SIZE}",
+				"${env:TELESCOPE_OTEL_BATCH_MAX_SIZE}",
+				"${env:TELESCOPE_QUEUE_MAX_BYTES}",
+				"sizer: bytes",
+			} {
+				if !strings.Contains(uris[0], want) {
+					t.Fatalf("expected embedded config to contain %q, got %q", want, uris[0])
+				}
 			}
 		})
 	}
@@ -80,7 +88,7 @@ func TestSettingsGracefulShutdownMode(t *testing.T) {
 		t.Fatal("standalone collector settings should preserve graceful shutdown")
 	}
 
-	daemon := DaemonSettings("", "test")
+	daemon := settings("", "test", true)
 	if !daemon.DisableGracefulShutdown {
 		t.Fatal("daemon collector settings should let the daemon own shutdown")
 	}

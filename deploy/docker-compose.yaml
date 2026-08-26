@@ -13,7 +13,7 @@
 # limitations under the License.
 
 services:
-  scopedb-telescope:
+  telescope:
     image: ${IMAGE:-ghcr.io/scopedb/telescope:0.2.0}
     command: ["daemon", "--ingestion-config", "/etc/telescope/ingestion.yaml"]
     restart: unless-stopped

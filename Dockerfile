@@ -20,7 +20,7 @@ ARG TARGETARCH
 WORKDIR /src
 COPY . .
 
-RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.3 go build -trimpath -ldflags "-s -w" -o /out/telescope ./services/api/cmd/telescope
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.3 go build -trimpath -ldflags "-s -w" -o /out/telescope ./cmd/telescope
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates

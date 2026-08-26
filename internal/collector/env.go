@@ -22,7 +22,7 @@ import (
 	"strings"
 )
 
-func ApplyDefaultEnv() {
+func applyDefaultEnv() {
 	setDefaultEnv("TELESCOPE_OTLP_GRPC_ADDR", "0.0.0.0:4317")
 	setDefaultEnv("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318")
 	setDefaultEnv("TELESCOPE_HEALTH_ADDR", "0.0.0.0:13133")

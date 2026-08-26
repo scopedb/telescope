@@ -12,15 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-OTEL_VERSION ?= v0.150.0
 GOTOOLCHAIN ?= go1.25.3
-OCB ?= ./bin/builder
 HAWKEYE ?= hawkeye
 DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
-GATEWAY_COLLECTOR_DIR ?= services/gateway/collector
-GATEWAY_DEPLOY_DIR ?= services/gateway/deploy
-API_DIR ?= services/api
 TELESCOPE ?= ./bin/telescope
 LD_FLAGS ?= -s -w
 
@@ -35,7 +30,7 @@ license-format:
 .PHONY: fmt-check
 fmt-check:
 	@tmp="$$(mktemp)"; \
-	git ls-files '*.go' ':!:$(GATEWAY_COLLECTOR_DIR)/_build/**' | while IFS= read -r file; do \
+	git ls-files '*.go' | while IFS= read -r file; do \
 		gofmt -l "$$file"; \
 	done > "$$tmp"; \
 	if [ -s "$$tmp" ]; then \
@@ -58,15 +53,10 @@ test:
 .PHONY: ci-go
 ci-go: fmt-check tidy-check test
 
-.PHONY: build-ocb
-build-ocb:
-	mkdir -p bin
-	GOBIN=$(PWD)/bin GOTOOLCHAIN=$(GOTOOLCHAIN) go install go.opentelemetry.io/collector/cmd/builder@$(OTEL_VERSION)
-
 .PHONY: build
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go build -trimpath -ldflags "$(LD_FLAGS)" -o $(abspath $(TELESCOPE)) ./$(API_DIR)/cmd/telescope
+	CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go build -trimpath -ldflags "$(LD_FLAGS)" -o $(abspath $(TELESCOPE)) ./cmd/telescope
 
 .PHONY: dist-clean
 dist-clean:
@@ -83,7 +73,7 @@ artifacts: dist-clean
 		out_dir="$(DIST_DIR)/$${name}"; \
 		echo "building artifact $${name}"; \
 		mkdir -p "$${out_dir}"; \
-		GOOS="$${os}" GOARCH="$${arch}" CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go build -trimpath -ldflags "$(LD_FLAGS)" -o "$${out_dir}/telescope" ./$(API_DIR)/cmd/telescope; \
+		GOOS="$${os}" GOARCH="$${arch}" CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go build -trimpath -ldflags "$(LD_FLAGS)" -o "$${out_dir}/telescope" ./cmd/telescope; \
 		cp LICENSE README.md "$${out_dir}/"; \
 		tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
 		rm -rf "$${out_dir}"; \
@@ -96,10 +86,6 @@ checksums:
 	cd $(DIST_DIR); \
 	shasum -a 256 *.tar.gz > SHA256SUMS
 
-.PHONY: build-collector
-build-collector:
-	cd $(GATEWAY_COLLECTOR_DIR) && GOWORK=off GOTOOLCHAIN=$(GOTOOLCHAIN) $(abspath $(OCB)) --config builder-config.yaml
-
 .PHONY: validate
 validate: build
 	TELESCOPE_SCOPEDB_ENDPOINT="$${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}" \
@@ -109,15 +95,12 @@ validate: build
 	TELESCOPE_HEALTH_ADDR="$${TELESCOPE_HEALTH_ADDR:-0.0.0.0:13133}" \
 	$(abspath $(TELESCOPE)) collector validate
 
-.PHONY: validate-configs
-validate-configs: validate
-
 .PHONY: docker-build
 docker-build:
 	docker build -f Dockerfile -t scopedb-telescope:ci .
 
 .PHONY: ci-runtime
-ci-runtime: validate-configs docker-build artifacts
+ci-runtime: validate docker-build artifacts
 
 .PHONY: demo
 demo:

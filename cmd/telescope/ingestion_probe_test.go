@@ -26,8 +26,8 @@ import (
 	"testing"
 	"time"
 
+	statusapi "github.com/scopedb/telescope/internal/status"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
-	"github.com/scopedb/telescope/services/api/internal/httpapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
@@ -55,8 +55,8 @@ func TestRunIngestionTestWaitsForExactProbe(t *testing.T) {
 			probeIDs := append([]string(nil), lastProbeIDs...)
 			mu.RUnlock()
 			w.Header().Set("Content-Type", "application/json")
-			require.NoError(t, json.NewEncoder(w).Encode(httpapi.IngestionStatusResponse{
-				Signals: []httpapi.IngestionSignalStatus{{
+			require.NoError(t, json.NewEncoder(w).Encode(statusapi.IngestionStatusResponse{
+				Signals: []statusapi.IngestionSignalStatus{{
 					Signal:              "traces",
 					Ready:               true,
 					DestinationVerified: true,

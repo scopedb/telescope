@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package httpapi
+package status
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (r fakeCollectorMetricsReader) Endpoint() string {
 
 func TestGetIngestionStatus(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
-	service := NewService("test")
+	service := newService("test")
 	service.now = func() time.Time { return now }
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
@@ -90,7 +90,7 @@ func TestGetIngestionStatus(t *testing.T) {
 		}},
 	}
 
-	server := NewWithService(service)
+	server := newServer(service)
 	request := httptest.NewRequest(http.MethodGet, "/v1/ingestion/status", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
@@ -115,7 +115,7 @@ func TestGetIngestionStatus(t *testing.T) {
 }
 
 func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
-	service := NewService("test")
+	service := newService("test")
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {Signal: "logs", Ready: true, DestinationVerified: true},
@@ -135,7 +135,7 @@ func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
 }
 
 func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
-	service := NewService("test")
+	service := newService("test")
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"traces": {
@@ -150,7 +150,7 @@ func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
 		Signals: map[string]collectorSignalMetrics{"traces": {}},
 	}}
 
-	server := NewWithService(service)
+	server := newServer(service)
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)

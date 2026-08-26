@@ -365,6 +365,7 @@ func TestClassifyAppendError(t *testing.T) {
 
 func testClientConfig(endpoint string) *Config {
 	cfg := createDefaultConfig().(*Config)
+	_, cfg.Mappings = StarterIngestionConfig().exporterConfig()
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables = TableRoutingConfig{

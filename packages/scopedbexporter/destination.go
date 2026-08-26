@@ -25,12 +25,12 @@ import (
 	scopedb "github.com/scopedb/goscopedb"
 )
 
-const defaultTableInitTimeout = 30 * time.Second
+const defaultDestinationValidationTimeout = 30 * time.Second
 
-func (e *dbExporter) ensureTable(ctx context.Context) error {
+func (e *dbExporter) validateDestination(ctx context.Context) error {
 	timeout := e.cfg.Timeout.Timeout
 	if timeout <= 0 {
-		timeout = defaultTableInitTimeout
+		timeout = defaultDestinationValidationTimeout
 	}
 
 	validateCtx, cancel := context.WithTimeout(ctx, timeout)

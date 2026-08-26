@@ -16,7 +16,7 @@
 
 package collector
 
-const DefaultConfig = `
+const defaultConfig = `
 extensions:
   health_check:
     endpoint: ${env:TELESCOPE_HEALTH_ADDR}

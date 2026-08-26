@@ -66,7 +66,7 @@ func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
 		zap.String("compression", e.cfg.compressionMode()),
 	)
 
-	if err := e.ensureTable(ctx); err != nil {
+	if err := e.validateDestination(ctx); err != nil {
 		if isTransientDestinationError(err) {
 			e.logger.Warn(
 				"ScopeDB destination is temporarily unavailable; starting exporter with destination unverified",

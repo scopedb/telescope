@@ -58,7 +58,7 @@ func ConfigURIForIngestion(config scopedbexporter.IngestionConfig) (string, erro
 	}
 
 	var rendered map[string]any
-	if err := yaml.Unmarshal([]byte(DefaultConfig), &rendered); err != nil {
+	if err := yaml.Unmarshal([]byte(defaultConfig), &rendered); err != nil {
 		return "", fmt.Errorf("decode embedded collector config: %w", err)
 	}
 	exporters, ok := rendered["exporters"].(map[string]any)
@@ -69,9 +69,10 @@ func ConfigURIForIngestion(config scopedbexporter.IngestionConfig) (string, erro
 	if !ok {
 		return "", fmt.Errorf("embedded collector config has no scopedb exporter")
 	}
-	tables := make(map[string]string, len(config.EnabledSignals()))
-	mappings := make(map[string]map[string]string, len(config.EnabledSignals()))
-	for _, signal := range config.EnabledSignals() {
+	signals := config.EnabledSignals()
+	tables := make(map[string]string, len(signals))
+	mappings := make(map[string]map[string]string, len(signals))
+	for _, signal := range signals {
 		signalConfig, _ := config.Signal(signal)
 		tables[signal] = signalConfig.Table
 		mappings[signal] = signalConfig.Mapping
@@ -87,8 +88,8 @@ func ConfigURIForIngestion(config scopedbexporter.IngestionConfig) (string, erro
 	if !ok {
 		return "", fmt.Errorf("embedded collector config has no pipelines map")
 	}
-	enabled := make(map[string]bool, len(config.EnabledSignals()))
-	for _, signal := range config.EnabledSignals() {
+	enabled := make(map[string]bool, len(signals))
+	for _, signal := range signals {
 		enabled[signal] = true
 	}
 	for _, signal := range []string{"logs", "traces", "metrics"} {

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package httpapi
+package status
 
 import "time"
 

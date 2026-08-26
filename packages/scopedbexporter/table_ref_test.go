@@ -25,33 +25,29 @@ import (
 
 func TestParseTableRef(t *testing.T) {
 	tests := []struct {
-		name       string
-		raw        string
-		database   string
-		schema     string
-		table      string
-		identifier string
+		name     string
+		raw      string
+		database string
+		schema   string
+		table    string
 	}{
 		{
-			name:       "table only",
-			raw:        "logs",
-			table:      "logs",
-			identifier: "`logs`",
+			name:  "table only",
+			raw:   "logs",
+			table: "logs",
 		},
 		{
-			name:       "schema table",
-			raw:        "otel.logs",
-			schema:     "otel",
-			table:      "logs",
-			identifier: "`otel`.`logs`",
+			name:   "schema table",
+			raw:    "otel.logs",
+			schema: "otel",
+			table:  "logs",
 		},
 		{
-			name:       "database schema table",
-			raw:        "scopedb.otel.logs",
-			database:   "scopedb",
-			schema:     "otel",
-			table:      "logs",
-			identifier: "`scopedb`.`otel`.`logs`",
+			name:     "database schema table",
+			raw:      "scopedb.otel.logs",
+			database: "scopedb",
+			schema:   "otel",
+			table:    "logs",
 		},
 	}
 
@@ -63,7 +59,6 @@ func TestParseTableRef(t *testing.T) {
 			assert.Equal(t, tt.schema, ref.Schema)
 			assert.Equal(t, tt.table, ref.Table)
 			assert.Equal(t, tt.raw, ref.String())
-			assert.Equal(t, tt.identifier, ref.Identifier())
 		})
 	}
 }

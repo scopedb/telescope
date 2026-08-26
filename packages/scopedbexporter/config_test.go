@@ -76,13 +76,6 @@ func TestConfigValidateMapping(t *testing.T) {
 			},
 			want: "span attributes are only valid for traces",
 		},
-		{
-			name: "automatic table creation",
-			mutate: func(cfg *Config) {
-				cfg.CreateTablesIfNotExist = true
-			},
-			want: "not supported with user mappings",
-		},
 	}
 
 	for _, tt := range tests {
@@ -117,19 +110,14 @@ func TestConfigAllowsOneSignal(t *testing.T) {
 func TestCreateDefaultConfig(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 
-	assert.Equal(t, defaultLogsTable, cfg.Tables.Logs)
-	assert.Equal(t, defaultTracesTable, cfg.Tables.Traces)
-	assert.Equal(t, defaultMetricsTable, cfg.Tables.Metrics)
-	assert.NotEmpty(t, cfg.Mappings.Logs)
-	assert.NotEmpty(t, cfg.Mappings.Traces)
-	assert.NotEmpty(t, cfg.Mappings.Metrics)
-	assert.False(t, cfg.CreateTablesIfNotExist)
+	assert.Empty(t, cfg.Tables)
+	assert.Empty(t, cfg.Mappings)
 	assert.Equal(t, defaultCompression, cfg.Compression)
 	assert.True(t, cfg.RetryOnFailure.Enabled)
 	assert.True(t, cfg.SendingQueue.HasValue())
 }
 
-func TestConfigUnmarshalDisablesUnspecifiedMappings(t *testing.T) {
+func TestConfigUnmarshalSetsOnlySpecifiedMappings(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	conf := confmap.NewFromStringMap(map[string]any{
 		"mappings": map[string]any{
@@ -159,6 +147,7 @@ func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {
 
 func validTestConfig() *Config {
 	cfg := createDefaultConfig().(*Config)
+	cfg.Tables, cfg.Mappings = StarterIngestionConfig().exporterConfig()
 	cfg.Endpoint = "https://scopedb.invalid"
 	cfg.APIKey = configopaque.String("test-api-key")
 	return cfg

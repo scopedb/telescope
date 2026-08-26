@@ -33,8 +33,8 @@ import (
 	"strings"
 	"time"
 
+	statusapi "github.com/scopedb/telescope/internal/status"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
-	"github.com/scopedb/telescope/services/api/internal/httpapi"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
@@ -238,8 +238,8 @@ func validateProbeResponse(signal string, body []byte) error {
 	return nil
 }
 
-func readIngestionStatus(ctx context.Context, client *http.Client, endpoint string) (httpapi.IngestionStatusResponse, error) {
-	var status httpapi.IngestionStatusResponse
+func readIngestionStatus(ctx context.Context, client *http.Client, endpoint string) (statusapi.IngestionStatusResponse, error) {
+	var status statusapi.IngestionStatusResponse
 	parsed, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return status, fmt.Errorf("invalid status endpoint %q", endpoint)
@@ -263,13 +263,13 @@ func readIngestionStatus(ctx context.Context, client *http.Client, endpoint stri
 	return status, nil
 }
 
-func findSignalStatus(status httpapi.IngestionStatusResponse, signal string) (httpapi.IngestionSignalStatus, bool) {
+func findSignalStatus(status statusapi.IngestionStatusResponse, signal string) (statusapi.IngestionSignalStatus, bool) {
 	for _, current := range status.Signals {
 		if current.Signal == signal {
 			return current, true
 		}
 	}
-	return httpapi.IngestionSignalStatus{}, false
+	return statusapi.IngestionSignalStatus{}, false
 }
 
 func containsString(values []string, target string) bool {

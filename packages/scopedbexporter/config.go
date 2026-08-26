@@ -28,16 +28,10 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
-	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 )
 
-const (
-	defaultCompression  = "zstd"
-	defaultLogsTable    = "scopedb.otel.logs"
-	defaultTracesTable  = "scopedb.otel.traces"
-	defaultMetricsTable = "scopedb.otel.metrics"
-)
+const defaultCompression = "zstd"
 
 var typeStr = component.MustNewType("scopedb")
 
@@ -49,47 +43,24 @@ type TableRoutingConfig struct {
 	Metrics string `mapstructure:"metrics" yaml:"metrics"`
 }
 
-func (cfg *TableRoutingConfig) Unmarshal(conf *confmap.Conf) error {
-	type rawTableRoutingConfig TableRoutingConfig
-	var decoded rawTableRoutingConfig
-	if err := conf.Unmarshal(&decoded); err != nil {
-		return err
-	}
-	*cfg = TableRoutingConfig(decoded)
-	return nil
-}
-
 type SignalMappingConfig struct {
 	Logs    map[string]string `mapstructure:"logs" yaml:"logs"`
 	Traces  map[string]string `mapstructure:"traces" yaml:"traces"`
 	Metrics map[string]string `mapstructure:"metrics" yaml:"metrics"`
 }
 
-func (cfg *SignalMappingConfig) Unmarshal(conf *confmap.Conf) error {
-	type rawSignalMappingConfig SignalMappingConfig
-	var decoded rawSignalMappingConfig
-	if err := conf.Unmarshal(&decoded); err != nil {
-		return err
-	}
-	*cfg = SignalMappingConfig(decoded)
-	return nil
-}
-
 type Config struct {
-	Endpoint               string                                                   `mapstructure:"endpoint"`
-	APIKey                 configopaque.String                                      `mapstructure:"api_key"`
-	Tables                 TableRoutingConfig                                       `mapstructure:"tables"`
-	Mappings               SignalMappingConfig                                      `mapstructure:"mappings"`
-	CreateTablesIfNotExist bool                                                     `mapstructure:"create_tables_if_not_exist"`
-	Compression            string                                                   `mapstructure:"compression"`
-	Timeout                exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
-	RetryOnFailure         configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
-	SendingQueue           configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
+	Endpoint       string                                                   `mapstructure:"endpoint"`
+	APIKey         configopaque.String                                      `mapstructure:"api_key"`
+	Tables         TableRoutingConfig                                       `mapstructure:"tables"`
+	Mappings       SignalMappingConfig                                      `mapstructure:"mappings"`
+	Compression    string                                                   `mapstructure:"compression"`
+	Timeout        exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
+	RetryOnFailure configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
+	SendingQueue   configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
 }
 
 func createDefaultConfig() component.Config {
-	starter := StarterIngestionConfig()
-	tables, mappings := starter.exporterConfig()
 	retryCfg := configretry.NewDefaultBackOffConfig()
 	retryCfg.Enabled = true
 	retryCfg.InitialInterval = time.Second
@@ -102,8 +73,6 @@ func createDefaultConfig() component.Config {
 	queueCfg.Batch = configoptional.None[exporterhelper.BatchConfig]()
 
 	return &Config{
-		Tables:         tables,
-		Mappings:       mappings,
 		Compression:    defaultCompression,
 		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
@@ -131,10 +100,6 @@ func (cfg *Config) Validate() error {
 
 	if err := ingestionConfigFromExporter(cfg.Tables, cfg.Mappings).Validate(); err != nil {
 		errs = append(errs, err)
-	}
-
-	if cfg.CreateTablesIfNotExist {
-		errs = append(errs, errors.New("create_tables_if_not_exist is not supported with user mappings; create the target tables in ScopeDB"))
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Compression)) {

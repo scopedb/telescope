@@ -2,6 +2,4 @@
 .DS_Store
 bin/
 dist/
-services/gateway/deploy/.env
-packages/vendordbexporter/__pycache__/
-services/gateway/collector/_build/
+deploy/.env

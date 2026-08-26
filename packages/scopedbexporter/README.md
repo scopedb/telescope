@@ -53,13 +53,11 @@ exporters:
       num_consumers: 1
 ```
 
-`mappings.<signal>` is `destination column: OpenTelemetry source`. Destination columns must be unquoted ScopeDB identifiers. A source value that is absent or null is omitted from that NDJSON row; selected empty strings and numeric zeroes are preserved. Specifying a signal mapping replaces that signal's complete starter mapping; entries are never implicitly merged with default columns. Signals omitted from `mappings` keep their starter mapping.
+`mappings.<signal>` is `destination column: OpenTelemetry source`. Destination columns must be unquoted ScopeDB identifiers. A source value that is absent or null is omitted from that NDJSON row; selected empty strings and numeric zeroes are preserved. Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
 
 The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. Signal routes may point to the same table when their mappings target a compatible schema.
 
 The built-in starter configuration uses `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics` with small mappings for timestamps, service identity, signal identity, correlation, and primary values. The Telescope daemon requires users to select this profile explicitly; it is not a storage contract.
-
-`create_tables_if_not_exist` is no longer supported because Telescope cannot infer column types, partitioning, clustering, retention, or indexes from a per-user mapping. If an old configuration enables it, validation returns an actionable error.
 
 ## Mapping Sources
 

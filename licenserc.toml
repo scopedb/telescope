@@ -23,8 +23,6 @@ includes = [
   "**/Makefile",
 ]
 
-excludes = ["services/gateway/collector/_build/**"]
-
 [properties]
 copyrightOwner = "ScopeDB, Inc."
 inceptionYear = 2026

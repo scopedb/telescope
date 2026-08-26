@@ -25,18 +25,18 @@ Telescope does not create or modify ScopeDB tables. You choose the signals to en
 Create the local configuration files:
 
 ```bash
-cp services/gateway/deploy/.env.example services/gateway/deploy/.env
-cp services/gateway/deploy/ingestion.example.yaml services/gateway/deploy/ingestion.yaml
+cp deploy/.env.example deploy/.env
+cp deploy/ingestion.example.yaml deploy/ingestion.yaml
 ```
 
-Set the ScopeDB credentials in `services/gateway/deploy/.env`:
+Set the ScopeDB credentials in `deploy/.env`:
 
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 TELESCOPE_SCOPEDB_API_KEY=sk_...
 ```
 
-Then edit `services/gateway/deploy/ingestion.yaml`. Only configured signals are accepted and started:
+Then edit `deploy/ingestion.yaml`. Only configured signals are accepted and started:
 
 ```yaml
 signals:
@@ -56,8 +56,8 @@ Validate the destination table and mapping before deployment:
 
 ```bash
 docker run --rm \
-  --env-file services/gateway/deploy/.env \
-  -v "$PWD/services/gateway/deploy/ingestion.yaml:/etc/telescope/ingestion.yaml:ro" \
+  --env-file deploy/.env \
+  -v "$PWD/deploy/ingestion.yaml:/etc/telescope/ingestion.yaml:ro" \
   ghcr.io/scopedb/telescope:latest \
   ingestion check --config /etc/telescope/ingestion.yaml
 ```
@@ -65,8 +65,8 @@ docker run --rm \
 Start Telescope:
 
 ```bash
-docker compose --env-file services/gateway/deploy/.env \
-  -f services/gateway/deploy/docker-compose.yaml up -d
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yaml up -d
 ```
 
 For a source build, run `make docker-build` and set `IMAGE=scopedb-telescope:ci` when invoking Docker Compose.
@@ -121,9 +121,9 @@ The ingestion status reports only configured signals, including receiver and wri
 To send a synthetic signal and wait for the exact exporter acknowledgement:
 
 ```bash
-docker compose --env-file services/gateway/deploy/.env \
-  -f services/gateway/deploy/docker-compose.yaml \
-  exec scopedb-telescope telescope ingestion test --signal traces
+docker compose --env-file deploy/.env \
+  -f deploy/docker-compose.yaml \
+  exec telescope telescope ingestion test --signal traces
 ```
 
 Expected output:
@@ -141,8 +141,8 @@ Build and run the embedded Collector:
 make build
 
 ./bin/telescope daemon \
-  --env-file services/gateway/deploy/.env \
-  --ingestion-config services/gateway/deploy/ingestion.yaml
+  --env-file deploy/.env \
+  --ingestion-config deploy/ingestion.yaml
 ```
 
 Commands:
@@ -166,9 +166,10 @@ make build
 
 Project layout:
 
-- `services/gateway/collector`: Collector configuration and Docker packaging
-- `services/gateway/deploy`: Docker Compose deployment assets
-- `services/api`: Telescope CLI, embedded Collector, and operational endpoints
+- `cmd/telescope`: Telescope CLI and daemon entrypoint
+- `internal/collector`: embedded Collector configuration and component factories
+- `internal/status`: operational health, readiness, and ingestion status endpoints
+- `deploy`: Docker Compose deployment assets
 - `packages/scopedbexporter`: ScopeDB OpenTelemetry Collector exporter
 - `docs`: ingestion and table mapping documentation
 

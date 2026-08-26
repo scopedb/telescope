@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package httpapi
+package status
 
 import (
 	"context"
@@ -238,7 +238,7 @@ func metricValue(families map[string]*dto.MetricFamily, name string, filter metr
 	return value
 }
 
-func (s *Service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
+func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	runtime := s.ingestionRuntime.Snapshot()
 	metrics, metricsErr := s.ingestionMetrics.Read(ctx)
 	metricsAvailable := metricsErr == nil

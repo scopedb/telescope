@@ -1,6 +1,5 @@
 .DS_Store
 bin/
 dist/
-services/gateway/deploy/.env
-services/gateway/deploy/ingestion.yaml
-services/gateway/collector/_build/
+deploy/.env
+deploy/ingestion.yaml

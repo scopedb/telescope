@@ -30,6 +30,7 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
 	registry.now = func() time.Time { return now }
 	cfg := createDefaultConfig().(*Config)
+	cfg.Tables, cfg.Mappings = StarterIngestionConfig().exporterConfig()
 
 	registry.configure(signalLogs, cfg)
 	registry.markReady(signalLogs)
@@ -38,7 +39,7 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 
 	status := registry.Snapshot().Signals[signalLogs]
 	assert.True(t, status.Ready)
-	assert.Equal(t, defaultLogsTable, status.Table)
+	assert.Equal(t, starterLogsTable, status.Table)
 	assert.True(t, status.QueueEnabled)
 	assert.Equal(t, int64(10_000), status.QueueCapacity)
 	assert.Equal(t, now, status.LastWriteSuccess)
@@ -64,7 +65,9 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 
 func TestStatusRegistrySnapshotIsIndependent(t *testing.T) {
 	registry := NewStatusRegistry()
-	registry.configure(signalTraces, createDefaultConfig().(*Config))
+	cfg := createDefaultConfig().(*Config)
+	cfg.Tables, cfg.Mappings = StarterIngestionConfig().exporterConfig()
+	registry.configure(signalTraces, cfg)
 	registry.recordProbeSuccess(signalTraces, []string{"probe-1"})
 
 	snapshot := registry.Snapshot()
@@ -74,7 +77,7 @@ func TestStatusRegistrySnapshotIsIndependent(t *testing.T) {
 	status.InvalidItemsByReason["changed"] = 1
 	snapshot.Signals[signalTraces] = status
 
-	require.Equal(t, defaultTracesTable, registry.Snapshot().Signals[signalTraces].Table)
+	require.Equal(t, starterTracesTable, registry.Snapshot().Signals[signalTraces].Table)
 	require.Equal(t, []string{"probe-1"}, registry.Snapshot().Signals[signalTraces].LastProbeIDs)
 	require.NotContains(t, registry.Snapshot().Signals[signalTraces].InvalidItemsByReason, "changed")
 }

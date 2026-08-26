@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package httpapi
+package status
 
 import (
 	"context"
@@ -26,15 +26,15 @@ import (
 
 const serviceName = "telescope"
 
-type Service struct {
+type service struct {
 	version          string
 	now              func() time.Time
 	ingestionRuntime exporterStatusReader
 	ingestionMetrics collectorMetricsReader
 }
 
-func NewService(version string) *Service {
-	return &Service{
+func newService(version string) *service {
+	return &service{
 		version:          strings.TrimSpace(version),
 		now:              func() time.Time { return time.Now().UTC() },
 		ingestionRuntime: scopedbexporter.DefaultStatusRegistry,
@@ -42,7 +42,7 @@ func NewService(version string) *Service {
 	}
 }
 
-func (s *Service) Health(_ context.Context) HealthResponse {
+func (s *service) Health(_ context.Context) HealthResponse {
 	response := HealthResponse{
 		Status:  "ok",
 		Service: serviceName,
@@ -53,7 +53,7 @@ func (s *Service) Health(_ context.Context) HealthResponse {
 	return response
 }
 
-func (s *Service) Readiness(ctx context.Context) (HealthResponse, bool) {
+func (s *service) Readiness(ctx context.Context) (HealthResponse, bool) {
 	status := s.IngestionStatus(ctx)
 	ready := status.InternalTelemetry.Available && len(status.Signals) > 0
 	for _, signal := range status.Signals {

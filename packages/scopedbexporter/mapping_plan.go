@@ -58,45 +58,6 @@ type mappingPlan struct {
 	columns []mappedColumn
 }
 
-func defaultSignalMappings() SignalMappingConfig {
-	return SignalMappingConfig{
-		Logs: map[string]string{
-			"record_timestamp":   "log.timestamp",
-			"observed_timestamp": "log.observed_timestamp",
-			"trace_id":           "log.trace_id",
-			"span_id":            "log.span_id",
-			"service":            `resource.attributes["service.name"]`,
-			"status":             "log.severity_text",
-			"severity_number":    "log.severity_number",
-			"message":            "log.message",
-		},
-		Traces: map[string]string{
-			"start_timestamp": "span.start_time",
-			"end_timestamp":   "span.end_time",
-			"trace_id":        "span.trace_id",
-			"span_id":         "span.span_id",
-			"parent_span_id":  "span.parent_span_id",
-			"service":         `resource.attributes["service.name"]`,
-			"span_name":       "span.name",
-			"span_kind":       "span.kind",
-			"status_code":     "span.status.code",
-			"duration_ns":     "span.duration_ns",
-		},
-		Metrics: map[string]string{
-			"record_timestamp": "datapoint.timestamp",
-			"start_timestamp":  "datapoint.start_time",
-			"service":          `resource.attributes["service.name"]`,
-			"metric_name":      "metric.name",
-			"metric_type":      "metric.type",
-			"temporality":      "metric.temporality",
-			"unit":             "metric.unit",
-			"int_value":        "datapoint.int_value",
-			"double_value":     "datapoint.double_value",
-			"distribution":     "datapoint.distribution",
-		},
-	}
-}
-
 func compileMappingPlan(signal string, table string, columns map[string]string) (*mappingPlan, error) {
 	ref, err := parseTableRef(table)
 	if err != nil {

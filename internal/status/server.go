@@ -14,30 +14,23 @@
  * limitations under the License.
  */
 
-package httpapi
+package status
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 )
 
-type operationalService interface {
-	Health(context.Context) HealthResponse
-	Readiness(context.Context) (HealthResponse, bool)
-	IngestionStatus(context.Context) IngestionStatusResponse
-}
-
-type Server struct {
-	service operationalService
+type server struct {
+	service *service
 }
 
 func New(version string) http.Handler {
-	return NewWithService(NewService(version))
+	return newServer(newService(version))
 }
 
-func NewWithService(service operationalService) http.Handler {
-	server := &Server{service: service}
+func newServer(service *service) http.Handler {
+	server := &server{service: service}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.getHealth)
 	mux.HandleFunc("GET /readyz", server.getReadiness)
@@ -45,11 +38,11 @@ func NewWithService(service operationalService) http.Handler {
 	return mux
 }
 
-func (s *Server) getHealth(w http.ResponseWriter, request *http.Request) {
+func (s *server) getHealth(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.Health(request.Context()))
 }
 
-func (s *Server) getReadiness(w http.ResponseWriter, request *http.Request) {
+func (s *server) getReadiness(w http.ResponseWriter, request *http.Request) {
 	response, ready := s.service.Readiness(request.Context())
 	if !ready {
 		writeJSON(w, http.StatusServiceUnavailable, response)
@@ -58,7 +51,7 @@ func (s *Server) getReadiness(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
+func (s *server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.IngestionStatus(request.Context()))
 }
 

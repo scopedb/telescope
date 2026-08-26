@@ -21,9 +21,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/connector"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/exporter/debugexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
@@ -34,21 +32,7 @@ import (
 	otelconftelemetry "go.opentelemetry.io/collector/service/telemetry/otelconftelemetry"
 )
 
-type aliasProvider interface{ DeprecatedAlias() component.Type }
-
-func makeModulesMap[T component.Factory](factories map[component.Type]T, modules map[component.Type]string) map[component.Type]string {
-	for compType, factory := range factories {
-		if ap, ok := any(factory).(aliasProvider); ok {
-			alias := ap.DeprecatedAlias()
-			if alias.String() != "" {
-				modules[alias] = modules[compType]
-			}
-		}
-	}
-	return modules
-}
-
-func Factories() (otelcol.Factories, error) {
+func factories() (otelcol.Factories, error) {
 	var err error
 	factories := otelcol.Factories{
 		Telemetry: otelconftelemetry.NewFactory(),
@@ -61,10 +45,10 @@ func Factories() (otelcol.Factories, error) {
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
-	factories.ExtensionModules = makeModulesMap(factories.Extensions, map[component.Type]string{
+	factories.ExtensionModules = map[component.Type]string{
 		filestorage.NewFactory().Type():          "github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.150.0",
 		healthcheckextension.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.150.0",
-	})
+	}
 
 	factories.Receivers, err = otelcol.MakeFactoryMap[receiver.Factory](
 		otlpreceiver.NewFactory(),
@@ -72,21 +56,19 @@ func Factories() (otelcol.Factories, error) {
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
-	factories.ReceiverModules = makeModulesMap(factories.Receivers, map[component.Type]string{
+	factories.ReceiverModules = map[component.Type]string{
 		otlpreceiver.NewFactory().Type(): "go.opentelemetry.io/collector/receiver/otlpreceiver v0.150.0",
-	})
+	}
 
 	factories.Exporters, err = otelcol.MakeFactoryMap[exporter.Factory](
 		scopedbexporter.NewFactory(),
-		debugexporter.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
-	factories.ExporterModules = makeModulesMap(factories.Exporters, map[component.Type]string{
+	factories.ExporterModules = map[component.Type]string{
 		scopedbexporter.NewFactory().Type(): "github.com/scopedb/telescope/packages/scopedbexporter v0.0.0",
-		debugexporter.NewFactory().Type():   "go.opentelemetry.io/collector/exporter/debugexporter v0.150.0",
-	})
+	}
 
 	factories.Processors, err = otelcol.MakeFactoryMap[processor.Factory](
 		batchprocessor.NewFactory(),
@@ -95,16 +77,10 @@ func Factories() (otelcol.Factories, error) {
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
-	factories.ProcessorModules = makeModulesMap(factories.Processors, map[component.Type]string{
+	factories.ProcessorModules = map[component.Type]string{
 		batchprocessor.NewFactory().Type():         "go.opentelemetry.io/collector/processor/batchprocessor v0.150.0",
 		memorylimiterprocessor.NewFactory().Type(): "go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.150.0",
-	})
-
-	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory]()
-	if err != nil {
-		return otelcol.Factories{}, err
 	}
-	factories.ConnectorModules = makeModulesMap(factories.Connectors, map[component.Type]string{})
 
 	return factories, nil
 }

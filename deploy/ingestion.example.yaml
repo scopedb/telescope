@@ -13,6 +13,7 @@
 # limitations under the License.
 
 signals:
+  # Remove this block to disable traces, or add logs/metrics blocks as needed.
   traces:
     table: scopedb.otel.traces
     mapping:
