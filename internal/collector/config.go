@@ -55,7 +55,7 @@ exporters:
       enabled: true
       initial_interval: 5s
       max_interval: 60s
-      max_elapsed_time: 10m
+      max_elapsed_time: 0s
 
 service:
   extensions: [file_storage]

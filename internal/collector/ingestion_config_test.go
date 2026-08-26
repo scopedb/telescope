@@ -60,7 +60,7 @@ signals:
 	assert.Equal(t, map[string]any{"traces": "app.spans"}, tables)
 	assert.Equal(t, "zstd", scopeDB["compression"])
 	retry := scopeDB["retry_on_failure"].(map[string]any)
-	assert.Equal(t, "10m", retry["max_elapsed_time"])
+	assert.Equal(t, "0s", retry["max_elapsed_time"])
 	service := rendered["service"].(map[string]any)
 	telemetry := service["telemetry"].(map[string]any)
 	logs := telemetry["logs"].(map[string]any)
@@ -85,6 +85,7 @@ signals:
 		assert.Equal(t, "app.spans", config.Tables.Traces)
 		assert.Empty(t, config.Tables.Metrics)
 		assert.Equal(t, "span.name", config.Mappings.Traces["name"])
+		assert.Zero(t, config.RetryOnFailure.MaxElapsedTime)
 		assert.Equal(t, "bytes", config.SendingQueue.Get().Sizer.String())
 	}
 }

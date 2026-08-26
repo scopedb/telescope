@@ -118,7 +118,7 @@ curl -sS http://127.0.0.1:8080/readyz
 curl -sS http://127.0.0.1:8080/v1/ingestion/status
 ```
 
-The ingestion status reports only configured signals, including received, written, and dropped counts; exhausted retries, permanent rejections, and queue refusals; queue utilization; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. Collector owns retries and stops retrying a request after 10 minutes by default.
+The ingestion status reports only configured signals, including received, written, and dropped counts; exhausted retries, permanent rejections, and queue refusals; queue utilization; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts; permanent failures stop immediately.
 
 For a human-readable summary:
 

@@ -65,7 +65,7 @@ func createDefaultConfig() component.Config {
 	retryCfg.Enabled = true
 	retryCfg.InitialInterval = 5 * time.Second
 	retryCfg.MaxInterval = time.Minute
-	retryCfg.MaxElapsedTime = 10 * time.Minute
+	retryCfg.MaxElapsedTime = 0
 
 	queueCfg := exporterhelper.NewDefaultQueueConfig()
 	queueCfg.Sizer = exporterhelper.RequestSizerTypeBytes
