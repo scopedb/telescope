@@ -58,7 +58,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		printUsage()
+		printUsage(os.Stderr)
 		return nil
 	}
 
@@ -77,7 +77,7 @@ func run(args []string) error {
 		fmt.Println(version)
 		return nil
 	case "help", "-h", "--help":
-		printUsage()
+		printUsage(os.Stderr)
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
@@ -310,15 +310,22 @@ func resolveHTTPListenAddr(flagValue string) string {
 	return ":8080"
 }
 
-func printUsage() {
-	fmt.Fprintf(os.Stderr, `Telescope
+func printUsage(w io.Writer) {
+	fmt.Fprint(w, `Telescope
 
 Usage:
-  telescope validate [options] [telescope.yaml]
-  telescope run [options] [telescope.yaml]
-  telescope verify [options] [logs | traces | metrics ...]
-  telescope status [options]
-  telescope version
+  Setup:
+    telescope validate [options] [telescope.yaml]  Validate config and destination tables
+    telescope run [options] [telescope.yaml]       Run the OTLP-to-ScopeDB data plane
+
+  Operations:
+    telescope status [options]                     Report local delivery state
+
+  Diagnostics:
+    telescope verify [options] [signals...]        Wait for confirmed ScopeDB appends
+
+  Other:
+    telescope version                              Print the build version
 
 Connection options:
   --env-file                 Load KEY=VALUE bootstrap config file

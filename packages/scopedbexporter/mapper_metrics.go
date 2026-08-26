@@ -24,6 +24,85 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
+type metricMappingFailure struct {
+	err        error
+	dataPoints int
+}
+
+// filterInvalidMetrics keeps mapping failures local to the metric that caused
+// them. The returned Metrics aliases the input when every metric is valid and
+// owns a filtered copy otherwise.
+func filterInvalidMetrics(metrics pmetric.Metrics) (pmetric.Metrics, []metricMappingFailure) {
+	failures := metricMappingFailures(metrics)
+	if len(failures) == 0 {
+		return metrics, nil
+	}
+
+	filtered := pmetric.NewMetrics()
+	metrics.CopyTo(filtered)
+	filtered.ResourceMetrics().RemoveIf(func(resource pmetric.ResourceMetrics) bool {
+		resource.ScopeMetrics().RemoveIf(func(scope pmetric.ScopeMetrics) bool {
+			scope.Metrics().RemoveIf(func(metric pmetric.Metric) bool {
+				return metricMappingError(metric) != nil
+			})
+			return scope.Metrics().Len() == 0
+		})
+		return resource.ScopeMetrics().Len() == 0
+	})
+
+	return filtered, failures
+}
+
+func metricMappingFailures(metrics pmetric.Metrics) []metricMappingFailure {
+	var failures []metricMappingFailure
+	resourceMetrics := metrics.ResourceMetrics()
+	for i := 0; i < resourceMetrics.Len(); i++ {
+		scopeMetrics := resourceMetrics.At(i).ScopeMetrics()
+		for j := 0; j < scopeMetrics.Len(); j++ {
+			metricsSlice := scopeMetrics.At(j).Metrics()
+			for k := 0; k < metricsSlice.Len(); k++ {
+				metric := metricsSlice.At(k)
+				if err := metricMappingError(metric); err != nil {
+					failures = append(failures, metricMappingFailure{
+						err:        fmt.Errorf("map metric at resource %d scope %d metric %d: %w", i, j, k, err),
+						dataPoints: metricDataPointCount(metric),
+					})
+				}
+			}
+		}
+	}
+	return failures
+}
+
+func metricMappingError(metric pmetric.Metric) error {
+	switch metric.Type() {
+	case pmetric.MetricTypeGauge:
+		points := metric.Gauge().DataPoints()
+		for i := 0; i < points.Len(); i++ {
+			if points.At(i).ValueType() == pmetric.NumberDataPointValueTypeEmpty {
+				return fmt.Errorf("gauge data point %d: %w", i, unsupportedNumberValueTypeError(points.At(i)))
+			}
+		}
+	case pmetric.MetricTypeSum:
+		points := metric.Sum().DataPoints()
+		for i := 0; i < points.Len(); i++ {
+			if points.At(i).ValueType() == pmetric.NumberDataPointValueTypeEmpty {
+				return fmt.Errorf("sum data point %d: %w", i, unsupportedNumberValueTypeError(points.At(i)))
+			}
+		}
+	case pmetric.MetricTypeHistogram,
+		pmetric.MetricTypeExponentialHistogram,
+		pmetric.MetricTypeSummary:
+		return nil
+	default:
+		return &mappingError{
+			reason: mappingReasonUnsupportedMetricType,
+			err:    fmt.Errorf("metric %q has unsupported type %s", metric.Name(), metric.Type()),
+		}
+	}
+	return nil
+}
+
 func mapMetrics(metrics pmetric.Metrics) (*IngestPayload, error) {
 	payload := newPayload()
 
@@ -167,10 +246,14 @@ func numberDataPointValue(point pmetric.NumberDataPoint) (any, string, error) {
 	case pmetric.NumberDataPointValueTypeDouble:
 		return point.DoubleValue(), "double", nil
 	default:
-		return nil, "", &mappingError{
-			reason: mappingReasonUnsupportedNumberValueType,
-			err:    fmt.Errorf("unsupported number value type %s", point.ValueType()),
-		}
+		return nil, "", unsupportedNumberValueTypeError(point)
+	}
+}
+
+func unsupportedNumberValueTypeError(point pmetric.NumberDataPoint) error {
+	return &mappingError{
+		reason: mappingReasonUnsupportedNumberValueType,
+		err:    fmt.Errorf("unsupported number value type %s", point.ValueType()),
 	}
 }
 

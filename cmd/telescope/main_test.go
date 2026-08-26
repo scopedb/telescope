@@ -21,9 +21,28 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
+	var output bytes.Buffer
+	printUsage(&output)
+
+	for _, expected := range []string{
+		"Setup:",
+		"Operations:",
+		"Diagnostics:",
+		"Run the OTLP-to-ScopeDB data plane",
+		"Report local delivery state",
+		"Wait for confirmed ScopeDB appends",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("printUsage() output does not contain %q", expected)
+		}
+	}
+}
 
 func TestLoadEnvFileSetsMissingValues(t *testing.T) {
 	clearBootstrapEnv(t)

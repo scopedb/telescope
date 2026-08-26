@@ -18,6 +18,7 @@ package scopedbexporter
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,7 +115,11 @@ func TestCreateDefaultConfig(t *testing.T) {
 	assert.Empty(t, cfg.Mappings)
 	assert.Equal(t, defaultCompression, cfg.Compression)
 	assert.True(t, cfg.RetryOnFailure.Enabled)
+	assert.Equal(t, 10*time.Minute, cfg.RetryOnFailure.MaxElapsedTime)
 	assert.True(t, cfg.SendingQueue.HasValue())
+	assert.Equal(t, "bytes", cfg.SendingQueue.Get().Sizer.String())
+	assert.Equal(t, int64(512<<20), cfg.SendingQueue.Get().QueueSize)
+	assert.Equal(t, 1, cfg.SendingQueue.Get().NumConsumers)
 }
 
 func TestConfigUnmarshalSetsOnlySpecifiedMappings(t *testing.T) {

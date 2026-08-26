@@ -78,7 +78,7 @@ Metric name, description, unit, metadata, resource, and scope context are availa
 - A gauge or sum point with no numeric value is rejected as a permanent mapping error instead of being written with `null`.
 - A future metric type unknown to the compiled exporter is rejected by the default mapping branch.
 
-Mapping errors reject the Collector export batch containing the invalid metric. Telescope counts the item that triggered rejection under `invalid_items_by_reason`; it does not attempt per-record partial success.
+Telescope removes an invalid metric before the exporter queue and continues with the valid metrics in the same Collector batch. The invalid metric is dropped as a unit: if one gauge or sum point has no value, the other points belonging to that metric are not written. Telescope does not attempt per-data-point repair.
 
 Current reasons are:
 
@@ -92,18 +92,21 @@ Current reasons are:
 `GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
 
 - OTLP receiver accepted, failed, and refused records;
-- successfully written records and records involved in failed write attempts;
+- successfully written and ultimately dropped records;
+- drops split into exhausted retry, queue refusal, and permanent rejection counts;
 - exporter queue enqueue failures, current size, capacity, and configured unit;
 - the configured ScopeDB table;
 - last write attempt, success, failure, duration, and error;
 - whether the destination has been verified by a table check or successful append;
 - the synthetic probe IDs in the last successfully appended batch and their confirmation time;
-- records rejected by permanent mapper or ScopeDB errors observed by the exporter.
+- records rejected by permanent mapper or ScopeDB errors observed by the exporter;
 - invalid mapper items grouped by stable reason.
 
-Receiver and queue counts come directly from the OpenTelemetry Collector's internal metrics. `write_failed_attempt_records` counts records in attempts, so the same record can appear more than once when OTel retries it; it is not a loss or deduplication counter. Telescope does not add a second retry or queue implementation for this endpoint.
+This endpoint reports data-plane delivery state only. It does not report table queryability.
 
-`invalid_items_by_reason` counts the malformed item that caused a batch rejection. `permanent_failed_records` counts the signal records affected by permanent mapper or ScopeDB errors. The two counters intentionally have different units; for example, a metric with no data type increments `unsupported_metric_type` but contains zero metric points.
+Receiver, final exporter outcome, and queue counts come directly from the OpenTelemetry Collector's internal metrics. The exporter outcome metric wraps Collector's retry sender, so intermediate attempts are not counted as drops. `dropped` combines final exporter failures, queue enqueue failures, and metric points removed by local mapping validation. `retry_exhausted` is the retryable part of final exporter failures; retries normally end at Telescope's 10-minute horizon and can also end during shutdown. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
+
+`invalid_items_by_reason` counts invalid metrics, while the delivery counters use each signal's native unit: log records, spans, or metric points. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
 
 When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. They are not the file-storage directory's exact disk usage.
 

@@ -52,6 +52,7 @@ type SignalRuntimeStatus struct {
 	LastProbeIDs           []string
 	LastProbeSuccess       time.Time
 	PermanentFailedRecords uint64
+	PermanentExportRecords uint64
 	InvalidItemsByReason   map[string]uint64
 }
 
@@ -89,6 +90,7 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 		status.LastProbeIDs = append([]string(nil), current.LastProbeIDs...)
 		status.LastProbeSuccess = current.LastProbeSuccess
 		status.PermanentFailedRecords = current.PermanentFailedRecords
+		status.PermanentExportRecords = current.PermanentExportRecords
 		status.InvalidItemsByReason = cloneReasonCounts(current.InvalidItemsByReason)
 	}
 	r.signals[signal] = status
@@ -156,6 +158,15 @@ func (r *StatusRegistry) recordWrite(signal string, records int, started time.Ti
 			}
 			status.InvalidItemsByReason[reason]++
 		}
+	})
+}
+
+func (r *StatusRegistry) recordPermanentExport(signal string, records int) {
+	if r == nil || records <= 0 {
+		return
+	}
+	r.update(signal, func(status *SignalRuntimeStatus) {
+		status.PermanentExportRecords += uint64(records)
 	})
 }
 

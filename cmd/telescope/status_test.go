@@ -55,6 +55,7 @@ func TestWriteStatus(t *testing.T) {
 			Table:    "app.spans",
 			Received: 12,
 			Written:  10,
+			Dropped:  2,
 			Queue: statusapi.IngestionQueueStatus{
 				Enabled:  true,
 				Observed: true,
@@ -68,6 +69,7 @@ func TestWriteStatus(t *testing.T) {
 
 	assert.Contains(t, output.String(), "state: degraded")
 	assert.Contains(t, output.String(), "traces")
+	assert.Contains(t, output.String(), "DROPPED")
 	assert.Contains(t, output.String(), "256 B/1 KiB")
 	assert.Contains(t, output.String(), "destination unavailable")
 }

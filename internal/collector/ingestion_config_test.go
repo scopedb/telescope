@@ -59,6 +59,8 @@ signals:
 	tables := scopeDB["tables"].(map[string]any)
 	assert.Equal(t, map[string]any{"traces": "app.spans"}, tables)
 	assert.Equal(t, "zstd", scopeDB["compression"])
+	retry := scopeDB["retry_on_failure"].(map[string]any)
+	assert.Equal(t, "10m", retry["max_elapsed_time"])
 	service := rendered["service"].(map[string]any)
 	telemetry := service["telemetry"].(map[string]any)
 	logs := telemetry["logs"].(map[string]any)

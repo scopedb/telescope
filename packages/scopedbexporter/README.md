@@ -42,9 +42,9 @@ exporters:
     timeout: 10s
     retry_on_failure:
       enabled: true
-      initial_interval: 1s
-      max_interval: 30s
-      max_elapsed_time: 0s
+      initial_interval: 5s
+      max_interval: 60s
+      max_elapsed_time: 10m
     sending_queue:
       enabled: true
       storage: file_storage
@@ -106,6 +106,6 @@ The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk.
 
 A chunk succeeds only when ScopeDB reports `committed` and the inserted row count matches. A structured non-retryable `rejected` result is returned to Collector as permanent. Retryable rejection, throttling, transport errors, and `unknown` outcomes are returned as retryable. When a later chunk fails, Collector retries that chunk and the unsent suffix, not the already confirmed prefix.
 
-The OpenTelemetry Collector `exporterhelper` sending queue is the only persistent queue and retry owner. `AppendNDJSON` is not wrapped in a second SDK stream, queue, or reconciliation loop. Delivery is at least once: retrying an `unknown` outcome can create duplicates.
+The OpenTelemetry Collector `exporterhelper` sending queue is the only persistent queue and retry owner. The default retry window is bounded at 10 minutes; after that, Collector drops the request and reports the final failure through its exporter metrics. `AppendNDJSON` is not wrapped in a second SDK stream, queue, or reconciliation loop. Delivery is at least once: retrying an `unknown` outcome can create duplicates.
 
 `compression` accepts `zstd` (default) or `gzip` and is passed into `scopedb.Config`. ScopeDB Go SDK `v0.6.3` applies that setting to direct `AppendNDJSON` requests.

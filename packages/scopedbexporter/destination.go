@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
@@ -46,6 +47,10 @@ func isTransientDestinationError(err error) bool {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
 		return true
 	}
 

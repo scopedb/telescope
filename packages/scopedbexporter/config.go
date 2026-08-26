@@ -63,13 +63,14 @@ type Config struct {
 func createDefaultConfig() component.Config {
 	retryCfg := configretry.NewDefaultBackOffConfig()
 	retryCfg.Enabled = true
-	retryCfg.InitialInterval = time.Second
-	retryCfg.MaxInterval = 30 * time.Second
-	retryCfg.MaxElapsedTime = 0
+	retryCfg.InitialInterval = 5 * time.Second
+	retryCfg.MaxInterval = time.Minute
+	retryCfg.MaxElapsedTime = 10 * time.Minute
 
 	queueCfg := exporterhelper.NewDefaultQueueConfig()
-	queueCfg.QueueSize = 10_000
-	queueCfg.NumConsumers = 4
+	queueCfg.Sizer = exporterhelper.RequestSizerTypeBytes
+	queueCfg.QueueSize = 512 << 20
+	queueCfg.NumConsumers = 1
 	queueCfg.Batch = configoptional.None[exporterhelper.BatchConfig]()
 
 	return &Config{

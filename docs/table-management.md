@@ -14,6 +14,8 @@ The ownership boundary is:
 
 This separation is intentional. A mapping can identify the destination column name, but it cannot infer whether a customer wants a string or enum, a scalar or object, a nullable field or default, or a particular physical layout.
 
+Telescope's boundary ends at the append result. It does not query or interpret the stored columns.
+
 ## Mapping Model
 
 Each mapping is `destination column: OpenTelemetry source`:
@@ -96,7 +98,7 @@ Full Collector configuration can still be checked without contacting ScopeDB:
 make validate
 ```
 
-Use `telescope verify` after startup to test every enabled signal and wait for exact ScopeDB append acknowledgements. The probes do not query mapped columns.
+Use `telescope verify` after startup to test delivery for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms the path from synthetic OTLP input through mapping and append; it does not query mapped columns.
 
 ## Mapping Changes
 

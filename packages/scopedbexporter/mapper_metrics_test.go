@@ -154,6 +154,34 @@ func TestMapMetricsRejectsNumberPointWithoutValue(t *testing.T) {
 	require.Equal(t, mappingReasonUnsupportedNumberValueType, reason)
 }
 
+func TestFilterInvalidMetricsPreservesValidMetrics(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	metricSlice := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+
+	valid := metricSlice.AppendEmpty()
+	valid.SetName("valid.metric")
+	valid.SetEmptyGauge().DataPoints().AppendEmpty().SetIntValue(1)
+
+	invalid := metricSlice.AppendEmpty()
+	invalid.SetName("invalid.metric")
+	invalidPoints := invalid.SetEmptyGauge().DataPoints()
+	invalidPoints.AppendEmpty().SetIntValue(2)
+	invalidPoints.AppendEmpty()
+
+	filtered, failures := filterInvalidMetrics(metrics)
+
+	require.Len(t, failures, 1)
+	assert.Equal(t, 2, failures[0].dataPoints)
+	reason, ok := mappingErrorReason(failures[0].err)
+	require.True(t, ok)
+	assert.Equal(t, mappingReasonUnsupportedNumberValueType, reason)
+	assert.Equal(t, 1, filtered.DataPointCount())
+	filteredMetrics := filtered.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	require.Equal(t, 1, filteredMetrics.Len())
+	assert.Equal(t, "valid.metric", filteredMetrics.At(0).Name())
+	assert.Equal(t, 3, metrics.DataPointCount(), "filter must not mutate its input")
+}
+
 func findMetricRecord(t *testing.T, records []Record, metricName string) Record {
 	t.Helper()
 	for _, record := range records {

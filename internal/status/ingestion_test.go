@@ -60,17 +60,19 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {
-				Signal:              "logs",
-				Ready:               true,
-				DestinationVerified: true,
-				Table:               "scopedb.otel.logs",
-				QueueEnabled:        true,
-				QueueCapacity:       5000,
-				QueueUnit:           "bytes",
-				LastWriteAttempt:    now.Add(-time.Second),
-				LastWriteSuccess:    now.Add(-time.Second),
-				LastProbeIDs:        []string{"probe-1", "probe-2"},
-				LastProbeSuccess:    now.Add(-time.Second),
+				Signal:                 "logs",
+				Ready:                  true,
+				DestinationVerified:    true,
+				Table:                  "scopedb.otel.logs",
+				QueueEnabled:           true,
+				QueueCapacity:          5000,
+				QueueUnit:              "bytes",
+				LastWriteAttempt:       now.Add(-time.Second),
+				LastWriteSuccess:       now.Add(-time.Second),
+				LastProbeIDs:           []string{"probe-1", "probe-2"},
+				LastProbeSuccess:       now.Add(-time.Second),
+				PermanentFailedRecords: 2,
+				PermanentExportRecords: 1,
 			},
 			"traces": {
 				Signal:              "traces",
@@ -85,7 +87,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, Written: 10, QueueCapacity: 5000},
+			"logs":   {Received: 10, Written: 10, ExportFailed: 3, EnqueueFailed: 1, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
@@ -106,6 +108,9 @@ func TestGetIngestionStatus(t *testing.T) {
 	assert.True(t, response.Signals[0].DestinationVerified)
 	assert.Equal(t, []string{"probe-1", "probe-2"}, response.Signals[0].LastProbeIDs)
 	assert.Equal(t, uint64(10), response.Signals[0].Written)
+	assert.Equal(t, uint64(5), response.Signals[0].Dropped)
+	assert.Equal(t, uint64(2), response.Signals[0].RetryExhausted)
+	assert.Equal(t, uint64(2), response.Signals[0].PermanentRejected)
 	assert.Equal(t, "ready", response.Signals[1].State)
 	assert.True(t, response.Signals[1].Queue.Observed)
 	assert.Equal(t, int64(2), response.Signals[1].Queue.Size)
@@ -194,11 +199,24 @@ otelcol_exporter_queue_capacity{exporter="scopedb",data_type="logs"} 5000
 	assert.Equal(t, uint64(10), logs.Received)
 	assert.Equal(t, uint64(2), logs.ReceiverRefused)
 	assert.Equal(t, uint64(8), logs.Written)
-	assert.Equal(t, uint64(3), logs.WriteFailedAttemptRecords)
+	assert.Equal(t, uint64(3), logs.ExportFailed)
 	assert.Equal(t, uint64(1), logs.EnqueueFailed)
 	assert.Equal(t, int64(5), logs.QueueSize)
 	assert.Equal(t, int64(5000), logs.QueueCapacity)
 	assert.Equal(t, int64(7), snapshot.Signals["traces"].QueueSize)
+}
+
+func TestSignalDropCountsSeparatesFinalFailureReasons(t *testing.T) {
+	runtime := scopedbexporter.SignalRuntimeStatus{
+		PermanentFailedRecords: 5,
+		PermanentExportRecords: 3,
+	}
+	metrics := collectorSignalMetrics{ExportFailed: 7, EnqueueFailed: 1}
+
+	dropped, retryExhausted := signalDropCounts(runtime, metrics)
+
+	assert.Equal(t, uint64(10), dropped)
+	assert.Equal(t, uint64(4), retryExhausted)
 }
 
 func TestSignalIngestionState(t *testing.T) {

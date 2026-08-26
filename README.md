@@ -1,6 +1,6 @@
 # Telescope
 
-Telescope is an OpenTelemetry Collector distribution that receives OTLP telemetry and appends it to ScopeDB.
+Telescope is an OpenTelemetry Collector distribution that receives OTLP telemetry and appends it to ScopeDB. It is the data plane between OpenTelemetry producers and user-managed ScopeDB tables.
 
 It provides:
 
@@ -8,10 +8,10 @@ It provides:
 - user-owned signal-to-table mappings
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
-- preflight validation and an end-to-end ingestion probe
+- preflight validation and exact ScopeDB delivery probes
 - operational health, readiness, and ingestion status endpoints
 
-Telescope does not create or modify ScopeDB tables. You choose the signals to enable, the destination table for each signal, and the fields to append.
+Telescope does not create or modify ScopeDB tables. You choose the signals to enable, the destination table for each signal, and the fields to append. Its responsibility ends when ScopeDB reports the append result; it does not query or interpret stored data.
 
 ## Requirements
 
@@ -106,7 +106,9 @@ service:
       exporters: [otlp/telescope]
 ```
 
-## Verify Ingestion
+## Operate Telescope
+
+### Inspect Delivery Status
 
 Telescope exposes its operational HTTP surface on `127.0.0.1:8080` in the Docker deployment:
 
@@ -116,7 +118,7 @@ curl -sS http://127.0.0.1:8080/readyz
 curl -sS http://127.0.0.1:8080/v1/ingestion/status
 ```
 
-The ingestion status reports only configured signals, including receiver and write counters, queue utilization, table routes, destination validation, and the latest write result.
+The ingestion status reports only configured signals, including received, written, and dropped counts; exhausted retries, permanent rejections, and queue refusals; queue utilization; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. Collector owns retries and stops retrying a request after 10 minutes by default.
 
 For a human-readable summary:
 
@@ -126,7 +128,9 @@ docker compose --env-file deploy/.env \
   exec telescope telescope status
 ```
 
-To send a synthetic signal and wait for the exact exporter acknowledgement:
+### Verify Delivery
+
+To send a synthetic signal and wait for the exact ScopeDB append acknowledgement:
 
 ```bash
 docker compose --env-file deploy/.env \
@@ -154,13 +158,16 @@ make build
 
 Commands:
 
-- `telescope validate`: validate the configuration and its destination tables
-- `telescope run`: run Telescope from the same configuration
-- `telescope verify`: verify all enabled signal pipelines end to end
-- `telescope status`: show a running Telescope's ingestion state
+- Setup:
+  - `telescope validate`: validate the configuration and its destination tables
+  - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
+- Operations:
+  - `telescope status`: report local receiver, queue, and ScopeDB delivery state
+- Diagnostics:
+  - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`validate` and `run` use the same `telescope.yaml` contract; `verify` and `status` discover the enabled signals from the running instance. `validate --offline` checks the file without connecting to ScopeDB. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`validate` and `run` use the same `telescope.yaml` contract. `status` and `verify` are operational tools for a running instance, not additional setup stages; both discover enabled signals from that instance. `validate --offline` checks the file without connecting to ScopeDB. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 

@@ -44,27 +44,28 @@ type IngestionInternalTelemetry struct {
 }
 
 type IngestionSignalStatus struct {
-	Signal                    string               `json:"signal"`
-	State                     string               `json:"state"`
-	Ready                     bool                 `json:"ready"`
-	DestinationVerified       bool                 `json:"destination_verified"`
-	Table                     string               `json:"table,omitempty"`
-	Received                  uint64               `json:"received"`
-	ReceiverFailed            uint64               `json:"receiver_failed"`
-	ReceiverRefused           uint64               `json:"receiver_refused"`
-	Written                   uint64               `json:"written"`
-	WriteFailedAttemptRecords uint64               `json:"write_failed_attempt_records"`
-	EnqueueFailed             uint64               `json:"enqueue_failed"`
-	PermanentFailedRecords    uint64               `json:"permanent_failed_records"`
-	InvalidItemsByReason      map[string]uint64    `json:"invalid_items_by_reason"`
-	Queue                     IngestionQueueStatus `json:"queue"`
-	LastWriteAttempt          *time.Time           `json:"last_write_attempt,omitempty"`
-	LastWriteSuccess          *time.Time           `json:"last_write_success,omitempty"`
-	LastWriteFailure          *time.Time           `json:"last_write_failure,omitempty"`
-	LastWriteDurationMS       int64                `json:"last_write_duration_ms,omitempty"`
-	LastError                 string               `json:"last_error,omitempty"`
-	LastProbeIDs              []string             `json:"last_probe_ids,omitempty"`
-	LastProbeSuccess          *time.Time           `json:"last_probe_success,omitempty"`
+	Signal               string               `json:"signal"`
+	State                string               `json:"state"`
+	Ready                bool                 `json:"ready"`
+	DestinationVerified  bool                 `json:"destination_verified"`
+	Table                string               `json:"table,omitempty"`
+	Received             uint64               `json:"received"`
+	ReceiverFailed       uint64               `json:"receiver_failed"`
+	ReceiverRefused      uint64               `json:"receiver_refused"`
+	Written              uint64               `json:"written"`
+	Dropped              uint64               `json:"dropped"`
+	RetryExhausted       uint64               `json:"retry_exhausted"`
+	EnqueueFailed        uint64               `json:"enqueue_failed"`
+	PermanentRejected    uint64               `json:"permanent_rejected"`
+	InvalidItemsByReason map[string]uint64    `json:"invalid_items_by_reason"`
+	Queue                IngestionQueueStatus `json:"queue"`
+	LastWriteAttempt     *time.Time           `json:"last_write_attempt,omitempty"`
+	LastWriteSuccess     *time.Time           `json:"last_write_success,omitempty"`
+	LastWriteFailure     *time.Time           `json:"last_write_failure,omitempty"`
+	LastWriteDurationMS  int64                `json:"last_write_duration_ms,omitempty"`
+	LastError            string               `json:"last_error,omitempty"`
+	LastProbeIDs         []string             `json:"last_probe_ids,omitempty"`
+	LastProbeSuccess     *time.Time           `json:"last_probe_success,omitempty"`
 }
 
 type IngestionQueueStatus struct {

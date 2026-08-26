@@ -34,6 +34,9 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/otelcol"
@@ -166,6 +169,60 @@ func TestByteSizedQueueRefusesItemOverCapacity(t *testing.T) {
 	}
 }
 
+func TestExporterFailureMetricCountsOnlyTheFinalOutcome(t *testing.T) {
+	var mu sync.Mutex
+	attempts := map[string]int{}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeRecoveryTableDescription(t, w, r)
+			return
+		}
+		body, err := decodeRecoveryAppendBody(r)
+		require.NoError(t, err)
+		var row map[string]any
+		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		value, _ := row["value"].(string)
+		mu.Lock()
+		attempts[value]++
+		attempt := attempts[value]
+		mu.Unlock()
+		if value == "retry succeeds" && attempt >= 3 {
+			writeRecoveryAppendCommitted(t, w)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"message":      "test outage",
+			"append_state": "unknown",
+			"retryable":    true,
+		}))
+	}))
+	defer backend.Close()
+
+	otlpAddress := freeTCPAddress(t)
+	metricsAddress := freeTCPAddress(t)
+	runtime := startRecoveryCollector(t, retryOutcomeCollectorConfig(backend.URL, otlpAddress, metricsAddress))
+	defer runtime.stop(t)
+
+	require.NoError(t, sendRecoverySignal(otlpAddress, "logs", "retry succeeds"))
+	require.Eventually(t, func() bool {
+		return readCollectorCounter(t, metricsAddress, "otelcol_exporter_sent_log_records") == 1
+	}, 5*time.Second, 20*time.Millisecond)
+	mu.Lock()
+	assert.Equal(t, 3, attempts["retry succeeds"])
+	mu.Unlock()
+	assert.Zero(t, readCollectorCounter(t, metricsAddress, "otelcol_exporter_send_failed_log_records"))
+
+	require.NoError(t, sendRecoverySignal(otlpAddress, "logs", "retry exhausts"))
+	require.Eventually(t, func() bool {
+		return readCollectorCounter(t, metricsAddress, "otelcol_exporter_send_failed_log_records") == 1
+	}, 5*time.Second, 20*time.Millisecond)
+	mu.Lock()
+	assert.Greater(t, attempts["retry exhausts"], 1)
+	mu.Unlock()
+}
+
 type recoveryCollector struct {
 	collector *otelcol.Collector
 	done      chan error
@@ -175,8 +232,12 @@ type recoveryCollector struct {
 }
 
 func startRecoveryCollector(t *testing.T, config string) *recoveryCollector {
+	return startCollectorFromURI(t, "yaml:"+config)
+}
+
+func startCollectorFromURI(t *testing.T, configURI string) *recoveryCollector {
 	t.Helper()
-	instance, err := otelcol.NewCollector(Settings("yaml:"+config, "test"))
+	instance, err := otelcol.NewCollector(Settings(configURI, "test"))
 	require.NoError(t, err)
 	runtime := &recoveryCollector{
 		collector: instance,
@@ -273,6 +334,57 @@ service:
 `, queueDir, otlpAddress, scopeDBEndpoint, signal)
 }
 
+func retryOutcomeCollectorConfig(scopeDBEndpoint string, otlpAddress string, metricsAddress string) string {
+	metricsHost, metricsPort, err := net.SplitHostPort(metricsAddress)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: %q
+exporters:
+  scopedb:
+    endpoint: %q
+    api_key: test-key
+    compression: zstd
+    timeout: 1s
+    tables:
+      logs: public.recovery_logs
+    mappings:
+      logs:
+        value: log.message
+    sending_queue:
+      enabled: true
+      sizer: bytes
+      queue_size: 1048576
+      num_consumers: 1
+    retry_on_failure:
+      enabled: true
+      initial_interval: 10ms
+      max_interval: 10ms
+      max_elapsed_time: 100ms
+service:
+  telemetry:
+    logs:
+      level: fatal
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: %q
+                port: %s
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [scopedb]
+`, otlpAddress, scopeDBEndpoint, metricsHost, metricsPort)
+}
+
 func freeTCPAddress(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -346,6 +458,56 @@ func writeRecoveryTableDescription(t *testing.T, w http.ResponseWriter, r *http.
 		"cluster_by":   []string{},
 		"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
 	}))
+}
+
+func writeRecoveryAppendCommitted(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		"append_state":      "committed",
+		"num_rows_inserted": 1,
+	}))
+}
+
+func readCollectorCounter(t *testing.T, address string, name string) float64 {
+	t.Helper()
+	response, err := (&http.Client{Timeout: time.Second}).Get("http://" + address + "/metrics")
+	if err != nil {
+		return 0
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0
+	}
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(response.Body)
+	if err != nil {
+		return 0
+	}
+	family := families[name]
+	if family == nil {
+		family = families[name+"_total"]
+	}
+	if family == nil {
+		return 0
+	}
+	var value float64
+	for _, metric := range family.Metric {
+		if prometheusLabel(metric, "exporter") != "scopedb" {
+			continue
+		}
+		value += metric.GetCounter().GetValue()
+	}
+	return value
+}
+
+func prometheusLabel(metric *dto.Metric, name string) string {
+	for _, label := range metric.Label {
+		if label.GetName() == name {
+			return label.GetValue()
+		}
+	}
+	return ""
 }
 
 func decodeRecoveryAppendBody(r *http.Request) ([]byte, error) {

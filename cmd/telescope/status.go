@@ -57,15 +57,16 @@ func runStatus(args []string) error {
 func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 	fmt.Fprintf(w, "state: %s\n", status.State)
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tQUEUED\tDESTINATION")
+	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tDROPPED\tQUEUED\tDESTINATION")
 	for _, signal := range status.Signals {
 		fmt.Fprintf(
 			table,
-			"%s\t%s\t%d\t%d\t%s\t%s\n",
+			"%s\t%s\t%d\t%d\t%d\t%s\t%s\n",
 			signal.Signal,
 			signal.State,
 			signal.Received,
 			signal.Written,
+			signal.Dropped,
 			formatQueue(signal.Queue),
 			signal.Table,
 		)

@@ -18,11 +18,15 @@ package scopedbexporter
 
 import (
 	"context"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.uber.org/zap"
 )
 
 func NewFactory() exporter.Factory {
@@ -97,7 +101,7 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		return nil, err
 	}
 
-	return exporterhelper.NewMetrics(
+	metricsExporter, err := exporterhelper.NewMetrics(
 		ctx,
 		set,
 		cfg,
@@ -109,4 +113,50 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
 		exporterhelper.WithQueue(baseCfg.SendingQueue),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &metricFilteringExporter{
+		Metrics:  metricsExporter,
+		statuses: statuses,
+		logger:   set.Logger.Named("scopedbexporter"),
+	}, nil
+}
+
+type metricFilteringExporter struct {
+	exporter.Metrics
+	statuses *StatusRegistry
+	logger   *zap.Logger
+}
+
+func (e *metricFilteringExporter) ConsumeMetrics(ctx context.Context, metrics pmetric.Metrics) error {
+	filtered, failures := filterInvalidMetrics(metrics)
+	if len(failures) == 0 {
+		return e.Metrics.ConsumeMetrics(ctx, metrics)
+	}
+
+	var sendErr error
+	if filtered.DataPointCount() > 0 {
+		sendErr = e.Metrics.ConsumeMetrics(ctx, filtered)
+	}
+
+	started := time.Now().UTC()
+	droppedPoints := 0
+	for _, failure := range failures {
+		droppedPoints += failure.dataPoints
+		e.statuses.recordWrite(
+			signalMetrics,
+			failure.dataPoints,
+			started,
+			consumererror.NewPermanent(failure.err),
+			true,
+		)
+	}
+	e.logger.Warn(
+		"Dropped invalid metrics while preserving the rest of the batch",
+		zap.Int("invalid_metrics", len(failures)),
+		zap.Int("dropped_metric_points", droppedPoints),
+		zap.Error(failures[0].err),
+	)
+	return sendErr
 }

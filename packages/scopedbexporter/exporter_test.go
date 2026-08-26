@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
 func TestExporterConsumesLogsThroughAppend(t *testing.T) {
@@ -123,6 +124,24 @@ func TestExporterStartsWhenDestinationIsTemporarilyUnavailable(t *testing.T) {
 	assert.True(t, status.Ready)
 	assert.False(t, status.DestinationVerified)
 	assert.Contains(t, status.LastError, "temporary outage")
+}
+
+func TestExporterStartsWhenDestinationConnectionIsRefused(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	endpoint := server.URL
+	server.Close()
+
+	cfg := testExporterConfig(endpoint)
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer exp.Shutdown(context.Background())
+
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.True(t, status.Ready)
+	assert.False(t, status.DestinationVerified)
+	assert.Contains(t, status.LastError, "connection refused")
 }
 
 func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
@@ -235,6 +254,61 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	require.ErrorAs(t, err, &partial)
 	assert.Equal(t, 1, partial.Data().LogRecordCount())
 	assert.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].PermanentFailedRecords)
+	assert.Equal(t, uint64(2), statuses.Snapshot().Signals[signalLogs].PermanentExportRecords)
+}
+
+func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {
+	var mu sync.Mutex
+	var rows []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			writeTableDescription(t, w, "vendor_otel_metrics_test", []string{"value"})
+		case http.MethodPost:
+			body, err := decodeSDKRequestBody(r)
+			require.NoError(t, err)
+			for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+				var row map[string]any
+				require.NoError(t, json.Unmarshal(line, &row))
+				mu.Lock()
+				rows = append(rows, row)
+				mu.Unlock()
+			}
+			writeAppendCommitted(t, w, int64(len(bytes.Split(bytes.TrimSpace(body), []byte{'\n'}))))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	cfg := testExporterConfig(server.URL)
+	cfg.Mappings.Metrics = map[string]string{"value": "metric.name"}
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateMetrics(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer exp.Shutdown(context.Background())
+
+	metrics := pmetric.NewMetrics()
+	metricSlice := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+	valid := metricSlice.AppendEmpty()
+	valid.SetName("valid.metric")
+	valid.SetEmptyGauge().DataPoints().AppendEmpty().SetIntValue(1)
+	invalid := metricSlice.AppendEmpty()
+	invalid.SetName("invalid.metric")
+	invalidPoints := invalid.SetEmptyGauge().DataPoints()
+	invalidPoints.AppendEmpty().SetIntValue(2)
+	invalidPoints.AppendEmpty()
+
+	require.NoError(t, exp.ConsumeMetrics(context.Background(), metrics))
+
+	mu.Lock()
+	require.Equal(t, []map[string]any{{"value": "valid.metric"}}, rows)
+	mu.Unlock()
+	status := statuses.Snapshot().Signals[signalMetrics]
+	assert.Equal(t, uint64(2), status.PermanentFailedRecords)
+	assert.Zero(t, status.PermanentExportRecords)
+	assert.Equal(t, uint64(1), status.InvalidItemsByReason[mappingReasonUnsupportedNumberValueType])
 }
 
 func testExporterConfig(endpoint string) *Config {

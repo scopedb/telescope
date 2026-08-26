@@ -104,6 +104,9 @@ func (e *dbExporter) pushLogs(ctx context.Context, logs plog.Logs) error {
 		err = consumererror.NewLogs(err, logsFromRecord(logs, uncommittedFrom))
 	}
 	e.statuses.recordWrite(signalLogs, affectedRecords, started, err, consumererror.IsPermanent(err))
+	if consumererror.IsPermanent(err) {
+		e.statuses.recordPermanentExport(signalLogs, records)
+	}
 	if err == nil {
 		e.statuses.recordProbeSuccess(signalLogs, probeIDsFromPayload(payload))
 	}
@@ -126,6 +129,9 @@ func (e *dbExporter) pushTraces(ctx context.Context, traces ptrace.Traces) error
 		err = consumererror.NewTraces(err, tracesFromRecord(traces, uncommittedFrom))
 	}
 	e.statuses.recordWrite(signalTraces, affectedRecords, started, err, consumererror.IsPermanent(err))
+	if consumererror.IsPermanent(err) {
+		e.statuses.recordPermanentExport(signalTraces, records)
+	}
 	if err == nil {
 		e.statuses.recordProbeSuccess(signalTraces, probeIDsFromPayload(payload))
 	}
@@ -148,6 +154,9 @@ func (e *dbExporter) pushMetrics(ctx context.Context, metrics pmetric.Metrics) e
 		err = consumererror.NewMetrics(err, metricsFromRecord(metrics, uncommittedFrom))
 	}
 	e.statuses.recordWrite(signalMetrics, affectedRecords, started, err, consumererror.IsPermanent(err))
+	if consumererror.IsPermanent(err) {
+		e.statuses.recordPermanentExport(signalMetrics, records)
+	}
 	if err == nil {
 		e.statuses.recordProbeSuccess(signalMetrics, probeIDsFromPayload(payload))
 	}

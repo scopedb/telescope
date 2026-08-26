@@ -94,8 +94,41 @@ validate: build
 docker-build:
 	docker build -f Dockerfile -t scopedb-telescope:ci .
 
+.PHONY: docker-smoke
+docker-smoke: docker-build
+	@set -eu; \
+	cid="$$(docker run -d \
+		-p 127.0.0.1::8080 \
+		-v "$(abspath deploy/telescope.example.yaml):/etc/telescope/telescope.yaml:ro" \
+		-e TELESCOPE_SCOPEDB_ENDPOINT=http://127.0.0.1:1 \
+		-e TELESCOPE_SCOPEDB_API_KEY=container-smoke \
+		-e TELESCOPE_HTTP_ADDR=0.0.0.0:8080 \
+		-e TELESCOPE_OTLP_GRPC_ADDR=0.0.0.0:4317 \
+		-e TELESCOPE_OTLP_HTTP_ADDR=0.0.0.0:4318 \
+		-e TELESCOPE_QUEUE_DIR=/tmp/telescope-queue \
+		scopedb-telescope:ci)"; \
+	cleanup() { docker rm --force "$$cid" >/dev/null 2>&1 || true; }; \
+	trap cleanup EXIT INT TERM; \
+	address="$$(docker port "$$cid" 8080/tcp | head -n 1)"; \
+	ready=false; \
+	for attempt in $$(seq 1 100); do \
+		if curl --fail --silent --show-error "http://$$address/readyz" >/dev/null 2>&1; then \
+			ready=true; \
+			break; \
+		fi; \
+		if [ "$$(docker inspect --format '{{.State.Running}}' "$$cid")" != true ]; then \
+			break; \
+		fi; \
+		sleep 0.1; \
+	done; \
+	if [ "$$ready" != true ]; then \
+		docker logs "$$cid"; \
+		exit 1; \
+	fi; \
+	docker exec "$$cid" telescope status --endpoint http://127.0.0.1:8080 >/dev/null
+
 .PHONY: ci-runtime
-ci-runtime: validate docker-build artifacts
+ci-runtime: validate docker-smoke artifacts
 
 .PHONY: demo
 demo:
