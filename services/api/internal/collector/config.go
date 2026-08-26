@@ -45,14 +45,13 @@ processors:
 exporters:
   scopedb:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
-    path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    create_tables_if_not_exist: true
-    schema_version: v1
+    compression: zstd
     sending_queue:
       enabled: true
       storage: file_storage
-      queue_size: 5000
+      sizer: bytes
+      queue_size: ${env:TELESCOPE_QUEUE_MAX_BYTES}
       num_consumers: 1
     retry_on_failure:
       enabled: true

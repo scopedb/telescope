@@ -65,6 +65,8 @@ func run(args []string) error {
 		return runMCP(args[1:])
 	case "collector":
 		return runCollector(args[1:])
+	case "ingestion":
+		return runIngestion(args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
@@ -81,6 +83,8 @@ func runDaemon(args []string) error {
 	flags.SetOutput(os.Stderr)
 	bootstrap := addBootstrapFlags(flags)
 	collectorConfig := flags.String("collector-config", "", "collector config URI or file path")
+	ingestionConfig := flags.String("ingestion-config", "", "Telescope tables and mappings YAML file")
+	ingestionProfile := flags.String("ingestion-profile", "", "built-in ingestion profile (starter)")
 	httpAddr := flags.String("http-addr", "", "HTTP API listen address; overrides TELESCOPE_HTTP_ADDR")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -93,7 +97,17 @@ func runDaemon(args []string) error {
 			return fmt.Errorf("set TELESCOPE_HTTP_ADDR: %w", err)
 		}
 	}
-	collectorConfigURI := resolveCollectorConfig(*collectorConfig, flagProvided(flags, "collector-config"))
+	collectorConfigURI, err := resolveDaemonConfig(
+		*collectorConfig,
+		flagProvided(flags, "collector-config"),
+		*ingestionConfig,
+		flagProvided(flags, "ingestion-config"),
+		*ingestionProfile,
+		flagProvided(flags, "ingestion-profile"),
+	)
+	if err != nil {
+		return err
+	}
 
 	config, err := appruntime.LoadConfigFromEnv()
 	if err != nil {
@@ -228,13 +242,6 @@ func applyBootstrapFlags(flags bootstrapFlags) error {
 	return nil
 }
 
-func resolveCollectorConfig(flagValue string, flagIsSet bool) string {
-	if flagIsSet {
-		return flagValue
-	}
-	return strings.TrimSpace(os.Getenv("TELESCOPE_COLLECTOR_CONFIG"))
-}
-
 func flagProvided(flags *flag.FlagSet, name string) bool {
 	provided := false
 	flags.Visit(func(current *flag.Flag) {
@@ -306,6 +313,7 @@ func printUsage() {
 Usage:
   telescope daemon [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
   telescope mcp [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
+  telescope ingestion check (--config file | --profile starter)
   telescope collector <otelcol command>
   telescope version
 
@@ -315,7 +323,9 @@ Bootstrap:
   --scopedb-api-key          ScopeDB API key
 
 Daemon options:
-  --collector-config         Collector config URI or file path, default embedded config
+  --ingestion-config         Tables and mappings YAML for the embedded Collector
+  --ingestion-profile        Explicit built-in profile; currently starter
+  --collector-config         Full Collector config URI or file path
   --http-addr                HTTP API listen address, overrides TELESCOPE_HTTP_ADDR
 
 Environment:
@@ -326,10 +336,14 @@ Environment:
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318
   TELESCOPE_HEALTH_ADDR        Collector health listen address, default 0.0.0.0:13133
   TELESCOPE_QUEUE_DIR          Persistent queue directory, default $HOME/.telescope/queue
+  TELESCOPE_QUEUE_MAX_BYTES    Logical queued telemetry byte capacity, default 536870912 (512 MiB)
   TELESCOPE_OTEL_BATCH_TIMEOUT Embedded Collector batch timeout, default 30s
   TELESCOPE_OTEL_BATCH_SIZE    Embedded Collector send batch size, default 2000
   TELESCOPE_OTEL_BATCH_MAX_SIZE Embedded Collector send batch max size, default 2000
+  TELESCOPE_INTERNAL_METRICS_URL Collector metrics URL for ingestion status, default http://127.0.0.1:8888/metrics
   TELESCOPE_QUERY_TIMEOUT      ScopeDB query timeout, default 15s
-  TELESCOPE_COLLECTOR_CONFIG   Collector config URI or file path, default embedded config
+  TELESCOPE_INGESTION_CONFIG   Tables and mappings YAML file
+  TELESCOPE_INGESTION_PROFILE  Built-in ingestion profile; currently starter
+  TELESCOPE_COLLECTOR_CONFIG   Full Collector config URI or file path
 `)
 }

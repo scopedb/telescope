@@ -27,6 +27,7 @@ func ApplyDefaultEnv() {
 	setDefaultEnv("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318")
 	setDefaultEnv("TELESCOPE_HEALTH_ADDR", "0.0.0.0:13133")
 	setDefaultEnv("TELESCOPE_QUEUE_DIR", defaultQueueDir())
+	setDefaultEnv("TELESCOPE_QUEUE_MAX_BYTES", "536870912")
 	setDefaultEnv("TELESCOPE_OTEL_BATCH_TIMEOUT", "30s")
 	setDefaultEnv("TELESCOPE_OTEL_BATCH_SIZE", "2000")
 	setDefaultEnv("TELESCOPE_OTEL_BATCH_MAX_SIZE", "2000")

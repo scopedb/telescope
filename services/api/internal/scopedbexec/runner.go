@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	scopedb "github.com/scopedb/scopedb-sdk/go"
+	scopedb "github.com/scopedb/goscopedb"
 )
 
 type Runner struct {
@@ -30,15 +30,16 @@ type Runner struct {
 	timeout time.Duration
 }
 
-func New(endpoint string, apiKey string, timeout time.Duration) *Runner {
-	return &Runner{
-		client: scopedb.NewClient(&scopedb.Config{
-			Endpoint:    endpoint,
-			APIKey:      apiKey,
-			Compression: scopedb.CompressionZstd,
-		}),
-		timeout: timeout,
+func New(endpoint string, apiKey string, timeout time.Duration) (*Runner, error) {
+	client, err := scopedb.NewClient(scopedb.Config{
+		Endpoint:    endpoint,
+		APIKey:      apiKey,
+		Compression: scopedb.CompressionZstd,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &Runner{client: client, timeout: timeout}, nil
 }
 
 func (r *Runner) Close() error {

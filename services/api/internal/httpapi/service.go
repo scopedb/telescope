@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"github.com/scopedb/telescope/services/api/internal/semantic"
 )
 
@@ -32,10 +33,12 @@ type QueryRunner interface {
 }
 
 type Service struct {
-	registry semantic.Registry
-	runner   QueryRunner
-	version  string
-	now      func() time.Time
+	registry         semantic.Registry
+	runner           QueryRunner
+	version          string
+	now              func() time.Time
+	ingestionRuntime exporterStatusReader
+	ingestionMetrics collectorMetricsReader
 }
 
 type TelemetryService interface {
@@ -68,10 +71,12 @@ func NewService(registry semantic.Registry, runner QueryRunner, version string) 
 		return nil, fmt.Errorf("query runner is required")
 	}
 	return &Service{
-		registry: registry,
-		runner:   runner,
-		version:  strings.TrimSpace(version),
-		now:      func() time.Time { return time.Now().UTC() },
+		registry:         registry,
+		runner:           runner,
+		version:          strings.TrimSpace(version),
+		now:              func() time.Time { return time.Now().UTC() },
+		ingestionRuntime: scopedbexporter.DefaultStatusRegistry,
+		ingestionMetrics: newPrometheusCollectorMetricsReader(),
 	}, nil
 }
 

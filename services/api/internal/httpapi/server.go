@@ -17,6 +17,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -54,12 +55,25 @@ func NewWithService(service TelemetryService) (*echo.Echo, error) {
 	e.GET("/llms.txt", server.getLLMSText)
 
 	v1 := e.Group("/v1")
+	v1.GET("/ingestion/status", server.getIngestionStatus)
 	v1.GET("/schema", server.getSchema)
 	v1.GET("/schema/guide.md", server.getSchemaGuide)
 	v1.POST("/search", server.postSearch)
 	v1.POST("/aggregate", server.postAggregate)
 
 	return e, nil
+}
+
+type ingestionStatusService interface {
+	IngestionStatus(context.Context) IngestionStatusResponse
+}
+
+func (s *Server) getIngestionStatus(c echo.Context) error {
+	service, ok := s.service.(ingestionStatusService)
+	if !ok {
+		return s.writeError(c, http.StatusServiceUnavailable, "ingestion_status_unavailable", "ingestion status is unavailable", nil)
+	}
+	return c.JSON(http.StatusOK, service.IngestionStatus(c.Request().Context()))
 }
 
 func (s *Server) getHealth(c echo.Context) error {

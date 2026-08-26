@@ -23,39 +23,43 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func mapTraces(cfg *Config, traces ptrace.Traces) (*IngestPayload, error) {
-	payload := newPayload(cfg, signalTraces)
+func mapTraces(traces ptrace.Traces) (*IngestPayload, error) {
+	payload := newPayload()
 
 	resourceSpans := traces.ResourceSpans()
 	for i := 0; i < resourceSpans.Len(); i++ {
 		resourceSpan := resourceSpans.At(i)
-		resource := attributesToMap(resourceSpan.Resource().Attributes())
 
 		scopeSpans := resourceSpan.ScopeSpans()
 		for j := 0; j < scopeSpans.Len(); j++ {
 			scopeSpan := scopeSpans.At(j)
-			scope := scopeToMap(scopeSpan.Scope())
+			otelCtx := newOTelContext(resourceSpan.Resource(), resourceSpan.SchemaUrl(), scopeSpan.Scope(), scopeSpan.SchemaUrl())
 
 			spans := scopeSpan.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				payload.Records = append(payload.Records, Record{
-					"trace_id":             traceIDString(span.TraceID()),
-					"span_id":              spanIDString(span.SpanID()),
-					"parent_span_id":       spanIDString(span.ParentSpanID()),
-					"name":                 span.Name(),
-					"kind":                 strings.ToLower(span.Kind().String()),
-					"start_time_unix_nano": timestampString(span.StartTimestamp()),
-					"end_time_unix_nano":   timestampString(span.EndTimestamp()),
-					"duration_ns":          durationNanos(span.StartTimestamp(), span.EndTimestamp()),
-					"status_code":          strings.ToLower(span.Status().Code().String()),
-					"status_message":       span.Status().Message(),
-					"resource":             resource,
-					"scope":                scope,
-					"attributes":           attributesToMap(span.Attributes()),
-					"events":               spanEventsToSlice(span.Events()),
-					"links":                spanLinksToSlice(span.Links()),
-				})
+				mapped := Record{
+					"trace_id":                 traceIDString(span.TraceID()),
+					"span_id":                  spanIDString(span.SpanID()),
+					"parent_span_id":           spanIDString(span.ParentSpanID()),
+					"trace_state":              span.TraceState().AsRaw(),
+					"flags":                    span.Flags(),
+					"name":                     span.Name(),
+					"kind":                     strings.ToLower(span.Kind().String()),
+					"start_time_unix_nano":     timestampString(span.StartTimestamp()),
+					"end_time_unix_nano":       timestampString(span.EndTimestamp()),
+					"duration_ns":              durationNanos(span.StartTimestamp(), span.EndTimestamp()),
+					"status_code":              strings.ToLower(span.Status().Code().String()),
+					"status_message":           span.Status().Message(),
+					"attributes":               attributesToMap(span.Attributes()),
+					"dropped_attributes_count": span.DroppedAttributesCount(),
+					"events":                   spanEventsToSlice(span.Events()),
+					"dropped_events_count":     span.DroppedEventsCount(),
+					"links":                    spanLinksToSlice(span.Links()),
+					"dropped_links_count":      span.DroppedLinksCount(),
+				}
+				otelCtx.addTo(mapped)
+				payload.Records = append(payload.Records, mapped)
 			}
 		}
 	}

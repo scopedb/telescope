@@ -28,6 +28,54 @@ type HealthResponse struct {
 	Version string `json:"version,omitempty"`
 }
 
+type IngestionStatusResponse struct {
+	State             string                     `json:"state"`
+	GeneratedAt       time.Time                  `json:"generated_at"`
+	Listeners         IngestionListeners         `json:"listeners"`
+	InternalTelemetry IngestionInternalTelemetry `json:"internal_telemetry"`
+	Signals           []IngestionSignalStatus    `json:"signals"`
+}
+
+type IngestionListeners struct {
+	GRPC string `json:"grpc"`
+	HTTP string `json:"http"`
+}
+
+type IngestionInternalTelemetry struct {
+	Available bool   `json:"available"`
+	Endpoint  string `json:"endpoint"`
+	Error     string `json:"error,omitempty"`
+}
+
+type IngestionSignalStatus struct {
+	Signal                    string               `json:"signal"`
+	State                     string               `json:"state"`
+	Ready                     bool                 `json:"ready"`
+	Table                     string               `json:"table,omitempty"`
+	Received                  uint64               `json:"received"`
+	ReceiverFailed            uint64               `json:"receiver_failed"`
+	ReceiverRefused           uint64               `json:"receiver_refused"`
+	Written                   uint64               `json:"written"`
+	WriteFailedAttemptRecords uint64               `json:"write_failed_attempt_records"`
+	EnqueueFailed             uint64               `json:"enqueue_failed"`
+	PermanentFailedRecords    uint64               `json:"permanent_failed_records"`
+	InvalidItemsByReason      map[string]uint64    `json:"invalid_items_by_reason"`
+	Queue                     IngestionQueueStatus `json:"queue"`
+	LastWriteAttempt          *time.Time           `json:"last_write_attempt,omitempty"`
+	LastWriteSuccess          *time.Time           `json:"last_write_success,omitempty"`
+	LastWriteFailure          *time.Time           `json:"last_write_failure,omitempty"`
+	LastWriteDurationMS       int64                `json:"last_write_duration_ms,omitempty"`
+	LastError                 string               `json:"last_error,omitempty"`
+}
+
+type IngestionQueueStatus struct {
+	Enabled  bool   `json:"enabled"`
+	Observed bool   `json:"observed"`
+	Size     int64  `json:"size"`
+	Capacity int64  `json:"capacity"`
+	Unit     string `json:"unit,omitempty"`
+}
+
 type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }

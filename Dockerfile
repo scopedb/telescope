@@ -31,4 +31,5 @@ VOLUME ["/var/lib/telescope/queue"]
 
 EXPOSE 4317 4318 8080 13133
 
-ENTRYPOINT ["/usr/local/bin/telescope", "daemon"]
+ENTRYPOINT ["/usr/local/bin/telescope"]
+CMD ["daemon", "--ingestion-profile", "starter"]

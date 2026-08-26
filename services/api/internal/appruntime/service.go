@@ -33,7 +33,10 @@ type App struct {
 }
 
 func New(config Config, version string) (*App, error) {
-	runner := scopedbexec.New(config.ScopeDBEndpoint, config.ScopeDBAPIKey, config.QueryTimeout)
+	runner, err := scopedbexec.New(config.ScopeDBEndpoint, config.ScopeDBAPIKey, config.QueryTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("build ScopeDB client: %w", err)
+	}
 
 	service, err := httpapi.NewService(semantic.Default, runner, version)
 	if err != nil {

@@ -1,23 +1,43 @@
 # ScopeDB Exporter
 
-`scopedbexporter` is an independent OpenTelemetry Collector exporter module named `scopedb`.
+`scopedbexporter` is an OpenTelemetry Collector exporter module named `scopedb`. It converts Collector `pdata` to user-selected ScopeDB columns and writes NDJSON with the ScopeDB Go SDK `Table.AppendNDJSON` API.
 
-It accepts logs, traces, and metrics in Collector pdata form, maps them into JSON records, and writes them through ScopeDB's public `/v1/ingest` API with a generated `INSERT` statement.
+The exporter does not impose a Telescope-wide storage record. Each mapping entry selects one OpenTelemetry value and names the destination column. Only mapped columns are serialized and stored.
 
-## Config
+## Configuration
 
 ```yaml
 exporters:
   scopedb:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
-    path: /v1/ingest
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     tables:
-      logs: scopedb.otel.logs
-      traces: scopedb.otel.traces
-      metrics: scopedb.otel.metrics
-    create_tables_if_not_exist: false
-    schema_version: v1
+      logs: observability.events
+      traces: observability.spans
+      metrics: observability.metric_points
+    mappings:
+      logs:
+        ts: log.timestamp
+        service_name: resource.attributes["service.name"]
+        level: log.severity_text
+        message: log.message
+        labels: log.attributes
+      traces:
+        ts: span.start_time
+        trace_id: span.trace_id
+        span_id: span.span_id
+        service_name: resource.attributes["service.name"]
+        operation: span.name
+        duration_ns: span.duration_ns
+        labels: span.attributes
+      metrics:
+        ts: datapoint.timestamp
+        service_name: resource.attributes["service.name"]
+        metric: metric.name
+        int_value: datapoint.int_value
+        double_value: datapoint.double_value
+        distribution: datapoint.distribution
+        labels: datapoint.attributes
     compression: zstd
     timeout: 10s
     retry_on_failure:
@@ -27,197 +47,69 @@ exporters:
       max_elapsed_time: 0s
     sending_queue:
       enabled: true
-      queue_size: 10000
-      num_consumers: 4
       storage: file_storage
+      sizer: bytes
+      queue_size: 536870912
+      num_consumers: 1
 ```
 
-Notes:
+`mappings.<signal>` is `destination column: OpenTelemetry source`. Destination columns must be unquoted ScopeDB identifiers. A source value that is absent or null is omitted from that NDJSON row; selected empty strings and numeric zeroes are preserved. Specifying a signal mapping replaces that signal's complete starter mapping; entries are never implicitly merged with default columns. Signals omitted from `mappings` keep their starter mapping.
 
-- `api_key` uses `configopaque.String`, so it is redacted when config values are logged
-- the exporter always sends `Authorization: Bearer <api_key>`
-- built-in defaults route signals to `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics`
-- each row's `env` value is derived from OpenTelemetry attributes, preferring resource `deployment.environment.name` and falling back to `default`
-- table routes accept `table`, `schema.table`, or `database.schema.table`
-- `tables.logs`, `tables.traces`, and `tables.metrics` are required and must point to distinct tables
-- `create_tables_if_not_exist` ensures the configured database, schema, and table exist for every configured route during exporter startup
-- `zstd` is the default POST compression; use `gzip` only when talking to older ScopeDB deployments
-- startup table creation uses the official ScopeDB Go SDK `v0.5.0`
-- the deployment config enables table creation automatically, while the local demo configs leave it off
+The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. Signal routes may point to the same table when their mappings target a compatible schema.
 
-## Ingest Request Shape
+The built-in starter configuration uses `scopedb.otel.logs`, `scopedb.otel.traces`, and `scopedb.otel.metrics` with small mappings for timestamps, service identity, signal identity, correlation, and primary values. The Telescope daemon requires users to select this profile explicitly; it is not a storage contract.
 
-The exporter sends a ScopeDB ingest request like:
+`create_tables_if_not_exist` is no longer supported because Telescope cannot infer column types, partitioning, clustering, retention, or indexes from a per-user mapping. If an old configuration enables it, validation returns an actionable error.
 
-```json
-{
-  "type": "committed",
-  "data": {
-    "format": "json",
-    "rows": "{\"signal\":\"logs\",...}\n{\"signal\":\"logs\",...}"
-  },
-  "statement": "SELECT ... INSERT INTO scopedb.otel.logs (...)"
-}
-```
+## Mapping Sources
 
-Each JSON row includes shared ingest columns plus the full original mapped record:
+Sources shared by all signals:
 
-- `ingest_ts`
-- `signal`
-- `schema_version`
-- `env`
-- `row_id`
-- `record`
+- `resource.attributes`, `resource.attributes["<key>"]`
+- `resource.schema_url`, `resource.dropped_attributes_count`
+- `scope.name`, `scope.version`, `scope.attributes`, `scope.attributes["<key>"]`
+- `scope.schema_url`, `scope.dropped_attributes_count`
 
-The exporter also promotes signal-specific fields into top-level row columns so each table can use its own schema:
+Log sources:
 
-- shared resource columns: `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`
-- logs: `record_timestamp`, `observed_timestamp`, `trace_id`, `span_id`, `source`, `status`, `severity_number`, `message`, `exception_type`, `exception_message`
-- traces: `start_timestamp`, `end_timestamp`, `duration_ns`, `trace_id`, `span_id`, `parent_span_id`, `span_name`, `span_kind`, `status_code`, `http_method`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `db_system`, `db_operation`, `rpc_method`, `error_type`
-- metrics: `record_timestamp`, `start_timestamp`, `metric_name`, `metric_type`, `temporality`, `unit`, `number_value`, `distribution`
+- `log.timestamp`, `log.observed_timestamp` as RFC 3339 timestamps
+- `log.timestamp_unix_nano`, `log.observed_timestamp_unix_nano`
+- `log.trace_id`, `log.span_id`, `log.event_name`
+- `log.severity_text`, `log.severity_number`, `log.flags`
+- `log.body`, `log.message`, `log.attributes`, `log.attributes["<key>"]`
+- `log.dropped_attributes_count`
 
-The `record` object keeps the signal-specific body. Log records include fields such as:
+Trace sources:
 
-- `timestamp_unix_nano`
-- `observed_timestamp_unix_nano`
-- `trace_id`
-- `span_id`
-- `status`
-- `severity_number`
-- `body`
-- `resource`
-- `scope`
-- `attributes`
+- `span.trace_id`, `span.span_id`, `span.parent_span_id`, `span.trace_state`, `span.flags`
+- `span.name`, `span.kind`
+- `span.start_time`, `span.end_time` as RFC 3339 timestamps
+- `span.start_time_unix_nano`, `span.end_time_unix_nano`, `span.duration_ns`
+- `span.status.code`, `span.status.message`
+- `span.attributes`, `span.attributes["<key>"]`, `span.dropped_attributes_count`
+- `span.events`, `span.links`, `span.dropped_events_count`, `span.dropped_links_count`
 
-Each span record includes fields such as:
+Metric sources:
 
-- `trace_id`
-- `span_id`
-- `parent_span_id`
-- `name`
-- `kind`
-- `start_time_unix_nano`
-- `end_time_unix_nano`
-- `status_code`
-- `status_message`
-- `events`
-- `links`
-- `resource`
-- `scope`
-- `attributes`
+- `metric.name`, `metric.description`, `metric.unit`, `metric.type`
+- `metric.metadata`, `metric.metadata["<key>"]`
+- `metric.temporality`, `metric.is_monotonic`
+- `datapoint.timestamp`, `datapoint.start_time` as RFC 3339 timestamps
+- `datapoint.timestamp_unix_nano`, `datapoint.start_time_unix_nano`, `datapoint.flags`
+- `datapoint.attributes`, `datapoint.attributes["<key>"]`
+- `datapoint.value` with its native integer or double type, and `datapoint.value_type`
+- `datapoint.int_value` and `datapoint.double_value`, each present only for its matching point type
+- `datapoint.number_value`, an explicit lossy projection that coerces integer points to double
+- `datapoint.distribution`, `datapoint.exemplars`
 
-Each metric record includes fields such as:
+Whole attribute maps, bodies, events, links, distributions, and exemplars retain their JSON structure. Map individual attributes when only a few dimensions deserve physical columns. Use upstream OpenTelemetry `resource` or `transform` processors for renaming, normalization, conditionals, or derived values; Telescope deliberately does not add another transformation language.
 
-- `metric_name`
-- `description`
-- `unit`
-- `type`
-- `temporality`
-- `is_monotonic`
-- `timestamp_unix_nano`
-- `start_timestamp_unix_nano`
-- `value`
-- `histogram`
-- `summary`
-- `exemplars`
-- `resource`
-- `scope`
-- `attributes`
+## Append and Retry Semantics
 
-## Suggested Table Schemas
+The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk. It limits each request to the SDK's current maximum of 8 MiB of uncompressed NDJSON and 200,000 rows.
 
-```sql
-CREATE TABLE IF NOT EXISTS scopedb.otel.logs (
-  ingest_ts timestamp,
-  record_timestamp timestamp,
-  observed_timestamp timestamp,
-  schema_version string,
-  env string,
-  row_id string,
-  service string,
-  version string,
-  instance_id string,
-  k8s_pod string,
-  k8s_namespace string,
-  k8s_cluster string,
-  container_name string,
-  host_ip string,
-  host string,
-  trace_id string,
-  span_id string,
-  source string,
-  status string,
-  severity_number int,
-  message string,
-  exception_type string,
-  exception_message string,
-  record object
-)
+A chunk succeeds only when ScopeDB reports `committed` and the inserted row count matches. A structured non-retryable `rejected` result is returned to Collector as permanent. Retryable rejection, throttling, transport errors, and `unknown` outcomes are returned as retryable. When a later chunk fails, Collector retries that chunk and the unsent suffix, not the already confirmed prefix.
 
-CREATE TABLE IF NOT EXISTS scopedb.otel.traces (
-  ingest_ts timestamp,
-  start_timestamp timestamp,
-  end_timestamp timestamp,
-  duration_ns int,
-  schema_version string,
-  env string,
-  row_id string,
-  service string,
-  version string,
-  instance_id string,
-  k8s_pod string,
-  k8s_namespace string,
-  k8s_cluster string,
-  container_name string,
-  host_ip string,
-  host string,
-  trace_id string,
-  span_id string,
-  parent_span_id string,
-  span_name string,
-  span_kind string,
-  status_code string,
-  http_method string,
-  http_status_code int,
-  url_path string,
-  http_route string,
-  peer_service string,
-  db_system string,
-  db_operation string,
-  rpc_method string,
-  error_type string,
-  record object
-)
+The OpenTelemetry Collector `exporterhelper` sending queue is the only persistent queue and retry owner. `AppendNDJSON` is not wrapped in a second SDK stream, queue, or reconciliation loop. Delivery is at least once: retrying an `unknown` outcome can create duplicates.
 
-CREATE TABLE IF NOT EXISTS scopedb.otel.metrics (
-  ingest_ts timestamp,
-  record_timestamp timestamp,
-  start_timestamp timestamp,
-  schema_version string,
-  env string,
-  row_id string,
-  service string,
-  version string,
-  instance_id string,
-  k8s_pod string,
-  k8s_namespace string,
-  k8s_cluster string,
-  container_name string,
-  host_ip string,
-  host string,
-  metric_name string,
-  metric_type string,
-  temporality string,
-  unit string,
-  number_value float,
-  distribution object,
-  record object
-)
-```
-
-## Error Semantics
-
-- `400`, `401`, `403`, `404`, `422` are treated as permanent errors
-- `408`, `409`, `425`, `429`, and `5xx` are retryable
-- network and timeout failures are retryable
-- context cancellation is returned as-is
+`compression` accepts `zstd` (default) or `gzip` and is passed into `scopedb.Config`. ScopeDB Go SDK `v0.6.3` applies that setting to direct `AppendNDJSON` requests.

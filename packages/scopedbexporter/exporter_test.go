@@ -18,313 +18,228 @@ package scopedbexporter
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/klauspost/compress/zstd"
+	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/component/componenttest"
-	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
-	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-type exporterTableInitStatementRequest struct {
-	Statement string `json:"statement"`
-	Format    string `json:"format"`
-}
-
-type exporterTableInitResultSetMetadata struct {
-	Fields  []map[string]any `json:"fields"`
-	NumRows uint64           `json:"num_rows"`
-}
-
-type exporterTableInitResultSet struct {
-	Metadata *exporterTableInitResultSetMetadata `json:"metadata,omitempty"`
-	Format   string                              `json:"format,omitempty"`
-	Rows     json.RawMessage                     `json:"rows,omitempty"`
-}
-
-type exporterTableInitStatementResponse struct {
-	StatementID string                      `json:"statement_id"`
-	Status      string                      `json:"status"`
-	Message     string                      `json:"message,omitempty"`
-	ResultSet   *exporterTableInitResultSet `json:"result_set,omitempty"`
-}
-
-func TestExporterConsumeLogs(t *testing.T) {
-	payloads, server := newCaptureServer(t)
-	defer server.Close()
-
-	cfg := testExporterConfig(server.URL)
-	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-
-	err = exp.ConsumeLogs(context.Background(), buildTestLogs())
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		return len(payloads.All()) == 1
-	}, time.Second, 10*time.Millisecond)
-	assert.Equal(t, signalLogs, payloads.All()[0].Rows[0]["signal"])
-}
-
-func TestExporterConsumeTraces(t *testing.T) {
-	payloads, server := newCaptureServer(t)
-	defer server.Close()
-
-	cfg := testExporterConfig(server.URL)
-	exp, err := NewFactory().CreateTraces(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-
-	err = exp.ConsumeTraces(context.Background(), buildTestTraces())
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		return len(payloads.All()) == 1
-	}, time.Second, 10*time.Millisecond)
-	assert.Equal(t, signalTraces, payloads.All()[0].Rows[0]["signal"])
-}
-
-func TestExporterConsumeMetrics(t *testing.T) {
-	payloads, server := newCaptureServer(t)
-	defer server.Close()
-
-	cfg := testExporterConfig(server.URL)
-	exp, err := NewFactory().CreateMetrics(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-
-	err = exp.ConsumeMetrics(context.Background(), buildTestMetrics())
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		return len(payloads.All()) == 1
-	}, time.Second, 10*time.Millisecond)
-	assert.Equal(t, signalMetrics, payloads.All()[0].Rows[0]["signal"])
-}
-
-func TestExporterStartEnsuresTableWhenEnabled(t *testing.T) {
-	var sawCreateTable bool
-	payloads := &payloadStore{}
+func TestExporterConsumesLogsThroughAppend(t *testing.T) {
+	var mu sync.Mutex
+	var rows []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements":
-			sawCreateTable = true
-			var request exporterTableInitStatementRequest
-			body, err := decodeExporterRequestBody(r)
+		switch r.Method {
+		case http.MethodGet:
+			writeTableDescription(t, w, "vendor_otel_logs_test", []string{"message"})
+		case http.MethodPost:
+			body, err := decodeSDKRequestBody(r)
 			require.NoError(t, err)
-			require.NoError(t, json.Unmarshal(body, &request))
-			assert.True(t,
-				strings.HasPrefix(request.Statement, "CREATE DATABASE IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE SCHEMA IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE TABLE IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE RANGE INDEX IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE POINT INDEX IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE SEARCH INDEX IF NOT EXISTS") ||
-					strings.HasPrefix(request.Statement, "CREATE PATTERN INDEX IF NOT EXISTS"),
-			)
-			w.Header().Set("Content-Type", "application/json")
-			require.NoError(t, json.NewEncoder(w).Encode(exporterTableInitStatementResponse{
-				StatementID: "33333333-3333-3333-3333-333333333333",
-				Status:      "finished",
-				ResultSet: &exporterTableInitResultSet{
-					Metadata: &exporterTableInitResultSetMetadata{
-						Fields:  []map[string]any{},
-						NumRows: 0,
-					},
-					Format: "json",
-					Rows:   json.RawMessage(`[]`),
-				},
-			}))
-		case r.Method == http.MethodPost && r.URL.Path == defaultPath:
-			var request scopeDBIngestRequest
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-			rows := splitRows(t, request.Data.Rows)
-			payloads.Add(receivedIngestRequest{
-				Type:      request.Type,
-				Statement: request.Statement,
-				Rows:      rows,
-			})
-			w.WriteHeader(http.StatusOK)
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+			mu.Lock()
+			rows = append(rows, row)
+			mu.Unlock()
+			writeAppendCommitted(t, w, 1)
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+			t.Fatalf("unexpected method %s", r.Method)
 		}
 	}))
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.CreateTablesIfNotExist = true
-
+	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
 	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
 
-	err = exp.ConsumeLogs(context.Background(), buildTestLogs())
-	require.NoError(t, err)
+	logs := plog.NewLogs()
+	record := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	record.Body().SetStr("hello")
+	record.Attributes().PutStr("not.selected", "discarded")
+	require.NoError(t, exp.ConsumeLogs(context.Background(), logs))
 
-	require.Eventually(t, func() bool {
-		return len(payloads.All()) == 1
-	}, time.Second, 10*time.Millisecond)
-	assert.True(t, sawCreateTable)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, rows, 1)
+	assert.Equal(t, map[string]any{"message": "hello"}, rows[0])
 }
 
-type payloadStore struct {
-	mu       sync.Mutex
-	payloads []receivedIngestRequest
-}
-
-type receivedIngestRequest struct {
-	Type      string
-	Statement string
-	Rows      []map[string]any
-}
-
-func (s *payloadStore) Add(payload receivedIngestRequest) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.payloads = append(s.payloads, payload)
-}
-
-func (s *payloadStore) All() []receivedIngestRequest {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]receivedIngestRequest, len(s.payloads))
-	copy(out, s.payloads)
-	return out
-}
-
-func newCaptureServer(t *testing.T) (*payloadStore, *httptest.Server) {
-	t.Helper()
-
-	store := &payloadStore{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := decodeExporterRequestBody(r)
-		require.NoError(t, err)
-		var request scopeDBIngestRequest
-		require.NoError(t, json.Unmarshal(body, &request))
-		rows := splitRows(t, request.Data.Rows)
-		store.Add(receivedIngestRequest{
-			Type:      request.Type,
-			Statement: request.Statement,
-			Rows:      rows,
-		})
-		w.WriteHeader(http.StatusOK)
+func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeTableDescription(t, w, "vendor_otel_logs_test", []string{"other"})
 	}))
+	defer server.Close()
 
-	return store, server
+	cfg := testExporterConfig(server.URL)
+	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	require.NoError(t, err)
+	err = exp.Start(context.Background(), componenttest.NewNopHost())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "missing mapped columns: message")
+	assert.False(t, statuses.Snapshot().Signals[signalLogs].Ready)
+}
+
+func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeTableDescription(t, w, "vendor_otel_logs_test", []string{"message"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"message":      "invalid row",
+			"append_state": "rejected",
+			"retryable":    false,
+			"row_errors": []map[string]any{{
+				"row_index": 0,
+				"column":    "message",
+				"message":   "wrong type",
+			}},
+		}))
+	}))
+	defer server.Close()
+
+	cfg := testExporterConfig(server.URL)
+	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer exp.Shutdown(context.Background())
+
+	logs := plog.NewLogs()
+	logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("hello")
+	err = exp.ConsumeLogs(context.Background(), logs)
+	require.Error(t, err)
+	assert.True(t, consumererror.IsPermanent(err))
+	assert.ErrorContains(t, err, "column=message")
+}
+
+func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = map[string]string{"body": "log.body"}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	attempt := 0
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		attempt++
+		if attempt == 2 {
+			return scopedb.AppendRowsResult{}, errors.New("temporary append failure")
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	records.AppendEmpty().Body().SetStr(strings.Repeat("a", 5*1024*1024))
+	records.AppendEmpty().Body().SetStr(strings.Repeat("b", 5*1024*1024))
+
+	exp := &dbExporter{cfg: cfg, client: client, statuses: NewStatusRegistry()}
+	err = exp.pushLogs(context.Background(), logs)
+	require.Error(t, err)
+	var partial consumererror.Logs
+	require.ErrorAs(t, err, &partial)
+	assert.Equal(t, 1, partial.Data().LogRecordCount())
+	body := partial.Data().ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Str()
+	assert.Len(t, body, 5*1024*1024)
+	assert.Equal(t, byte('b'), body[0])
+}
+
+func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = map[string]string{"body": "log.body"}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	attempt := 0
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		attempt++
+		if attempt == 2 {
+			return scopedb.AppendRowsResult{}, &scopedb.Error{
+				Kind:    scopedb.ErrorKindAppendRowsFailed,
+				Message: "invalid row",
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateRejected,
+				},
+			}
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	records.AppendEmpty().Body().SetStr(strings.Repeat("a", 5*1024*1024))
+	records.AppendEmpty().Body().SetStr(strings.Repeat("b", 5*1024*1024))
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	err = exp.pushLogs(context.Background(), logs)
+	require.Error(t, err)
+	assert.True(t, consumererror.IsPermanent(err))
+	var partial consumererror.Logs
+	require.ErrorAs(t, err, &partial)
+	assert.Equal(t, 1, partial.Data().LogRecordCount())
+	assert.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].PermanentFailedRecords)
 }
 
 func testExporterConfig(endpoint string) *Config {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Compression = "none"
-	cfg.Tables = TableRoutingConfig{
-		Logs:    "public.vendor_otel_logs_test",
-		Traces:  "public.vendor_otel_traces_test",
-		Metrics: "public.vendor_otel_metrics_test",
-	}
+	cfg := testClientConfig(endpoint)
 	cfg.Timeout.Timeout = 0
 	cfg.RetryOnFailure.Enabled = false
 	cfg.SendingQueue = configoptional.None[exporterhelper.QueueBatchConfig]()
 	return cfg
 }
 
-func buildTestLogs() plog.Logs {
-	logs := plog.NewLogs()
-	resourceLogs := logs.ResourceLogs().AppendEmpty()
-	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
-	record := scopeLogs.LogRecords().AppendEmpty()
-	record.Body().SetStr("hello")
-	return logs
-}
-
-func buildTestTraces() ptrace.Traces {
-	traces := ptrace.NewTraces()
-	resourceSpans := traces.ResourceSpans().AppendEmpty()
-	scopeSpans := resourceSpans.ScopeSpans().AppendEmpty()
-	span := scopeSpans.Spans().AppendEmpty()
-	span.SetName("test-span")
-	span.SetTraceID(pcommon.TraceID([16]byte{1}))
-	span.SetSpanID(pcommon.SpanID([8]byte{2}))
-	return traces
-}
-
-func buildTestMetrics() pmetric.Metrics {
-	metrics := pmetric.NewMetrics()
-	resourceMetrics := metrics.ResourceMetrics().AppendEmpty()
-	scopeMetrics := resourceMetrics.ScopeMetrics().AppendEmpty()
-	metric := scopeMetrics.Metrics().AppendEmpty()
-	metric.SetName("cpu.utilization")
-	point := metric.SetEmptyGauge().DataPoints().AppendEmpty()
-	point.SetDoubleValue(0.5)
-	return metrics
-}
-
-func splitRows(t *testing.T, raw string) []map[string]any {
+func writeTableDescription(t *testing.T, w http.ResponseWriter, name string, columns []string) {
 	t.Helper()
-
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
-	rows := make([]map[string]any, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		var row map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line), &row))
-		rows = append(rows, row)
+	items := make([]map[string]any, 0, len(columns))
+	for _, column := range columns {
+		items = append(items, map[string]any{"name": column, "data_type": "any"})
 	}
-	return rows
+	w.Header().Set("Content-Type", "application/json")
+	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		"database":     "scopedb",
+		"schema":       "public",
+		"name":         name,
+		"columns":      items,
+		"partition_by": []string{},
+		"cluster_by":   []string{},
+		"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+	}))
 }
 
-func decodeExporterRequestBody(r *http.Request) ([]byte, error) {
-	compressedBody, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
-	case "":
-		return compressedBody, nil
-	case "gzip":
-		gr, err := gzip.NewReader(bytes.NewReader(compressedBody))
-		if err != nil {
-			return nil, err
-		}
-		defer gr.Close()
-		return io.ReadAll(gr)
-	case "zstd":
-		zr, err := zstd.NewReader(bytes.NewReader(compressedBody))
-		if err != nil {
-			return nil, err
-		}
-		defer zr.Close()
-		return io.ReadAll(zr)
-	default:
-		return nil, io.ErrUnexpectedEOF
-	}
+func writeAppendCommitted(t *testing.T, w http.ResponseWriter, rows int64) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		"append_state":      "committed",
+		"num_rows_inserted": rows,
+	}))
 }

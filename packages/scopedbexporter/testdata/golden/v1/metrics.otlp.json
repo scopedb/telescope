@@ -1,0 +1,139 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}}
+        ],
+        "droppedAttributesCount": 1
+      },
+      "schemaUrl": "https://opentelemetry.io/schemas/1.26.0",
+      "scopeMetrics": [
+        {
+          "scope": {
+            "name": "golden.meter",
+            "version": "1.0.0",
+            "attributes": [
+              {"key": "scope.mode", "value": {"stringValue": "test"}}
+            ],
+            "droppedAttributesCount": 2
+          },
+          "schemaUrl": "https://example.com/schemas/metrics/1.0.0",
+          "metrics": [
+            {
+              "name": "system.load",
+              "description": "system load",
+              "unit": "1",
+              "metadata": [
+                {"key": "metadata.source", "value": {"stringValue": "golden"}}
+              ],
+              "gauge": {
+                "dataPoints": [
+                  {
+                    "attributes": [
+                      {"key": "host.name", "value": {"stringValue": "host-1"}}
+                    ],
+                    "startTimeUnixNano": 1000,
+                    "timeUnixNano": 2000,
+                    "asDouble": 0.75,
+                    "exemplars": [
+                      {
+                        "filteredAttributes": [
+                          {"key": "sampled", "value": {"boolValue": true}}
+                        ],
+                        "timeUnixNano": 1900,
+                        "asDouble": 0.7,
+                        "traceId": "0102030405060708090a0b0c0d0e0f10",
+                        "spanId": "0102030405060708"
+                      }
+                    ],
+                    "flags": 1
+                  }
+                ]
+              }
+            },
+            {
+              "name": "http.requests",
+              "unit": "1",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": 1000,
+                    "timeUnixNano": 3000,
+                    "asInt": 42
+                  }
+                ],
+                "aggregationTemporality": 2,
+                "isMonotonic": true
+              }
+            },
+            {
+              "name": "http.duration",
+              "unit": "ms",
+              "histogram": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": 1000,
+                    "timeUnixNano": 4000,
+                    "count": 3,
+                    "sum": 12.5,
+                    "bucketCounts": [1, 2, 0],
+                    "explicitBounds": [5, 10],
+                    "exemplars": [{"timeUnixNano": 3900, "asInt": 9}],
+                    "flags": 1,
+                    "min": 1.5,
+                    "max": 9
+                  }
+                ],
+                "aggregationTemporality": 1
+              }
+            },
+            {
+              "name": "payload.size",
+              "unit": "By",
+              "exponentialHistogram": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": 1000,
+                    "timeUnixNano": 5000,
+                    "count": 4,
+                    "sum": 32,
+                    "scale": 2,
+                    "zeroCount": 1,
+                    "positive": {"offset": -1, "bucketCounts": [2, 1]},
+                    "negative": {"offset": 0, "bucketCounts": [1]},
+                    "flags": 1,
+                    "exemplars": [{"timeUnixNano": 4900, "asDouble": 8.5}],
+                    "min": -2,
+                    "max": 16,
+                    "zeroThreshold": 0.001
+                  }
+                ],
+                "aggregationTemporality": 2
+              }
+            },
+            {
+              "name": "rpc.duration.summary",
+              "unit": "ms",
+              "summary": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": 1000,
+                    "timeUnixNano": 6000,
+                    "count": 2,
+                    "sum": 20,
+                    "quantileValues": [
+                      {"quantile": 0.5, "value": 8},
+                      {"quantile": 0.99, "value": 12}
+                    ],
+                    "flags": 1
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

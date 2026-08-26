@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	scopedb "github.com/scopedb/scopedb-sdk/go"
+	scopedb "github.com/scopedb/goscopedb"
 )
 
 type tableRef struct {
@@ -72,7 +72,7 @@ func (r tableRef) Identifier() string {
 	return (&scopedb.Table{
 		Database: r.Database,
 		Schema:   r.Schema,
-		Table:    r.Table,
+		Name:     r.Table,
 	}).Identifier()
 }
 

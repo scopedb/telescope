@@ -15,6 +15,7 @@
 services:
   scopedb-telescope:
     image: ${IMAGE:-ghcr.io/scopedb/telescope:0.2.0}
+    command: ["daemon", "--ingestion-profile", "starter"]
     restart: unless-stopped
     environment:
       TELESCOPE_SCOPEDB_ENDPOINT: ${TELESCOPE_SCOPEDB_ENDPOINT:?TELESCOPE_SCOPEDB_ENDPOINT is required}

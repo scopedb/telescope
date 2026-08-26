@@ -23,137 +23,133 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 func TestConfigValidate(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-
+	cfg := validTestConfig()
 	require.NoError(t, cfg.Validate())
 }
 
-func TestConfigValidateEmptyEndpoint(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.APIKey = configopaque.String("test-api-key")
+func TestConfigValidateRequiredConnectionFields(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Endpoint = ""
+	cfg.APIKey = ""
 
 	err := cfg.Validate()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "endpoint is required")
-}
-
-func TestConfigValidateInvalidEndpoint(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "://bad"
-	cfg.APIKey = configopaque.String("test-api-key")
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "endpoint must be a valid URL")
-}
-
-func TestConfigValidateEmptyAPIKey(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-
-	err := cfg.Validate()
-	require.Error(t, err)
 	assert.ErrorContains(t, err, "api_key is required")
 }
 
-func TestConfigValidateInvalidCompression(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Compression = "brotli"
+func TestConfigValidateMapping(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			name: "empty mapping",
+			mutate: func(cfg *Config) {
+				cfg.Mappings.Logs = nil
+			},
+			want: "at least one destination column is required",
+		},
+		{
+			name: "invalid destination column",
+			mutate: func(cfg *Config) {
+				cfg.Mappings.Logs = map[string]string{"bad-column": "log.body"}
+			},
+			want: "must be an unquoted ScopeDB identifier",
+		},
+		{
+			name: "invalid source",
+			mutate: func(cfg *Config) {
+				cfg.Mappings.Traces = map[string]string{"trace_id": "span.unknown"}
+			},
+			want: "unsupported traces source",
+		},
+		{
+			name: "wrong signal source",
+			mutate: func(cfg *Config) {
+				cfg.Mappings.Logs = map[string]string{"value": `span.attributes["order.id"]`}
+			},
+			want: "span attributes are only valid for traces",
+		},
+		{
+			name: "automatic table creation",
+			mutate: func(cfg *Config) {
+				cfg.CreateTablesIfNotExist = true
+			},
+			want: "not supported with user mappings",
+		},
+	}
 
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "unsupported compression")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validTestConfig()
+			tt.mutate(cfg)
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
-func TestConfigValidatePathWithoutLeadingSlash(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Path = "v1/otel/ingest"
+func TestConfigAllowsSignalsToShareTable(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Tables.Logs = "otel.events"
+	cfg.Tables.Traces = "otel.events"
 
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "path must start with '/'")
+	require.NoError(t, cfg.Validate())
 }
 
 func TestCreateDefaultConfig(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 
-	assert.Equal(t, defaultPath, cfg.Path)
 	assert.Equal(t, defaultLogsTable, cfg.Tables.Logs)
 	assert.Equal(t, defaultTracesTable, cfg.Tables.Traces)
 	assert.Equal(t, defaultMetricsTable, cfg.Tables.Metrics)
+	assert.NotEmpty(t, cfg.Mappings.Logs)
+	assert.NotEmpty(t, cfg.Mappings.Traces)
+	assert.NotEmpty(t, cfg.Mappings.Metrics)
 	assert.False(t, cfg.CreateTablesIfNotExist)
-	assert.Equal(t, defaultSchemaVersion, cfg.SchemaVersion)
 	assert.Equal(t, defaultCompression, cfg.Compression)
 	assert.True(t, cfg.RetryOnFailure.Enabled)
 	assert.True(t, cfg.SendingQueue.HasValue())
-	assert.Equal(t, int64(10_000), cfg.SendingQueue.Get().QueueSize)
-	assert.Equal(t, 4, cfg.SendingQueue.Get().NumConsumers)
 }
 
-func TestConfigValidateInvalidTable(t *testing.T) {
+func TestConfigUnmarshalReplacesSpecifiedMappingOnly(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	conf := confmap.NewFromStringMap(map[string]any{
+		"mappings": map[string]any{
+			"logs": map[string]any{
+				"event": "log.body",
+			},
+		},
+	})
+
+	require.NoError(t, conf.Unmarshal(cfg))
+	assert.Equal(t, map[string]string{"event": "log.body"}, cfg.Mappings.Logs)
+	assert.NotEmpty(t, cfg.Mappings.Traces)
+	assert.NotEmpty(t, cfg.Mappings.Metrics)
+}
+
+func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	conf := confmap.NewFromStringMap(map[string]any{
+		"mappings": map[string]any{
+			"logs": map[string]any{},
+		},
+	})
+
+	require.NoError(t, conf.Unmarshal(cfg))
+	assert.Empty(t, cfg.Mappings.Logs)
+}
+
+func validTestConfig() *Config {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = "https://scopedb.invalid"
 	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Tables.Logs = "bad-table-name"
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "tables.logs table route must be table, schema.table, or database.schema.table")
-}
-
-func TestConfigValidateTableRefVariants(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Tables.Logs = "otel.logs"
-	cfg.Tables.Traces = "scopedb.otel.traces"
-	cfg.Tables.Metrics = "metrics"
-
-	require.NoError(t, cfg.Validate())
-}
-
-func TestConfigValidateMissingTableRoute(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Tables.Logs = "otel.logs"
-	cfg.Tables.Traces = ""
-	cfg.Tables.Metrics = "otel.metrics"
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "tables.traces is required")
-}
-
-func TestConfigValidateDuplicateTables(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-	cfg.Tables.Logs = "otel.shared"
-	cfg.Tables.Traces = "otel.shared"
-	cfg.Tables.Metrics = ""
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "tables.logs and tables.traces must point to different tables")
-	assert.ErrorContains(t, err, "tables.metrics is required")
-}
-
-func TestConfigTableRouting(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Tables.Logs = "public.vendor_otel_logs"
-
-	assert.Equal(t, "public.vendor_otel_logs", cfg.tableForSignal(signalLogs))
-	assert.Equal(t, defaultTracesTable, cfg.tableForSignal(signalTraces))
-	assert.Equal(t, defaultMetricsTable, cfg.tableForSignal(signalMetrics))
-	assert.Equal(t, []string{"public.vendor_otel_logs", defaultTracesTable, defaultMetricsTable}, cfg.configuredTables())
+	return cfg
 }

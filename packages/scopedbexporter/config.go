@@ -28,17 +28,15 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
+	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 )
 
 const (
-	defaultPath          = "/v1/ingest"
-	defaultEnv           = "default"
-	defaultSchemaVersion = "v1"
-	defaultCompression   = "zstd"
-	defaultLogsTable     = "scopedb.otel.logs"
-	defaultTracesTable   = "scopedb.otel.traces"
-	defaultMetricsTable  = "scopedb.otel.metrics"
+	defaultCompression  = "zstd"
+	defaultLogsTable    = "scopedb.otel.logs"
+	defaultTracesTable  = "scopedb.otel.traces"
+	defaultMetricsTable = "scopedb.otel.metrics"
 )
 
 var typeStr = component.MustNewType("scopedb")
@@ -46,18 +44,41 @@ var typeStr = component.MustNewType("scopedb")
 var tablePartPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type TableRoutingConfig struct {
-	Logs    string `mapstructure:"logs"`
-	Traces  string `mapstructure:"traces"`
-	Metrics string `mapstructure:"metrics"`
+	Logs    string `mapstructure:"logs" yaml:"logs"`
+	Traces  string `mapstructure:"traces" yaml:"traces"`
+	Metrics string `mapstructure:"metrics" yaml:"metrics"`
+}
+
+type SignalMappingConfig struct {
+	Logs    map[string]string `mapstructure:"logs" yaml:"logs"`
+	Traces  map[string]string `mapstructure:"traces" yaml:"traces"`
+	Metrics map[string]string `mapstructure:"metrics" yaml:"metrics"`
+}
+
+func (cfg *SignalMappingConfig) Unmarshal(conf *confmap.Conf) error {
+	type rawSignalMappingConfig SignalMappingConfig
+	var decoded rawSignalMappingConfig
+	if err := conf.Unmarshal(&decoded); err != nil {
+		return err
+	}
+	if conf.IsSet(signalLogs) {
+		cfg.Logs = decoded.Logs
+	}
+	if conf.IsSet(signalTraces) {
+		cfg.Traces = decoded.Traces
+	}
+	if conf.IsSet(signalMetrics) {
+		cfg.Metrics = decoded.Metrics
+	}
+	return nil
 }
 
 type Config struct {
 	Endpoint               string                                                   `mapstructure:"endpoint"`
-	Path                   string                                                   `mapstructure:"path"`
 	APIKey                 configopaque.String                                      `mapstructure:"api_key"`
 	Tables                 TableRoutingConfig                                       `mapstructure:"tables"`
+	Mappings               SignalMappingConfig                                      `mapstructure:"mappings"`
 	CreateTablesIfNotExist bool                                                     `mapstructure:"create_tables_if_not_exist"`
-	SchemaVersion          string                                                   `mapstructure:"schema_version"`
 	Compression            string                                                   `mapstructure:"compression"`
 	Timeout                exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
 	RetryOnFailure         configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
@@ -65,6 +86,7 @@ type Config struct {
 }
 
 func createDefaultConfig() component.Config {
+	starter := StarterIngestionConfig()
 	retryCfg := configretry.NewDefaultBackOffConfig()
 	retryCfg.Enabled = true
 	retryCfg.InitialInterval = time.Second
@@ -77,13 +99,8 @@ func createDefaultConfig() component.Config {
 	queueCfg.Batch = configoptional.None[exporterhelper.BatchConfig]()
 
 	return &Config{
-		Path: "/v1/ingest",
-		Tables: TableRoutingConfig{
-			Logs:    defaultLogsTable,
-			Traces:  defaultTracesTable,
-			Metrics: defaultMetricsTable,
-		},
-		SchemaVersion:  defaultSchemaVersion,
+		Tables:         starter.Tables,
+		Mappings:       starter.Mappings,
 		Compression:    defaultCompression,
 		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
@@ -105,49 +122,20 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
-	if strings.TrimSpace(cfg.Path) == "" {
-		errs = append(errs, errors.New("path is required"))
-	} else if !strings.HasPrefix(cfg.Path, "/") {
-		errs = append(errs, errors.New("path must start with '/'"))
-	}
-
 	if strings.TrimSpace(string(cfg.APIKey)) == "" {
 		errs = append(errs, errors.New("api_key is required"))
 	}
 
-	for name, table := range map[string]string{
-		"tables.logs":    cfg.Tables.Logs,
-		"tables.traces":  cfg.Tables.Traces,
-		"tables.metrics": cfg.Tables.Metrics,
-	} {
-		if strings.TrimSpace(table) == "" {
-			errs = append(errs, fmt.Errorf("%s is required", name))
-			continue
-		}
-		if _, err := parseTableRef(table); err != nil {
-			errs = append(errs, fmt.Errorf("%s %w", name, err))
-		}
+	if err := (IngestionConfig{Tables: cfg.Tables, Mappings: cfg.Mappings}).Validate(); err != nil {
+		errs = append(errs, err)
 	}
 
-	if strings.TrimSpace(cfg.Tables.Logs) != "" &&
-		strings.TrimSpace(cfg.Tables.Logs) == strings.TrimSpace(cfg.Tables.Traces) {
-		errs = append(errs, errors.New("tables.logs and tables.traces must point to different tables"))
-	}
-	if strings.TrimSpace(cfg.Tables.Logs) != "" &&
-		strings.TrimSpace(cfg.Tables.Logs) == strings.TrimSpace(cfg.Tables.Metrics) {
-		errs = append(errs, errors.New("tables.logs and tables.metrics must point to different tables"))
-	}
-	if strings.TrimSpace(cfg.Tables.Traces) != "" &&
-		strings.TrimSpace(cfg.Tables.Traces) == strings.TrimSpace(cfg.Tables.Metrics) {
-		errs = append(errs, errors.New("tables.traces and tables.metrics must point to different tables"))
-	}
-
-	if strings.TrimSpace(cfg.SchemaVersion) == "" {
-		errs = append(errs, errors.New("schema_version is required"))
+	if cfg.CreateTablesIfNotExist {
+		errs = append(errs, errors.New("create_tables_if_not_exist is not supported with user mappings; create the target tables in ScopeDB"))
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Compression)) {
-	case "none", "gzip", "zstd":
+	case "gzip", "zstd":
 	default:
 		errs = append(errs, fmt.Errorf("unsupported compression %q", cfg.Compression))
 	}
@@ -172,13 +160,9 @@ func (cfg *Config) Validate() error {
 func (cfg *Config) compressionMode() string {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Compression))
 	if mode == "" {
-		return "none"
+		return defaultCompression
 	}
 	return mode
-}
-
-func (cfg *Config) compressionEnabled() bool {
-	return cfg.compressionMode() != "none"
 }
 
 func (cfg *Config) tableForSignal(signal string) string {
@@ -194,25 +178,15 @@ func (cfg *Config) tableForSignal(signal string) string {
 	return ""
 }
 
-func (cfg *Config) configuredTables() []string {
-	candidates := []string{
-		cfg.Tables.Logs,
-		cfg.Tables.Traces,
-		cfg.Tables.Metrics,
+func (cfg *Config) mappingForSignal(signal string) map[string]string {
+	switch signal {
+	case signalLogs:
+		return cfg.Mappings.Logs
+	case signalTraces:
+		return cfg.Mappings.Traces
+	case signalMetrics:
+		return cfg.Mappings.Metrics
+	default:
+		return nil
 	}
-
-	seen := make(map[string]struct{}, len(candidates))
-	tables := make([]string, 0, len(candidates))
-	for _, table := range candidates {
-		table = strings.TrimSpace(table)
-		if table == "" {
-			continue
-		}
-		if _, ok := seen[table]; ok {
-			continue
-		}
-		seen[table] = struct{}{}
-		tables = append(tables, table)
-	}
-	return tables
 }

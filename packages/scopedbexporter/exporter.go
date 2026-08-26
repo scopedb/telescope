@@ -18,6 +18,7 @@ package scopedbexporter
 
 import (
 	"context"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumererror"
@@ -29,21 +30,26 @@ import (
 )
 
 type dbExporter struct {
-	cfg    *Config
-	client *Client
-	logger *zap.Logger
+	cfg      *Config
+	client   *Client
+	logger   *zap.Logger
+	signal   string
+	statuses *StatusRegistry
 }
 
-func newDBExporter(cfg *Config, set exporter.Settings) (*dbExporter, error) {
+func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *StatusRegistry) (*dbExporter, error) {
 	client, err := NewClient(cfg, set)
 	if err != nil {
 		return nil, err
 	}
+	statuses.configure(signal, cfg)
 
 	return &dbExporter{
-		cfg:    cfg,
-		client: client,
-		logger: set.Logger.Named("scopedbexporter"),
+		cfg:      cfg,
+		client:   client,
+		logger:   set.Logger.Named("scopedbexporter"),
+		signal:   signal,
+		statuses: statuses,
 	}, nil
 }
 
@@ -51,40 +57,78 @@ func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
 	e.logger.Info(
 		"Starting scopedb exporter",
 		zap.String("endpoint", e.cfg.Endpoint),
-		zap.String("path", e.cfg.Path),
-		zap.Strings("tables", e.cfg.configuredTables()),
-		zap.Bool("create_tables_if_not_exist", e.cfg.CreateTablesIfNotExist),
-		zap.String("compression", e.cfg.Compression),
+		zap.String("signal", e.signal),
+		zap.String("table", e.cfg.tableForSignal(e.signal)),
+		zap.String("compression", e.cfg.compressionMode()),
 	)
 
-	return e.ensureTable(ctx)
+	if err := e.ensureTable(ctx); err != nil {
+		e.statuses.recordStartFailure(e.signal, err)
+		return err
+	}
+	e.statuses.markReady(e.signal)
+	return nil
 }
 
 func (e *dbExporter) shutdown(_ context.Context) error {
+	e.statuses.markStopped(e.signal)
 	e.client.Close()
 	return nil
 }
 
 func (e *dbExporter) pushLogs(ctx context.Context, logs plog.Logs) error {
-	payload, err := mapLogs(e.cfg, logs)
+	started := time.Now().UTC()
+	records := logs.LogRecordCount()
+	payload, err := mapLogs(logs)
 	if err != nil {
-		return consumererror.NewPermanent(err)
+		permanentErr := consumererror.NewPermanent(err)
+		e.statuses.recordWrite(signalLogs, records, started, permanentErr, true)
+		return permanentErr
 	}
-	return e.client.Send(ctx, signalLogs, payload)
+	err = e.client.Send(ctx, signalLogs, payload)
+	affectedRecords := records
+	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
+		affectedRecords = records - uncommittedFrom
+		err = consumererror.NewLogs(err, logsFromRecord(logs, uncommittedFrom))
+	}
+	e.statuses.recordWrite(signalLogs, affectedRecords, started, err, consumererror.IsPermanent(err))
+	return err
 }
 
 func (e *dbExporter) pushTraces(ctx context.Context, traces ptrace.Traces) error {
-	payload, err := mapTraces(e.cfg, traces)
+	started := time.Now().UTC()
+	records := traces.SpanCount()
+	payload, err := mapTraces(traces)
 	if err != nil {
-		return consumererror.NewPermanent(err)
+		permanentErr := consumererror.NewPermanent(err)
+		e.statuses.recordWrite(signalTraces, records, started, permanentErr, true)
+		return permanentErr
 	}
-	return e.client.Send(ctx, signalTraces, payload)
+	err = e.client.Send(ctx, signalTraces, payload)
+	affectedRecords := records
+	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
+		affectedRecords = records - uncommittedFrom
+		err = consumererror.NewTraces(err, tracesFromRecord(traces, uncommittedFrom))
+	}
+	e.statuses.recordWrite(signalTraces, affectedRecords, started, err, consumererror.IsPermanent(err))
+	return err
 }
 
 func (e *dbExporter) pushMetrics(ctx context.Context, metrics pmetric.Metrics) error {
-	payload, err := mapMetrics(e.cfg, metrics)
+	started := time.Now().UTC()
+	records := metrics.DataPointCount()
+	payload, err := mapMetrics(metrics)
 	if err != nil {
-		return consumererror.NewPermanent(err)
+		permanentErr := consumererror.NewPermanent(err)
+		e.statuses.recordWrite(signalMetrics, records, started, permanentErr, true)
+		return permanentErr
 	}
-	return e.client.Send(ctx, signalMetrics, payload)
+	err = e.client.Send(ctx, signalMetrics, payload)
+	affectedRecords := records
+	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
+		affectedRecords = records - uncommittedFrom
+		err = consumererror.NewMetrics(err, metricsFromRecord(metrics, uncommittedFrom))
+	}
+	e.statuses.recordWrite(signalMetrics, affectedRecords, started, err, consumererror.IsPermanent(err))
+	return err
 }

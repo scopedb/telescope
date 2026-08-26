@@ -86,30 +86,6 @@ TELESCOPE_SCOPEDB_API_KEY=sk_file
 	}
 }
 
-func TestResolveCollectorConfigPrefersFlagOverEnvironment(t *testing.T) {
-	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
-
-	if got := resolveCollectorConfig("file:/from-flag.yaml", true); got != "file:/from-flag.yaml" {
-		t.Fatalf("resolveCollectorConfig() = %q", got)
-	}
-}
-
-func TestResolveCollectorConfigAllowsEmptyFlagOverride(t *testing.T) {
-	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
-
-	if got := resolveCollectorConfig("", true); got != "" {
-		t.Fatalf("resolveCollectorConfig() = %q", got)
-	}
-}
-
-func TestResolveCollectorConfigFallsBackToEnvironment(t *testing.T) {
-	t.Setenv("TELESCOPE_COLLECTOR_CONFIG", "file:/from-env.yaml")
-
-	if got := resolveCollectorConfig("", false); got != "file:/from-env.yaml" {
-		t.Fatalf("resolveCollectorConfig() = %q", got)
-	}
-}
-
 func TestLoadEnvFileRejectsInvalidLine(t *testing.T) {
 	clearBootstrapEnv(t)
 	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT\n")

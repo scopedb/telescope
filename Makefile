@@ -122,5 +122,5 @@ ci-runtime: validate-configs docker-build artifacts
 .PHONY: demo
 demo:
 	@echo "Export TELESCOPE_SCOPEDB_ENDPOINT and TELESCOPE_SCOPEDB_API_KEY, then run:"
-	@echo "  ./bin/telescope daemon"
+	@echo "  ./bin/telescope daemon --ingestion-profile starter"
 	@echo "Use telemetrygen to send logs, traces, and metrics to the configured OTLP ports."

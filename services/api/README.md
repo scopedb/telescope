@@ -33,16 +33,16 @@ The primary HTTP contract should stay hand-written and live under `openapi/agent
 
 - the contract is intended to be implemented with Echo
 - request and response shapes should stay close to the current semantic query compiler
-- the public surface should stay limited to `schema`, `schema/guide.md`, `search`, and `aggregate`
+- the agent query surface should stay limited to `schema`, `schema/guide.md`, `search`, and `aggregate`
 - generated artifacts can be added later if the service adopts them
 
-The daemon also serves `/llms.txt` from the same HTTP server as an LLM-readable runtime map.
+The daemon also serves `/llms.txt` as an LLM-readable runtime map and `/v1/ingestion/status` as an operational OTLP-to-ScopeDB status endpoint. The ingestion endpoint is not an agent query primitive.
 
 ## Binary
 
 The runnable binary is:
 
-- `cmd/telescope`: unified local runtime with `daemon`, `mcp`, `collector`, and `version` commands
+- `cmd/telescope`: unified local runtime with `daemon`, `ingestion`, `mcp`, `collector`, and `version` commands
 
 Required environment variables:
 
@@ -59,18 +59,24 @@ Optional environment variables:
 - `TELESCOPE_OTLP_HTTP_ADDR`: OTLP HTTP listen address, default `0.0.0.0:4318`
 - `TELESCOPE_HEALTH_ADDR`: collector health listen address, default `0.0.0.0:13133`
 - `TELESCOPE_QUEUE_DIR`: persistent queue directory, default `$HOME/.telescope/queue`
+- `TELESCOPE_QUEUE_MAX_BYTES`: logical queued telemetry byte capacity, default `536870912` (512 MiB); file encoding and storage overhead make actual disk use different
 - `TELESCOPE_OTEL_BATCH_TIMEOUT`: embedded Collector batch timeout, default `30s`
 - `TELESCOPE_OTEL_BATCH_SIZE`: embedded Collector send batch size, default `2000`
 - `TELESCOPE_OTEL_BATCH_MAX_SIZE`: embedded Collector send batch max size, default `2000`
+- `TELESCOPE_INTERNAL_METRICS_URL`: Collector internal Prometheus endpoint used by ingestion status, default `http://127.0.0.1:8888/metrics`
 - `TELESCOPE_QUERY_TIMEOUT`: per-query timeout, default `15s`
-- `TELESCOPE_COLLECTOR_CONFIG`: collector config URI or file path; unset uses the embedded default config
+- `TELESCOPE_INGESTION_CONFIG`: user-owned tables and mappings YAML file
+- `TELESCOPE_INGESTION_PROFILE`: built-in ingestion profile; currently `starter`
+- `TELESCOPE_COLLECTOR_CONFIG`: full Collector config URI or file path
 
-The daemon accepts telemetry for every deployment environment on the same OTLP listeners. Telescope derives the stored `env` column per row from OpenTelemetry attributes, preferring resource `deployment.environment.name` and falling back to `default` when no environment attribute is present.
+The daemon requires one explicit ingestion choice: `--ingestion-config`, `--ingestion-profile starter`, or a full `--collector-config`. The corresponding environment variables are alternatives to the flags. The starter profile is a runnable example layout, not a universal telemetry schema.
+
+The daemon accepts telemetry for every deployment environment on the same OTLP listeners. Store an environment attribute only when the configured signal mapping selects it.
 
 Example:
 
 ```bash
-go run ./cmd/telescope daemon --env-file ../../services/gateway/deploy/.env
+go run ./cmd/telescope daemon --env-file ../../services/gateway/deploy/.env --ingestion-profile starter
 ```
 
 Streamable HTTP MCP example:

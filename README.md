@@ -9,7 +9,7 @@ It is designed for the moment when an incident starts with partial context like 
 ## Why Telescope
 
 - Bring telemetry closer to the developer agent instead of forcing every investigation through dashboards.
-- Keep raw telemetry available as evidence while exposing a safer semantic query layer.
+- Map the OpenTelemetry fields you need into ScopeDB tables you control.
 - Give agents a tiny tool surface: discover schema, search details, aggregate trends.
 - Run as a local or edge data-plane component, powered by your ScopeDB deployment.
 
@@ -19,7 +19,7 @@ It is designed for the moment when an incident starts with partial context like 
 - A reachable ScopeDB endpoint and API key.
 - OpenTelemetry clients, SDKs, or collectors that can export OTLP telemetry.
 
-Telescope uses ScopeDB as the storage and query backend. The daemon needs valid ScopeDB credentials to stay running, and the embedded collector config creates or verifies the default telemetry tables on startup.
+Telescope uses ScopeDB as the storage and query backend. The daemon needs valid ScopeDB credentials and pre-existing destination tables to stay running. At startup the embedded exporter verifies that every mapped destination column exists and that statically typed selectors are compatible with its ScopeDB type; it does not create or modify tables.
 
 ## Quick Start
 
@@ -38,6 +38,8 @@ TELESCOPE_SCOPEDB_API_KEY=sk_...
 
 The example file leaves both values empty on purpose, so Docker Compose fails fast instead of starting a container with placeholder credentials.
 
+Before starting the default deployment, create the three starter tables described in [Mapping and Table Management](docs/table-management.md#starter-profile-tables). For existing tables, provide a first-class ingestion mapping instead of adopting the starter columns.
+
 Run the published GHCR image:
 
 ```bash
@@ -55,7 +57,7 @@ docker compose --env-file services/gateway/deploy/.env \
   -f services/gateway/deploy/docker-compose.yaml up -d
 ```
 
-The bootstrap file only needs the ScopeDB endpoint and API key. Docker Compose keeps the default ports unless you add explicit `TELESCOPE_*_PORT` overrides.
+The bootstrap file only supplies the ScopeDB endpoint and API key. Docker Compose explicitly selects the built-in `starter` ingestion profile. Docker Compose keeps the default ports unless you add explicit `TELESCOPE_*_PORT` overrides.
 
 ### Verify The Runtime
 
@@ -70,6 +72,14 @@ Expected response, with `version` matching the image or binary you are running:
 ```json
 {"status":"ok","service":"telescope","version":"<version>"}
 ```
+
+Check the OTLP-to-ScopeDB data path:
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/ingestion/status
+```
+
+The response reports a state for logs, traces, and metrics, together with cumulative receiver/write counters, persistent queue size and capacity, table route, and the latest ScopeDB write result. `waiting_for_data` means the listener is ready but has not received that signal; `receiving`, `flowing`, `degraded`, and `refusing` identify the later data-path states.
 
 Read the LLM-facing runtime map:
 
@@ -96,9 +106,39 @@ Send OTLP telemetry to the local runtime:
 - `localhost:4317` for OTLP gRPC
 - `localhost:4318` for OTLP HTTP
 
-The default deployment accepts logs, traces, and metrics, stores them in ScopeDB, and exposes supported fields through Telescope's semantic query layer.
+The default deployment accepts logs, traces, and metrics and appends the configured mappings to ScopeDB.
 
-One daemon can receive telemetry from every deployment environment. Set the OpenTelemetry resource attribute `deployment.environment.name` on producers, for example with `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production,service.name=api`; Telescope stores that value in the top-level `env` column for filtering and grouping. If no environment attribute is present, `env` is stored as `default`.
+One daemon can receive telemetry from every deployment environment. Set the standard OpenTelemetry resource attribute `deployment.environment.name` on producers, for example with `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production,service.name=api`. To store it, add `resource.attributes["deployment.environment.name"]` to each signal mapping and provide the corresponding destination column.
+
+For an application using a standard OpenTelemetry SDK, point the common OTLP environment variables at Telescope's HTTP listener before starting the application:
+
+```bash
+export OTEL_SERVICE_NAME=my-service
+export OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=development
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+If an OpenTelemetry Collector already receives the application's telemetry, add Telescope as its OTLP destination:
+
+```yaml
+exporters:
+  otlp/telescope:
+    endpoint: telescope:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/telescope]
+    metrics:
+      exporters: [otlp/telescope]
+    logs:
+      exporters: [otlp/telescope]
+```
+
+Merge the exporter into the existing pipelines; keep their current receivers and processors. Replace `telescope` with the Telescope host name or address visible from that Collector.
 
 ### Send A Test Trace
 
@@ -157,7 +197,7 @@ Build and run the same daemon directly:
 ```bash
 make build
 
-./bin/telescope daemon --env-file services/gateway/deploy/.env
+./bin/telescope daemon --env-file services/gateway/deploy/.env --ingestion-profile starter
 ```
 
 The same bootstrap config can also come from environment variables:
@@ -165,7 +205,7 @@ The same bootstrap config can also come from environment variables:
 ```bash
 TELESCOPE_SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud \
 TELESCOPE_SCOPEDB_API_KEY=sk_... \
-./bin/telescope daemon
+./bin/telescope daemon --ingestion-profile starter
 ```
 
 Or from command flags:
@@ -173,7 +213,8 @@ Or from command flags:
 ```bash
 ./bin/telescope daemon \
   --scopedb-endpoint https://<region>.scopedb.cloud \
-  --scopedb-api-key sk_...
+  --scopedb-api-key sk_... \
+  --ingestion-profile starter
 ```
 
 For local agents that prefer stdio MCP:
@@ -195,6 +236,7 @@ Telescope exposes five MCP tools:
 The daemon HTTP server exposes:
 
 - `GET /llms.txt`
+- `GET /v1/ingestion/status`
 - `GET /v1/schema`
 - `GET /v1/schema/guide.md`
 - `POST /v1/search`
@@ -203,7 +245,7 @@ The daemon HTTP server exposes:
 
 ## Development
 
-For table creation and routing details, see [Table Management](docs/table-management.md).
+For mapping, table routing, and DDL ownership, see [Mapping and Table Management](docs/table-management.md). The current source-selector contract is in [Ingestion Compatibility](docs/ingestion-compatibility.md), and the product direction and release gates are in the [Telescope Ingestion Roadmap](docs/ingestion-roadmap.md).
 
 Run all tests:
 
@@ -263,7 +305,7 @@ Publish the release image by pushing a version tag such as `v0.2.0`; CI publishe
 
 ### Status
 
-Telescope is an early prototype. The current focus is the agent-facing debugging loop, not dashboards or a managed control plane.
+Telescope is an early prototype. The next roadmap phase focuses on making OTLP ingestion into ScopeDB complete, efficient, and operable. MCP and query features remain available but are outside the ingestion roadmap.
 
 ### License
 

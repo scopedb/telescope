@@ -26,18 +26,31 @@ import (
 )
 
 func NewFactory() exporter.Factory {
+	return NewFactoryWithStatus(DefaultStatusRegistry)
+}
+
+func NewFactoryWithStatus(statuses *StatusRegistry) exporter.Factory {
+	if statuses == nil {
+		statuses = NewStatusRegistry()
+	}
 	return exporter.NewFactory(
 		typeStr,
 		createDefaultConfig,
-		exporter.WithLogs(createLogsExporter, component.StabilityLevelDevelopment),
-		exporter.WithTraces(createTracesExporter, component.StabilityLevelDevelopment),
-		exporter.WithMetrics(createMetricsExporter, component.StabilityLevelDevelopment),
+		exporter.WithLogs(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
+			return createLogsExporter(ctx, set, cfg, statuses)
+		}, component.StabilityLevelDevelopment),
+		exporter.WithTraces(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Traces, error) {
+			return createTracesExporter(ctx, set, cfg, statuses)
+		}, component.StabilityLevelDevelopment),
+		exporter.WithMetrics(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
+			return createMetricsExporter(ctx, set, cfg, statuses)
+		}, component.StabilityLevelDevelopment),
 	)
 }
 
-func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
+func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Logs, error) {
 	baseCfg := cfg.(*Config)
-	exp, err := newDBExporter(baseCfg, set)
+	exp, err := newDBExporter(baseCfg, set, signalLogs, statuses)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +69,9 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 	)
 }
 
-func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Traces, error) {
+func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Traces, error) {
 	baseCfg := cfg.(*Config)
-	exp, err := newDBExporter(baseCfg, set)
+	exp, err := newDBExporter(baseCfg, set, signalTraces, statuses)
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +90,9 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 	)
 }
 
-func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
+func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Metrics, error) {
 	baseCfg := cfg.(*Config)
-	exp, err := newDBExporter(baseCfg, set)
+	exp, err := newDBExporter(baseCfg, set, signalMetrics, statuses)
 	if err != nil {
 		return nil, err
 	}
