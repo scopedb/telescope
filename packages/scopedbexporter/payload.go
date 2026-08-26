@@ -32,6 +32,11 @@ const (
 	signalLogs    = "logs"
 	signalTraces  = "traces"
 	signalMetrics = "metrics"
+
+	// ProbeAttribute identifies synthetic records sent by `telescope ingestion
+	// test`. It is observed in memory and does not need to be part of a user's
+	// ScopeDB mapping.
+	ProbeAttribute = "telescope.probe.id"
 )
 
 type IngestPayload struct {
@@ -39,6 +44,28 @@ type IngestPayload struct {
 }
 
 type Record map[string]any
+
+func probeIDsFromPayload(payload *IngestPayload) []string {
+	if payload == nil {
+		return nil
+	}
+	var probeIDs []string
+	seen := make(map[string]bool)
+	for _, record := range payload.Records {
+		resource, ok := record["resource"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if probeID, ok := resource[ProbeAttribute].(string); ok {
+			probeID = strings.TrimSpace(probeID)
+			if probeID != "" && !seen[probeID] {
+				seen[probeID] = true
+				probeIDs = append(probeIDs, probeID)
+			}
+		}
+	}
+	return probeIDs
+}
 
 type otelContext struct {
 	resource                       map[string]any

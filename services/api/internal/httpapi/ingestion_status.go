@@ -252,13 +252,13 @@ func (s *Service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			Available: metricsAvailable,
 			Endpoint:  s.ingestionMetrics.Endpoint(),
 		},
-		Signals: make([]IngestionSignalStatus, 0, len(ingestionSignals)),
+		Signals: make([]IngestionSignalStatus, 0, len(runtime.Signals)),
 	}
 	if metricsErr != nil {
 		response.InternalTelemetry.Error = metricsErr.Error()
 	}
 
-	for _, signal := range ingestionSignals {
+	for _, signal := range configuredSignalNames(runtime) {
 		runtimeStatus := runtime.Signals[signal]
 		metricStatus := metrics.Signals[signal]
 		queueCapacity := runtimeStatus.QueueCapacity
@@ -268,6 +268,7 @@ func (s *Service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 		signalStatus := IngestionSignalStatus{
 			Signal:                    signal,
 			Ready:                     runtimeStatus.Ready,
+			DestinationVerified:       runtimeStatus.DestinationVerified,
 			Table:                     runtimeStatus.Table,
 			Received:                  metricStatus.Received,
 			ReceiverFailed:            metricStatus.ReceiverFailed,
@@ -284,7 +285,8 @@ func (s *Service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 				Capacity: queueCapacity,
 				Unit:     runtimeStatus.QueueUnit,
 			},
-			LastError: runtimeStatus.LastError,
+			LastError:    runtimeStatus.LastError,
+			LastProbeIDs: runtimeStatus.LastProbeIDs,
 		}
 		if signalStatus.InvalidItemsByReason == nil {
 			signalStatus.InvalidItemsByReason = map[string]uint64{}
@@ -299,11 +301,24 @@ func (s *Service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 		if !runtimeStatus.LastWriteFailure.IsZero() {
 			signalStatus.LastWriteFailure = &runtimeStatus.LastWriteFailure
 		}
+		if !runtimeStatus.LastProbeSuccess.IsZero() {
+			signalStatus.LastProbeSuccess = &runtimeStatus.LastProbeSuccess
+		}
 		signalStatus.State = signalIngestionState(runtimeStatus, metricStatus, metricsAvailable)
 		response.Signals = append(response.Signals, signalStatus)
 	}
 	response.State = overallIngestionState(response.Signals)
 	return response
+}
+
+func configuredSignalNames(snapshot scopedbexporter.StatusSnapshot) []string {
+	names := make([]string, 0, len(snapshot.Signals))
+	for _, signal := range ingestionSignals {
+		if _, ok := snapshot.Signals[signal]; ok {
+			names = append(names, signal)
+		}
+	}
+	return names
 }
 
 func listenerAddress(key string, fallback string) string {
@@ -332,23 +347,18 @@ func signalIngestionState(runtime scopedbexporter.SignalRuntimeStatus, metrics c
 	if runtime.LastWriteFailure.After(runtime.LastWriteSuccess) {
 		return "degraded"
 	}
-	if metrics.Received == 0 && runtime.LastWriteAttempt.IsZero() {
-		return "waiting_for_data"
+	if !runtime.DestinationVerified {
+		return "degraded"
 	}
-	if metrics.QueueSize > 0 || runtime.LastWriteSuccess.IsZero() {
-		return "receiving"
-	}
-	return "flowing"
+	return "ready"
 }
 
 func overallIngestionState(signals []IngestionSignalStatus) string {
 	priority := map[string]int{
-		"starting":         0,
-		"waiting_for_data": 1,
-		"flowing":          2,
-		"receiving":        3,
-		"degraded":         4,
-		"refusing":         5,
+		"starting": 0,
+		"ready":    1,
+		"degraded": 2,
+		"refusing": 3,
 	}
 	state := "starting"
 	for _, signal := range signals {

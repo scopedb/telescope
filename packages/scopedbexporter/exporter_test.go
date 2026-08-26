@@ -63,13 +63,16 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
-	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
 
 	logs := plog.NewLogs()
-	record := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	resourceLogs := logs.ResourceLogs().AppendEmpty()
+	resourceLogs.Resource().Attributes().PutStr(ProbeAttribute, "probe-1")
+	record := resourceLogs.ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 	record.Body().SetStr("hello")
 	record.Attributes().PutStr("not.selected", "discarded")
 	require.NoError(t, exp.ConsumeLogs(context.Background(), logs))
@@ -78,6 +81,7 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 	defer mu.Unlock()
 	require.Len(t, rows, 1)
 	assert.Equal(t, map[string]any{"message": "hello"}, rows[0])
+	assert.Equal(t, []string{"probe-1"}, statuses.Snapshot().Signals[signalLogs].LastProbeIDs)
 }
 
 func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {
@@ -95,6 +99,30 @@ func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "missing mapped columns: message")
 	assert.False(t, statuses.Snapshot().Signals[signalLogs].Ready)
+}
+
+func TestExporterStartsWhenDestinationIsTemporarilyUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"message":   "temporary outage",
+			"retryable": true,
+		}))
+	}))
+	defer server.Close()
+
+	cfg := testExporterConfig(server.URL)
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer exp.Shutdown(context.Background())
+
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.True(t, status.Ready)
+	assert.False(t, status.DestinationVerified)
+	assert.Contains(t, status.LastError, "temporary outage")
 }
 
 func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {

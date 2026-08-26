@@ -40,16 +40,39 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestPersistentQueueRecoversAfterCollectorRestart(t *testing.T) {
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		t.Run(signal, func(t *testing.T) {
+			testPersistentQueueRecoversAfterCollectorRestart(t, signal)
+		})
+	}
+}
+
+func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal string) {
 	var backendAvailable atomic.Bool
+	var catalogAvailable atomic.Bool
+	catalogAvailable.Store(true)
 	failedAttempt := make(chan struct{}, 1)
 	committed := make(chan map[string]any, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			writeRecoveryTableDescription(t, w)
+			if !catalogAvailable.Load() {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+					"message":   "catalog unavailable",
+					"retryable": true,
+				}))
+				return
+			}
+			writeRecoveryTableDescription(t, w, r)
 		case http.MethodPost:
 			if !backendAvailable.Load() {
 				select {
@@ -86,11 +109,12 @@ func TestPersistentQueueRecoversAfterCollectorRestart(t *testing.T) {
 
 	queueDir := filepath.Join(t.TempDir(), "queue")
 	otlpAddress := freeTCPAddress(t)
-	config := recoveryCollectorConfig(backend.URL, otlpAddress, queueDir)
+	config := recoveryCollectorConfig(backend.URL, otlpAddress, queueDir, signal)
+	value := signal + " survives restart"
 
 	first := startRecoveryCollector(t, config)
 	defer first.stop(t)
-	require.NoError(t, sendRecoveryLog(otlpAddress, "survives restart"))
+	require.NoError(t, sendRecoverySignal(otlpAddress, signal, value))
 	select {
 	case <-failedAttempt:
 	case <-time.After(5 * time.Second):
@@ -99,41 +123,47 @@ func TestPersistentQueueRecoversAfterCollectorRestart(t *testing.T) {
 	first.stop(t)
 	require.True(t, directoryHasFiles(t, queueDir), "persistent queue directory should retain state")
 
-	backendAvailable.Store(true)
+	catalogAvailable.Store(false)
 	second := startRecoveryCollector(t, config)
 	defer second.stop(t)
+	backendAvailable.Store(true)
+	catalogAvailable.Store(true)
 	select {
 	case row := <-committed:
-		assert.Equal(t, map[string]any{"message": "survives restart"}, row)
+		assert.Equal(t, map[string]any{"value": value}, row)
 	case <-time.After(10 * time.Second):
 		t.Fatal("queued OTLP record was not appended after restart and backend recovery")
 	}
 }
 
 func TestByteSizedQueueRefusesItemOverCapacity(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeRecoveryTableDescription(t, w)
-			return
-		}
-		t.Errorf("append should not be attempted when the item exceeds queue capacity")
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer backend.Close()
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		t.Run(signal, func(t *testing.T) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					writeRecoveryTableDescription(t, w, r)
+					return
+				}
+				t.Errorf("append should not be attempted when the item exceeds queue capacity")
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer backend.Close()
 
-	address := freeTCPAddress(t)
-	config := strings.Replace(
-		recoveryCollectorConfig(backend.URL, address, filepath.Join(t.TempDir(), "queue")),
-		"queue_size: 1048576",
-		"queue_size: 1",
-		1,
-	)
-	runtime := startRecoveryCollector(t, config)
-	defer runtime.stop(t)
+			address := freeTCPAddress(t)
+			config := strings.Replace(
+				recoveryCollectorConfig(backend.URL, address, filepath.Join(t.TempDir(), "queue"), signal),
+				"queue_size: 1048576",
+				"queue_size: 1",
+				1,
+			)
+			runtime := startRecoveryCollector(t, config)
+			defer runtime.stop(t)
 
-	err := sendRecoveryLog(address, "larger than one byte")
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "503 Service Unavailable")
+			err := sendRecoverySignal(address, signal, signal+" larger than one byte")
+			require.Error(t, err)
+			assert.ErrorContains(t, err, "503 Service Unavailable")
+		})
+	}
 }
 
 type recoveryCollector struct {
@@ -190,7 +220,7 @@ func (r *recoveryCollector) stop(t *testing.T) {
 	require.NoError(t, r.stopErr)
 }
 
-func recoveryCollectorConfig(scopeDBEndpoint string, otlpAddress string, queueDir string) string {
+func recoveryCollectorConfig(scopeDBEndpoint string, otlpAddress string, queueDir string, signal string) string {
 	return fmt.Sprintf(`
 extensions:
   file_storage:
@@ -209,15 +239,15 @@ exporters:
     timeout: 1s
     tables:
       logs: public.recovery_logs
-      traces: public.unused_traces
-      metrics: public.unused_metrics
+      traces: public.recovery_traces
+      metrics: public.recovery_metrics
     mappings:
       logs:
-        message: log.message
+        value: log.message
       traces:
-        name: span.name
+        value: span.name
       metrics:
-        name: metric.name
+        value: metric.name
     sending_queue:
       enabled: true
       storage: file_storage
@@ -226,8 +256,8 @@ exporters:
       num_consumers: 1
     retry_on_failure:
       enabled: true
-      initial_interval: 10s
-      max_interval: 10s
+      initial_interval: 1s
+      max_interval: 1s
       max_elapsed_time: 0s
 service:
   extensions: [file_storage]
@@ -237,10 +267,10 @@ service:
     metrics:
       level: none
   pipelines:
-    logs:
+    %s:
       receivers: [otlp]
       exporters: [scopedb]
-`, queueDir, otlpAddress, scopeDBEndpoint)
+`, queueDir, otlpAddress, scopeDBEndpoint, signal)
 }
 
 func freeTCPAddress(t *testing.T) string {
@@ -251,16 +281,12 @@ func freeTCPAddress(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-func sendRecoveryLog(address string, message string) error {
-	logs := plog.NewLogs()
-	record := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-	record.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
-	record.Body().SetStr(message)
-	payload, err := plogotlp.NewExportRequestFromLogs(logs).MarshalProto()
+func sendRecoverySignal(address string, signal string, value string) error {
+	payload, err := marshalRecoverySignal(signal, value)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequest(http.MethodPost, "http://"+address+"/v1/logs", bytes.NewReader(payload))
+	request, err := http.NewRequest(http.MethodPost, "http://"+address+"/v1/"+signal, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -277,14 +303,45 @@ func sendRecoveryLog(address string, message string) error {
 	return nil
 }
 
-func writeRecoveryTableDescription(t *testing.T, w http.ResponseWriter) {
+func marshalRecoverySignal(signal string, value string) ([]byte, error) {
+	now := pcommon.NewTimestampFromTime(time.Now())
+	switch signal {
+	case "logs":
+		logs := plog.NewLogs()
+		record := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+		record.SetTimestamp(now)
+		record.Body().SetStr(value)
+		return plogotlp.NewExportRequestFromLogs(logs).MarshalProto()
+	case "traces":
+		traces := ptrace.NewTraces()
+		span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+		span.SetName(value)
+		span.SetStartTimestamp(now)
+		span.SetEndTimestamp(now + 1)
+		return ptraceotlp.NewExportRequestFromTraces(traces).MarshalProto()
+	case "metrics":
+		metrics := pmetric.NewMetrics()
+		metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		metric.SetName(value)
+		point := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+		point.SetTimestamp(now)
+		point.SetIntValue(1)
+		return pmetricotlp.NewExportRequestFromMetrics(metrics).MarshalProto()
+	default:
+		return nil, fmt.Errorf("unsupported recovery signal %q", signal)
+	}
+}
+
+func writeRecoveryTableDescription(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
+	name := strings.TrimPrefix(r.URL.Path, "/v1/databases/scopedb/schemas/public/tables/")
+	require.Contains(t, []string{"recovery_logs", "recovery_traces", "recovery_metrics"}, name)
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 		"database":     "scopedb",
 		"schema":       "public",
-		"name":         "recovery_logs",
-		"columns":      []map[string]any{{"name": "message", "data_type": "string"}},
+		"name":         name,
+		"columns":      []map[string]any{{"name": "value", "data_type": "string"}},
 		"partition_by": []string{},
 		"cluster_by":   []string{},
 		"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},

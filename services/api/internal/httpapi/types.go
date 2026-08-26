@@ -51,6 +51,7 @@ type IngestionSignalStatus struct {
 	Signal                    string               `json:"signal"`
 	State                     string               `json:"state"`
 	Ready                     bool                 `json:"ready"`
+	DestinationVerified       bool                 `json:"destination_verified"`
 	Table                     string               `json:"table,omitempty"`
 	Received                  uint64               `json:"received"`
 	ReceiverFailed            uint64               `json:"receiver_failed"`
@@ -66,6 +67,8 @@ type IngestionSignalStatus struct {
 	LastWriteFailure          *time.Time           `json:"last_write_failure,omitempty"`
 	LastWriteDurationMS       int64                `json:"last_write_duration_ms,omitempty"`
 	LastError                 string               `json:"last_error,omitempty"`
+	LastProbeIDs              []string             `json:"last_probe_ids,omitempty"`
+	LastProbeSuccess          *time.Time           `json:"last_probe_success,omitempty"`
 }
 
 type IngestionQueueStatus struct {

@@ -12,24 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
-
-ARG TARGETOS
-ARG TARGETARCH
-
-WORKDIR /src
-COPY . .
-
-RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.3 go build -trimpath -ldflags "-s -w" -o /out/telescope ./services/api/cmd/telescope
-
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
-
-COPY --from=builder /out/telescope /usr/local/bin/telescope
-
-VOLUME ["/var/lib/telescope/queue"]
-
-EXPOSE 4317 4318 8080 13133
-
-ENTRYPOINT ["/usr/local/bin/telescope"]
-CMD ["daemon"]
+signals:
+  traces:
+    table: scopedb.otel.traces
+    mapping:
+      start_timestamp: span.start_time
+      end_timestamp: span.end_time
+      trace_id: span.trace_id
+      span_id: span.span_id
+      parent_span_id: span.parent_span_id
+      service: resource.attributes["service.name"]
+      span_name: span.name
+      span_kind: span.kind
+      status_code: span.status.code
+      duration_ns: span.duration_ns

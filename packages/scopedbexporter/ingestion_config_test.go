@@ -29,16 +29,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckIngestionDestinationsChecksAllSignals(t *testing.T) {
+func TestCheckIngestionDestinationsChecksOnlyEnabledSignals(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		name := strings.TrimPrefix(r.URL.Path, "/v1/databases/scopedb/schemas/public/tables/")
-		column := map[string]string{
-			"check_logs":    "message",
-			"check_traces":  "name",
-			"check_metrics": "name",
-		}[name]
+		column := map[string]string{"check_traces": "name"}[name]
 		require.NotEmpty(t, column)
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
@@ -54,17 +50,25 @@ func TestCheckIngestionDestinationsChecksAllSignals(t *testing.T) {
 	defer server.Close()
 
 	err := CheckIngestionDestinations(context.Background(), server.URL, "test-key", IngestionConfig{
-		Tables: TableRoutingConfig{
-			Logs:    "public.check_logs",
-			Traces:  "public.check_traces",
-			Metrics: "public.check_metrics",
-		},
-		Mappings: SignalMappingConfig{
-			Logs:    map[string]string{"message": "log.message"},
-			Traces:  map[string]string{"name": "span.name"},
-			Metrics: map[string]string{"name": "metric.name"},
+		Signals: IngestionSignalsConfig{
+			Traces: SignalIngestionConfig{
+				Table:   "public.check_traces",
+				Mapping: map[string]string{"name": "span.name"},
+			},
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int32(3), requests.Load())
+	assert.Equal(t, int32(1), requests.Load())
+}
+
+func TestIngestionConfigRequiresOneCompleteSignal(t *testing.T) {
+	err := (IngestionConfig{}).Validate()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "at least one signal is required")
+
+	err = (IngestionConfig{Signals: IngestionSignalsConfig{
+		Traces: SignalIngestionConfig{Mapping: map[string]string{"name": "span.name"}},
+	}}).Validate()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "signals.traces.table is required")
 }

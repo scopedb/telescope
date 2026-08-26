@@ -314,6 +314,7 @@ Usage:
   telescope daemon [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
   telescope mcp [--env-file file] [--scopedb-endpoint url] [--scopedb-api-key key]
   telescope ingestion check (--config file | --profile starter)
+  telescope ingestion test --signal (logs | traces | metrics)
   telescope collector <otelcol command>
   telescope version
 

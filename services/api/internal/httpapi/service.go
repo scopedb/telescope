@@ -91,6 +91,25 @@ func (s *Service) Health(_ context.Context) HealthResponse {
 	return response
 }
 
+func (s *Service) Readiness(ctx context.Context) (HealthResponse, bool) {
+	status := s.IngestionStatus(ctx)
+	ready := status.InternalTelemetry.Available && len(status.Signals) > 0
+	for _, signal := range status.Signals {
+		ready = ready && signal.Ready
+	}
+	response := HealthResponse{
+		Status:  "not_ready",
+		Service: serviceName,
+	}
+	if ready {
+		response.Status = "ready"
+	}
+	if s.version != "" {
+		response.Version = s.version
+	}
+	return response, ready
+}
+
 func (s *Service) Schema(_ context.Context) (SchemaResponse, error) {
 	return schemaResponse(s.registry), nil
 }

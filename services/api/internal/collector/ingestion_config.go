@@ -69,15 +69,32 @@ func ConfigURIForIngestion(config scopedbexporter.IngestionConfig) (string, erro
 	if !ok {
 		return "", fmt.Errorf("embedded collector config has no scopedb exporter")
 	}
-	scopeDB["tables"] = map[string]string{
-		"logs":    config.Tables.Logs,
-		"traces":  config.Tables.Traces,
-		"metrics": config.Tables.Metrics,
+	tables := make(map[string]string, len(config.EnabledSignals()))
+	mappings := make(map[string]map[string]string, len(config.EnabledSignals()))
+	for _, signal := range config.EnabledSignals() {
+		signalConfig, _ := config.Signal(signal)
+		tables[signal] = signalConfig.Table
+		mappings[signal] = signalConfig.Mapping
 	}
-	scopeDB["mappings"] = map[string]map[string]string{
-		"logs":    config.Mappings.Logs,
-		"traces":  config.Mappings.Traces,
-		"metrics": config.Mappings.Metrics,
+	scopeDB["tables"] = tables
+	scopeDB["mappings"] = mappings
+
+	service, ok := rendered["service"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("embedded collector config has no service map")
+	}
+	pipelines, ok := service["pipelines"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("embedded collector config has no pipelines map")
+	}
+	enabled := make(map[string]bool, len(config.EnabledSignals()))
+	for _, signal := range config.EnabledSignals() {
+		enabled[signal] = true
+	}
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		if !enabled[signal] {
+			delete(pipelines, signal)
+		}
 	}
 
 	data, err := yaml.Marshal(rendered)

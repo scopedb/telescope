@@ -4,7 +4,7 @@ Status: current `v1` source-mapping contract
 
 This document defines what Telescope accepts through OTLP and makes available to user mappings. The executable source contract is the versioned corpus under `packages/scopedbexporter/testdata/golden/v1`.
 
-This is not a mandatory ScopeDB row schema. Only sources selected in `mappings.logs`, `mappings.traces`, or `mappings.metrics` are serialized into their configured destination columns. See [Mapping and Table Management](table-management.md).
+This is not a mandatory ScopeDB row schema. Only sources selected in a configured signal's `mapping` are serialized into its destination columns. See [Mapping and Table Management](table-management.md).
 
 ## Protocol and Signal Support
 
@@ -32,7 +32,7 @@ The following shared context is available to every signal mapping:
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
-Before opening OTLP listeners, Telescope checks every selected destination column. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type.
+`telescope ingestion check` checks every selected destination column before deployment. Daemon startup repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type.
 
 ## Logs
 
@@ -89,13 +89,15 @@ Current reasons are:
 
 ## Ingestion Status
 
-`GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. For each signal it includes:
+`GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
 
 - OTLP receiver accepted, failed, and refused records;
 - successfully written records and records involved in failed write attempts;
 - exporter queue enqueue failures, current size, capacity, and configured unit;
 - the configured ScopeDB table;
 - last write attempt, success, failure, duration, and error;
+- whether the destination has been verified by a table check or successful append;
+- the synthetic probe IDs in the last successfully appended batch and their confirmation time;
 - records rejected by permanent mapper or ScopeDB errors observed by the exporter.
 - invalid mapper items grouped by stable reason.
 
@@ -105,7 +107,7 @@ Receiver and queue counts come directly from the OpenTelemetry Collector's inter
 
 When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. They are not the file-storage directory's exact disk usage.
 
-The endpoint uses the Collector's local Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves that endpoint. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state.
+The endpoint uses the Collector's local Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves that endpoint. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
 
 ## Known `v1` Gaps
 

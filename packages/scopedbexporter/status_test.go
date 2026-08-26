@@ -34,6 +34,7 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 	registry.configure(signalLogs, cfg)
 	registry.markReady(signalLogs)
 	registry.recordWrite(signalLogs, 2, now.Add(-25*time.Millisecond), nil, false)
+	registry.recordProbeSuccess(signalLogs, []string{"probe-1", "probe-2"})
 
 	status := registry.Snapshot().Signals[signalLogs]
 	assert.True(t, status.Ready)
@@ -43,6 +44,8 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 	assert.Equal(t, now, status.LastWriteSuccess)
 	assert.Equal(t, 25*time.Millisecond, status.LastWriteDuration)
 	assert.Empty(t, status.LastError)
+	assert.Equal(t, []string{"probe-1", "probe-2"}, status.LastProbeIDs)
+	assert.Equal(t, now, status.LastProbeSuccess)
 
 	now = now.Add(time.Second)
 	registry.recordWrite(signalLogs, 3, now.Add(-10*time.Millisecond), &mappingError{
@@ -62,13 +65,16 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 func TestStatusRegistrySnapshotIsIndependent(t *testing.T) {
 	registry := NewStatusRegistry()
 	registry.configure(signalTraces, createDefaultConfig().(*Config))
+	registry.recordProbeSuccess(signalTraces, []string{"probe-1"})
 
 	snapshot := registry.Snapshot()
 	status := snapshot.Signals[signalTraces]
 	status.Table = "changed"
+	status.LastProbeIDs[0] = "changed"
 	status.InvalidItemsByReason["changed"] = 1
 	snapshot.Signals[signalTraces] = status
 
 	require.Equal(t, defaultTracesTable, registry.Snapshot().Signals[signalTraces].Table)
+	require.Equal(t, []string{"probe-1"}, registry.Snapshot().Signals[signalTraces].LastProbeIDs)
 	require.NotContains(t, registry.Snapshot().Signals[signalTraces].InvalidItemsByReason, "changed")
 }

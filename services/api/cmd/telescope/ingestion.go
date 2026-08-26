@@ -32,8 +32,11 @@ import (
 )
 
 func runIngestion(args []string) error {
+	if len(args) > 0 && args[0] == "test" {
+		return runIngestionTest(args[1:])
+	}
 	if len(args) == 0 || args[0] != "check" {
-		return errors.New("usage: telescope ingestion check (--config file | --profile starter)")
+		return errors.New("usage: telescope ingestion (check | test)")
 	}
 
 	flags := flag.NewFlagSet("ingestion check", flag.ContinueOnError)
@@ -137,23 +140,16 @@ func resolveIngestionConfig(
 }
 
 func printIngestionPlan(w io.Writer, config scopedbexporter.IngestionConfig) {
-	for _, signal := range []struct {
-		name    string
-		table   string
-		mapping map[string]string
-	}{
-		{name: "logs", table: config.Tables.Logs, mapping: config.Mappings.Logs},
-		{name: "traces", table: config.Tables.Traces, mapping: config.Mappings.Traces},
-		{name: "metrics", table: config.Tables.Metrics, mapping: config.Mappings.Metrics},
-	} {
-		fmt.Fprintf(w, "%s -> %s\n", signal.name, signal.table)
-		columns := make([]string, 0, len(signal.mapping))
-		for column := range signal.mapping {
+	for _, signal := range config.EnabledSignals() {
+		signalConfig, _ := config.Signal(signal)
+		fmt.Fprintf(w, "%s -> %s\n", signal, signalConfig.Table)
+		columns := make([]string, 0, len(signalConfig.Mapping))
+		for column := range signalConfig.Mapping {
 			columns = append(columns, column)
 		}
 		sort.Strings(columns)
 		for _, column := range columns {
-			fmt.Fprintf(w, "  %s <- %s\n", column, signal.mapping[column])
+			fmt.Fprintf(w, "  %s <- %s\n", column, signalConfig.Mapping[column])
 		}
 	}
 }

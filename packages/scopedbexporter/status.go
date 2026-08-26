@@ -43,11 +43,14 @@ type SignalRuntimeStatus struct {
 	QueueCapacity          int64
 	QueueUnit              string
 	Ready                  bool
+	DestinationVerified    bool
 	LastWriteAttempt       time.Time
 	LastWriteSuccess       time.Time
 	LastWriteFailure       time.Time
 	LastWriteDuration      time.Duration
 	LastError              string
+	LastProbeIDs           []string
+	LastProbeSuccess       time.Time
 	PermanentFailedRecords uint64
 	InvalidItemsByReason   map[string]uint64
 }
@@ -77,11 +80,14 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 	r.mu.Lock()
 	if current, ok := r.signals[signal]; ok {
 		status.Ready = current.Ready
+		status.DestinationVerified = current.DestinationVerified
 		status.LastWriteAttempt = current.LastWriteAttempt
 		status.LastWriteSuccess = current.LastWriteSuccess
 		status.LastWriteFailure = current.LastWriteFailure
 		status.LastWriteDuration = current.LastWriteDuration
 		status.LastError = current.LastError
+		status.LastProbeIDs = append([]string(nil), current.LastProbeIDs...)
+		status.LastProbeSuccess = current.LastProbeSuccess
 		status.PermanentFailedRecords = current.PermanentFailedRecords
 		status.InvalidItemsByReason = cloneReasonCounts(current.InvalidItemsByReason)
 	}
@@ -92,13 +98,36 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 func (r *StatusRegistry) markReady(signal string) {
 	r.update(signal, func(status *SignalRuntimeStatus) {
 		status.Ready = true
+		status.DestinationVerified = true
 		status.LastError = ""
+	})
+}
+
+func (r *StatusRegistry) markReadyDegraded(signal string, err error) {
+	if err == nil {
+		return
+	}
+	r.update(signal, func(status *SignalRuntimeStatus) {
+		status.Ready = true
+		status.DestinationVerified = false
+		status.LastWriteFailure = r.now()
+		status.LastError = err.Error()
 	})
 }
 
 func (r *StatusRegistry) markStopped(signal string) {
 	r.update(signal, func(status *SignalRuntimeStatus) {
 		status.Ready = false
+	})
+}
+
+func (r *StatusRegistry) recordProbeSuccess(signal string, probeIDs []string) {
+	if len(probeIDs) == 0 {
+		return
+	}
+	r.update(signal, func(status *SignalRuntimeStatus) {
+		status.LastProbeIDs = append(status.LastProbeIDs[:0], probeIDs...)
+		status.LastProbeSuccess = r.now()
 	})
 }
 
@@ -111,6 +140,7 @@ func (r *StatusRegistry) recordWrite(signal string, records int, started time.Ti
 		status.LastWriteAttempt = finished
 		status.LastWriteDuration = finished.Sub(started)
 		if err == nil {
+			status.DestinationVerified = true
 			status.LastWriteSuccess = finished
 			status.LastError = ""
 			return
@@ -159,6 +189,7 @@ func (r *StatusRegistry) Snapshot() StatusSnapshot {
 	}
 	r.mu.RLock()
 	for signal, status := range r.signals {
+		status.LastProbeIDs = append([]string(nil), status.LastProbeIDs...)
 		status.InvalidItemsByReason = cloneReasonCounts(status.InvalidItemsByReason)
 		snapshot.Signals[signal] = status
 	}

@@ -19,38 +19,36 @@ This separation is intentional. A mapping can identify the destination column na
 Each mapping is `destination column: OpenTelemetry source`:
 
 ```yaml
-exporters:
-  scopedb:
-    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
-    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    tables:
-      logs: telemetry_prod.otel.events
-      traces: telemetry_prod.otel.spans
-      metrics: telemetry_prod.otel.metric_points
-    mappings:
-      logs:
-        event_time: log.timestamp
-        app: resource.attributes["service.name"]
-        environment: resource.attributes["deployment.environment.name"]
-        level: log.severity_text
-        body: log.body
-        trace_id: log.trace_id
-      traces:
-        started_at: span.start_time
-        app: resource.attributes["service.name"]
-        trace_id: span.trace_id
-        span_id: span.span_id
-        operation: span.name
-        duration_ns: span.duration_ns
-        tags: span.attributes
-      metrics:
-        measured_at: datapoint.timestamp
-        app: resource.attributes["service.name"]
-        name: metric.name
-        int_value: datapoint.int_value
-        double_value: datapoint.double_value
-        distribution: datapoint.distribution
-        tags: datapoint.attributes
+signals:
+  logs:
+    table: telemetry_prod.otel.events
+    mapping:
+      event_time: log.timestamp
+      app: resource.attributes["service.name"]
+      environment: resource.attributes["deployment.environment.name"]
+      level: log.severity_text
+      body: log.body
+      trace_id: log.trace_id
+  traces:
+    table: telemetry_prod.otel.spans
+    mapping:
+      started_at: span.start_time
+      app: resource.attributes["service.name"]
+      trace_id: span.trace_id
+      span_id: span.span_id
+      operation: span.name
+      duration_ns: span.duration_ns
+      tags: span.attributes
+  metrics:
+    table: telemetry_prod.otel.metric_points
+    mapping:
+      measured_at: datapoint.timestamp
+      app: resource.attributes["service.name"]
+      name: metric.name
+      int_value: datapoint.int_value
+      double_value: datapoint.double_value
+      distribution: datapoint.distribution
+      tags: datapoint.attributes
 ```
 
 Only those destination columns appear in the NDJSON row. There is no implicit `record`, `env`, `schema_version`, or copy of every OpenTelemetry attribute. Map a whole attribute object only when the target table actually has an object column for it; otherwise select individual keys.
@@ -61,13 +59,16 @@ The full source selector reference is in the [ScopeDB exporter README](../packag
 
 ## Starter Profile Tables
 
-The explicitly selected `starter` profile uses three routes:
+The explicitly selected `starter` profile enables three routes:
 
 ```yaml
-tables:
-  logs: scopedb.otel.logs
-  traces: scopedb.otel.traces
-  metrics: scopedb.otel.metrics
+signals:
+  logs:
+    table: scopedb.otel.logs
+  traces:
+    table: scopedb.otel.traces
+  metrics:
+    table: scopedb.otel.metrics
 ```
 
 The corresponding starter mappings require these columns:
@@ -128,25 +129,17 @@ The starter mapping is only a bootstrap convenience. Production configurations s
 For user-owned tables, put only the routes and mappings in an ingestion file; Collector receivers, batching, persistence, compression, and retry remain Telescope-owned:
 
 ```yaml
-tables:
-  logs: telemetry_prod.otel.events
-  traces: telemetry_prod.otel.spans
-  metrics: telemetry_prod.otel.metric_points
-mappings:
-  logs:
-    event_time: log.timestamp
-    message: log.message
+signals:
   traces:
-    started_at: span.start_time
-    operation: span.name
-  metrics:
-    measured_at: datapoint.timestamp
-    name: metric.name
-    int_value: datapoint.int_value
-    double_value: datapoint.double_value
+    table: telemetry_prod.otel.spans
+    mapping:
+      started_at: span.start_time
+      operation: span.name
 ```
 
-Inspect the exact mapping and validate it against ScopeDB before accepting OTLP:
+Only configured signals get Collector pipelines. The example accepts traces without requiring placeholder log and metric tables. Add independent `logs` or `metrics` blocks when needed.
+
+Validate the mapping against the live destination before accepting OTLP:
 
 ```bash
 telescope ingestion check \
@@ -160,7 +153,9 @@ telescope daemon \
   --scopedb-api-key sk_...
 ```
 
-Both the check command and daemon startup describe every destination. They report missing columns and statically known type mismatches, including the destination column, selector, produced type, and actual ScopeDB type. Attribute-key selectors and `log.body` are runtime-typed, so Telescope checks that their columns exist but does not guess a type. Telescope never modifies the table.
+The check command prints `signal -> table -> destination column -> OTel source`, then describes every configured destination. It reports missing columns and statically known type mismatches, including the destination column, selector, produced type, and actual ScopeDB type. Attribute-key selectors and `log.body` are runtime-typed, so Telescope checks that their columns exist but does not guess a type. Telescope never modifies the table.
+
+Daemon startup performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 
 `create_tables_if_not_exist: true` is rejected. Remove it from older configs and provision the tables separately.
 
@@ -172,7 +167,7 @@ TELESCOPE_SCOPEDB_API_KEY=dummy \
 make validate
 ```
 
-Starting the pipeline performs the live table descriptions.
+Use `telescope ingestion test --signal <signal>` after startup to send one synthetic OTLP record and wait for its exact ScopeDB append acknowledgement. The probe does not query mapped columns.
 
 ## Mapping Changes
 
@@ -180,7 +175,7 @@ Treat a mapping change like an application-to-database contract change:
 
 1. Apply compatible DDL first.
 2. Update the mapping.
-3. Restart or roll out Telescope; startup validation confirms the columns.
+3. Run `telescope ingestion check`, then restart or roll out Telescope.
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.
 

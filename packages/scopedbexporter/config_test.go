@@ -104,6 +104,16 @@ func TestConfigAllowsSignalsToShareTable(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
+func TestConfigAllowsOneSignal(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Tables.Logs = ""
+	cfg.Mappings.Logs = nil
+	cfg.Tables.Metrics = ""
+	cfg.Mappings.Metrics = nil
+
+	require.NoError(t, cfg.Validate())
+}
+
 func TestCreateDefaultConfig(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 
@@ -119,7 +129,7 @@ func TestCreateDefaultConfig(t *testing.T) {
 	assert.True(t, cfg.SendingQueue.HasValue())
 }
 
-func TestConfigUnmarshalReplacesSpecifiedMappingOnly(t *testing.T) {
+func TestConfigUnmarshalDisablesUnspecifiedMappings(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	conf := confmap.NewFromStringMap(map[string]any{
 		"mappings": map[string]any{
@@ -131,8 +141,8 @@ func TestConfigUnmarshalReplacesSpecifiedMappingOnly(t *testing.T) {
 
 	require.NoError(t, conf.Unmarshal(cfg))
 	assert.Equal(t, map[string]string{"event": "log.body"}, cfg.Mappings.Logs)
-	assert.NotEmpty(t, cfg.Mappings.Traces)
-	assert.NotEmpty(t, cfg.Mappings.Metrics)
+	assert.Empty(t, cfg.Mappings.Traces)
+	assert.Empty(t, cfg.Mappings.Metrics)
 }
 
 func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {

@@ -52,6 +52,7 @@ func NewWithService(service TelemetryService) (*echo.Echo, error) {
 	e.Use(middleware.Recover())
 
 	e.GET("/healthz", server.getHealth)
+	e.GET("/readyz", server.getReadiness)
 	e.GET("/llms.txt", server.getLLMSText)
 
 	v1 := e.Group("/v1")
@@ -78,6 +79,22 @@ func (s *Server) getIngestionStatus(c echo.Context) error {
 
 func (s *Server) getHealth(c echo.Context) error {
 	return c.JSON(http.StatusOK, s.service.Health(c.Request().Context()))
+}
+
+type readinessService interface {
+	Readiness(context.Context) (HealthResponse, bool)
+}
+
+func (s *Server) getReadiness(c echo.Context) error {
+	service, ok := s.service.(readinessService)
+	if !ok {
+		return s.writeError(c, http.StatusServiceUnavailable, "readiness_unavailable", "readiness is unavailable", nil)
+	}
+	response, ready := service.Readiness(c.Request().Context())
+	if !ready {
+		return c.JSON(http.StatusServiceUnavailable, response)
+	}
+	return c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) getLLMSText(c echo.Context) error {

@@ -49,6 +49,16 @@ type TableRoutingConfig struct {
 	Metrics string `mapstructure:"metrics" yaml:"metrics"`
 }
 
+func (cfg *TableRoutingConfig) Unmarshal(conf *confmap.Conf) error {
+	type rawTableRoutingConfig TableRoutingConfig
+	var decoded rawTableRoutingConfig
+	if err := conf.Unmarshal(&decoded); err != nil {
+		return err
+	}
+	*cfg = TableRoutingConfig(decoded)
+	return nil
+}
+
 type SignalMappingConfig struct {
 	Logs    map[string]string `mapstructure:"logs" yaml:"logs"`
 	Traces  map[string]string `mapstructure:"traces" yaml:"traces"`
@@ -61,15 +71,7 @@ func (cfg *SignalMappingConfig) Unmarshal(conf *confmap.Conf) error {
 	if err := conf.Unmarshal(&decoded); err != nil {
 		return err
 	}
-	if conf.IsSet(signalLogs) {
-		cfg.Logs = decoded.Logs
-	}
-	if conf.IsSet(signalTraces) {
-		cfg.Traces = decoded.Traces
-	}
-	if conf.IsSet(signalMetrics) {
-		cfg.Metrics = decoded.Metrics
-	}
+	*cfg = SignalMappingConfig(decoded)
 	return nil
 }
 
@@ -87,6 +89,7 @@ type Config struct {
 
 func createDefaultConfig() component.Config {
 	starter := StarterIngestionConfig()
+	tables, mappings := starter.exporterConfig()
 	retryCfg := configretry.NewDefaultBackOffConfig()
 	retryCfg.Enabled = true
 	retryCfg.InitialInterval = time.Second
@@ -99,8 +102,8 @@ func createDefaultConfig() component.Config {
 	queueCfg.Batch = configoptional.None[exporterhelper.BatchConfig]()
 
 	return &Config{
-		Tables:         starter.Tables,
-		Mappings:       starter.Mappings,
+		Tables:         tables,
+		Mappings:       mappings,
 		Compression:    defaultCompression,
 		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
@@ -126,7 +129,7 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("api_key is required"))
 	}
 
-	if err := (IngestionConfig{Tables: cfg.Tables, Mappings: cfg.Mappings}).Validate(); err != nil {
+	if err := ingestionConfigFromExporter(cfg.Tables, cfg.Mappings).Validate(); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -155,6 +158,19 @@ func (cfg *Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func (cfg *Config) enabledSignals() []string {
+	return ingestionConfigFromExporter(cfg.Tables, cfg.Mappings).EnabledSignals()
+}
+
+func (cfg *Config) signalEnabled(signal string) bool {
+	for _, enabled := range cfg.enabledSignals() {
+		if enabled == signal {
+			return true
+		}
+	}
+	return false
 }
 
 func (cfg *Config) compressionMode() string {

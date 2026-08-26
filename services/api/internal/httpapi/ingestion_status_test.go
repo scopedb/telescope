@@ -62,38 +62,33 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {
-				Signal:           "logs",
-				Ready:            true,
-				Table:            "scopedb.otel.logs",
-				QueueEnabled:     true,
-				QueueCapacity:    5000,
-				QueueUnit:        "bytes",
-				LastWriteAttempt: now.Add(-time.Second),
-				LastWriteSuccess: now.Add(-time.Second),
+				Signal:              "logs",
+				Ready:               true,
+				DestinationVerified: true,
+				Table:               "scopedb.otel.logs",
+				QueueEnabled:        true,
+				QueueCapacity:       5000,
+				QueueUnit:           "bytes",
+				LastWriteAttempt:    now.Add(-time.Second),
+				LastWriteSuccess:    now.Add(-time.Second),
+				LastProbeIDs:        []string{"probe-1", "probe-2"},
+				LastProbeSuccess:    now.Add(-time.Second),
 			},
 			"traces": {
-				Signal:        "traces",
-				Ready:         true,
-				Table:         "scopedb.otel.traces",
-				QueueEnabled:  true,
-				QueueCapacity: 5000,
-			},
-			"metrics": {
-				Signal:               "metrics",
-				Ready:                true,
-				Table:                "scopedb.otel.metrics",
-				QueueEnabled:         true,
-				QueueCapacity:        5000,
-				InvalidItemsByReason: map[string]uint64{"unsupported_metric_type": 2},
+				Signal:              "traces",
+				Ready:               true,
+				DestinationVerified: true,
+				Table:               "scopedb.otel.traces",
+				QueueEnabled:        true,
+				QueueCapacity:       5000,
 			},
 		},
 	}}
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":    {Received: 10, Written: 10, QueueCapacity: 5000},
-			"traces":  {Received: 4, QueueSize: 2, QueueCapacity: 5000},
-			"metrics": {QueueCapacity: 5000},
+			"logs":   {Received: 10, Written: 10, QueueCapacity: 5000},
+			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
 
@@ -106,18 +101,19 @@ func TestGetIngestionStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	var response IngestionStatusResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	assert.Equal(t, "receiving", response.State)
+	assert.Equal(t, "ready", response.State)
 	assert.Equal(t, now, response.GeneratedAt)
 	assert.True(t, response.InternalTelemetry.Available)
-	assert.Equal(t, "flowing", response.Signals[0].State)
+	require.Len(t, response.Signals, 2)
+	assert.Equal(t, "ready", response.Signals[0].State)
+	assert.True(t, response.Signals[0].DestinationVerified)
+	assert.Equal(t, []string{"probe-1", "probe-2"}, response.Signals[0].LastProbeIDs)
 	assert.Equal(t, uint64(10), response.Signals[0].Written)
-	assert.Equal(t, "receiving", response.Signals[1].State)
+	assert.Equal(t, "ready", response.Signals[1].State)
 	assert.True(t, response.Signals[1].Queue.Observed)
 	assert.Equal(t, int64(2), response.Signals[1].Queue.Size)
 	assert.Equal(t, int64(5000), response.Signals[1].Queue.Capacity)
 	assert.Equal(t, "bytes", response.Signals[0].Queue.Unit)
-	assert.Equal(t, "waiting_for_data", response.Signals[2].State)
-	assert.Equal(t, map[string]uint64{"unsupported_metric_type": 2}, response.Signals[2].InvalidItemsByReason)
 	assert.Empty(t, response.Signals[0].InvalidItemsByReason)
 }
 
@@ -126,7 +122,7 @@ func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
 	require.NoError(t, err)
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
-			"logs": {Signal: "logs", Ready: true},
+			"logs": {Signal: "logs", Ready: true, DestinationVerified: true},
 		},
 	}}
 	service.ingestionMetrics = fakeCollectorMetricsReader{
@@ -140,6 +136,35 @@ func TestIngestionStatusReportsUnavailableInternalTelemetry(t *testing.T) {
 	assert.False(t, response.InternalTelemetry.Available)
 	assert.Equal(t, "connection refused", response.InternalTelemetry.Error)
 	assert.Equal(t, "degraded", response.Signals[0].State)
+}
+
+func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
+	service, err := NewService(semantic.Default, &fakeRunner{}, "test")
+	require.NoError(t, err)
+	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
+		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
+			"traces": {
+				Signal:              "traces",
+				Ready:               true,
+				DestinationVerified: false,
+				LastError:           "ScopeDB is temporarily unavailable",
+			},
+		},
+	}}
+	service.ingestionMetrics = fakeCollectorMetricsReader{snapshot: collectorMetricsSnapshot{
+		Signals: map[string]collectorSignalMetrics{"traces": {}},
+	}}
+
+	server, err := NewWithService(service)
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	var response HealthResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, "ready", response.Status)
 }
 
 func TestPrometheusCollectorMetricsReader(t *testing.T) {
@@ -183,7 +208,7 @@ otelcol_exporter_queue_capacity{exporter="scopedb",data_type="logs"} 5000
 }
 
 func TestSignalIngestionState(t *testing.T) {
-	runtime := scopedbexporter.SignalRuntimeStatus{Signal: "logs", Ready: true, QueueEnabled: true}
+	runtime := scopedbexporter.SignalRuntimeStatus{Signal: "logs", Ready: true, DestinationVerified: true, QueueEnabled: true}
 	tests := []struct {
 		name      string
 		runtime   scopedbexporter.SignalRuntimeStatus
@@ -191,9 +216,10 @@ func TestSignalIngestionState(t *testing.T) {
 		available bool
 		want      string
 	}{
-		{name: "waiting", runtime: runtime, available: true, want: "waiting_for_data"},
-		{name: "receiving", runtime: runtime, metrics: collectorSignalMetrics{Received: 1, QueueSize: 1}, available: true, want: "receiving"},
+		{name: "idle", runtime: runtime, available: true, want: "ready"},
+		{name: "queued", runtime: runtime, metrics: collectorSignalMetrics{Received: 1, QueueSize: 1}, available: true, want: "ready"},
 		{name: "full", runtime: runtime, metrics: collectorSignalMetrics{Received: 1, QueueSize: 5, QueueCapacity: 5}, available: true, want: "refusing"},
+		{name: "destination unverified", runtime: scopedbexporter.SignalRuntimeStatus{Signal: "logs", Ready: true}, available: true, want: "degraded"},
 		{name: "telemetry unavailable", runtime: runtime, available: false, want: "degraded"},
 	}
 	for _, tt := range tests {

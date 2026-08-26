@@ -70,7 +70,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 	}
 
 	plans := make(map[string]*mappingPlan, 3)
-	for _, signal := range []string{signalLogs, signalTraces, signalMetrics} {
+	for _, signal := range cfg.enabledSignals() {
 		plan, err := compileMappingPlan(signal, cfg.tableForSignal(signal), cfg.mappingForSignal(signal))
 		if err != nil {
 			sdkClient.Close()

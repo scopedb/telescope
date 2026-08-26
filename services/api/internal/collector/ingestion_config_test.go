@@ -33,28 +33,21 @@ import (
 func TestLoadAndRenderIngestionConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ingestion.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
-tables:
-  logs: app.logs
-  traces: app.spans
-  metrics: app.metrics
-mappings:
-  logs:
-    ts: log.timestamp
-    message: log.message
+signals:
   traces:
-    ts: span.start_time
-    name: span.name
-  metrics:
-    ts: datapoint.timestamp
-    name: metric.name
-    int_value: datapoint.int_value
-    double_value: datapoint.double_value
+    table: app.spans
+    mapping:
+      ts: span.start_time
+      name: span.name
 `), 0o600))
 
 	ingestion, err := LoadIngestionConfig(path)
 	require.NoError(t, err)
-	assert.Equal(t, "app.logs", ingestion.Tables.Logs)
-	assert.Equal(t, "log.message", ingestion.Mappings.Logs["message"])
+	traceConfig, enabled := ingestion.Signal("traces")
+	require.True(t, enabled)
+	assert.Equal(t, "app.spans", traceConfig.Table)
+	assert.Equal(t, "span.name", traceConfig.Mapping["name"])
+	assert.Equal(t, []string{"traces"}, ingestion.EnabledSignals())
 
 	uri, err := ConfigURIForIngestion(ingestion)
 	require.NoError(t, err)
@@ -64,8 +57,11 @@ mappings:
 	exporters := rendered["exporters"].(map[string]any)
 	scopeDB := exporters["scopedb"].(map[string]any)
 	tables := scopeDB["tables"].(map[string]any)
-	assert.Equal(t, "app.logs", tables["logs"])
+	assert.Equal(t, map[string]any{"traces": "app.spans"}, tables)
 	assert.Equal(t, "zstd", scopeDB["compression"])
+	service := rendered["service"].(map[string]any)
+	pipelines := service["pipelines"].(map[string]any)
+	assert.Equal(t, []string{"traces"}, mapKeys(pipelines))
 
 	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://scope.example")
 	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "test-key")
@@ -80,10 +76,20 @@ mappings:
 	require.Len(t, resolved.Exporters, 1)
 	for _, exporterConfig := range resolved.Exporters {
 		config := exporterConfig.(*scopedbexporter.Config)
-		assert.Equal(t, "app.logs", config.Tables.Logs)
-		assert.Equal(t, "log.message", config.Mappings.Logs["message"])
+		assert.Empty(t, config.Tables.Logs)
+		assert.Equal(t, "app.spans", config.Tables.Traces)
+		assert.Empty(t, config.Tables.Metrics)
+		assert.Equal(t, "span.name", config.Mappings.Traces["name"])
 		assert.Equal(t, "bytes", config.SendingQueue.Get().Sizer.String())
 	}
+}
+
+func mapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func TestLoadIngestionConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
@@ -93,4 +99,12 @@ func TestLoadIngestionConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 	_, err := LoadIngestionConfig(path)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "field unknown not found")
+}
+
+func TestDeploymentIngestionExampleIsValid(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "gateway", "deploy", "ingestion.example.yaml")
+
+	config, err := LoadIngestionConfig(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"traces"}, config.EnabledSignals())
 }

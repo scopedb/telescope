@@ -18,8 +18,11 @@ package scopedbexporter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	scopedb "github.com/scopedb/goscopedb"
 )
 
 const defaultTableInitTimeout = 30 * time.Second
@@ -36,4 +39,22 @@ func (e *dbExporter) ensureTable(ctx context.Context) error {
 		return fmt.Errorf("validate %s destination: %w", e.signal, err)
 	}
 	return nil
+}
+
+func isTransientDestinationError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var scopeErr *scopedb.Error
+	if !errors.As(err, &scopeErr) {
+		return false
+	}
+	if scopeErr.Retryable {
+		return true
+	}
+	return scopeErr.HTTPStatus == 0 && scopeErr.Kind != scopedb.ErrorKindConfigInvalid
 }

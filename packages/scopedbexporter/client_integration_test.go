@@ -73,6 +73,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	table := sdkClient.Table(fmt.Sprintf("telescope_it_%d", time.Now().UnixNano()))
+	t.Logf("temporary table: %s", table.Identifier())
 	_, err = sdkClient.Statement(fmt.Sprintf(`
 		CREATE TABLE %s (
 			event_time timestamp,
@@ -83,7 +84,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	`, table.Identifier())).Execute(ctx)
 	require.NoError(t, err)
 	defer func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
 		assert.NoError(t, table.Drop(cleanupCtx))
 	}()
@@ -98,15 +99,11 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 		"trace_id":   "log.trace_id",
 	}
 	require.NoError(t, CheckIngestionDestinations(ctx, requestEndpoint, apiKey, IngestionConfig{
-		Tables: TableRoutingConfig{
-			Logs:    table.Name,
-			Traces:  table.Name,
-			Metrics: table.Name,
-		},
-		Mappings: SignalMappingConfig{
-			Logs:    cfg.Mappings.Logs,
-			Traces:  map[string]string{"message": "span.name"},
-			Metrics: map[string]string{"message": "metric.name"},
+		Signals: IngestionSignalsConfig{
+			Logs: SignalIngestionConfig{
+				Table:   table.Name,
+				Mapping: cfg.Mappings.Logs,
+			},
 		},
 	}))
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))

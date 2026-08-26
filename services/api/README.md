@@ -36,7 +36,7 @@ The primary HTTP contract should stay hand-written and live under `openapi/agent
 - the agent query surface should stay limited to `schema`, `schema/guide.md`, `search`, and `aggregate`
 - generated artifacts can be added later if the service adopts them
 
-The daemon also serves `/llms.txt` as an LLM-readable runtime map and `/v1/ingestion/status` as an operational OTLP-to-ScopeDB status endpoint. The ingestion endpoint is not an agent query primitive.
+The daemon also serves `/readyz` for ingestion readiness, `/llms.txt` as an LLM-readable runtime map, and `/v1/ingestion/status` as an operational OTLP-to-ScopeDB status endpoint. The ingestion endpoint is not an agent query primitive.
 
 ## Binary
 
@@ -71,12 +71,16 @@ Optional environment variables:
 
 The daemon requires one explicit ingestion choice: `--ingestion-config`, `--ingestion-profile starter`, or a full `--collector-config`. The corresponding environment variables are alternatives to the flags. The starter profile is a runnable example layout, not a universal telemetry schema.
 
+Use `telescope ingestion check` for live destination column and type validation. Use `telescope ingestion test --signal <signal>` against a running daemon to confirm an exact synthetic record reached ScopeDB.
+
 The daemon accepts telemetry for every deployment environment on the same OTLP listeners. Store an environment attribute only when the configured signal mapping selects it.
 
 Example:
 
 ```bash
-go run ./cmd/telescope daemon --env-file ../../services/gateway/deploy/.env --ingestion-profile starter
+go run ./cmd/telescope daemon \
+  --env-file ../../services/gateway/deploy/.env \
+  --ingestion-config ../../services/gateway/deploy/ingestion.yaml
 ```
 
 Streamable HTTP MCP example:
