@@ -69,6 +69,8 @@ func run(args []string) error {
 		return runValidate(args[1:])
 	case "preview":
 		return runPreview(args[1:])
+	case "plan":
+		return runPlan(args[1:])
 	case "capture":
 		return runCapture(args[1:])
 	case "verify":
@@ -319,8 +321,9 @@ func printUsage(w io.Writer) {
 
 Usage:
   Setup:
-    telescope validate [options] [telescope.yaml]  Validate config and destination tables
     telescope preview [options] [telescope.yaml]   Preview sample projection without appending
+    telescope plan [options] [telescope.yaml]      Plan additive ScopeDB table DDL
+    telescope validate [options] [telescope.yaml]  Validate config and destination tables
     telescope run [options] [telescope.yaml]       Run the OTLP-to-ScopeDB data plane
 
   Operations:
@@ -345,6 +348,10 @@ Preview options:
   --offline                  Skip ScopeDB destination checks
   --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
   --strict                   Fail on unobserved, partial, or default-only columns
+
+Plan options:
+  --sample signal=path       Add representative mapping evidence; repeat per signal
+  --format                   Output human, json, or scopeql, default human
 
 Capture options:
   --endpoint                 Telescope operational HTTP base URL

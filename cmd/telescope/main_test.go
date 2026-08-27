@@ -36,6 +36,7 @@ func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
 		"Diagnostics:",
 		"Capture live OTLP for mapping preview",
 		"Preview sample projection without appending",
+		"Plan additive ScopeDB table DDL",
 		"Run the OTLP-to-ScopeDB data plane",
 		"Report local delivery state",
 		"Verify synthetic OTLP-to-append delivery",
