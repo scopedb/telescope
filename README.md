@@ -74,7 +74,7 @@ docker run --rm \
 
 The preview shows destination-column coverage, observed output types, and which ordered source or default supplied each value, then prints projected NDJSON without writing to ScopeDB. Mapping failures are collected across the sample and identify the record, column, and selected source. `--strict` also fails on unobserved, partial, or default-only columns. Omit `--offline` to include destination column types and detect sample/type mismatches.
 
-The repository includes minimal OTLP payloads for all three signals under `deploy/samples/`; replace them with captured application traffic before finalizing a production mapping.
+The repository includes minimal OTLP payloads for all three signals under `deploy/samples/`; replace them with captured application traffic before finalizing a production mapping. Telescope can collect that first sample without a configuration file or ScopeDB destination, as described under [Capture Before Configuration](#capture-before-configuration).
 
 Plan missing tables or columns, review the generated ScopeQL, and apply it explicitly:
 
@@ -154,6 +154,40 @@ service:
 ```
 
 ## Operate Telescope
+
+### Capture Before Configuration
+
+Start a temporary OTLP/HTTP listener when representative application data is needed before the mapping and destination table exist:
+
+```bash
+telescope capture \
+  --listen-http 127.0.0.1:14318 \
+  --limit 100 \
+  --timeout 2m \
+  traces > traces.otlp.json
+```
+
+Point an application or a temporary second exporter in an existing Collector at `http://127.0.0.1:14318`. The command accepts standard OTLP/HTTP JSON or protobuf, including gzip requests, on `/v1/traces` and writes a standard OTLP JSON export request to stdout. It exits when the record limit is reached, returns a partial sample when the timeout expires after receiving data, and fails when no data arrives.
+
+This mode starts only the selected OTLP/HTTP endpoint. It does not load `telescope.yaml`, connect to ScopeDB, map, persist, queue, retry, or forward telemetry. Only the bounded sample is retained, so use a second exporter when the original telemetry must continue to its existing destination. A single request is limited to 20 MiB.
+
+With Docker, publish a temporary host port and keep stdout redirected to the host:
+
+```bash
+docker run --rm \
+  -p 127.0.0.1:14318:4318 \
+  ghcr.io/scopedb/telescope:latest \
+  capture --listen-http 0.0.0.0:4318 \
+    --limit 100 --timeout 2m traces > traces.otlp.json
+```
+
+Then feed the result directly into the normal setup sequence:
+
+```bash
+telescope preview --offline --strict \
+  --sample traces=traces.otlp.json \
+  deploy/telescope.yaml
+```
 
 ### Preview a Mapping with Live Data
 
@@ -240,7 +274,7 @@ Commands:
 - Operations:
   - `telescope status`: report local receiver, queue, and ScopeDB delivery state
 - Diagnostics:
-  - `telescope capture`: capture a bounded live OTLP sample from a running instance
+  - `telescope capture`: capture bounded OTLP from a temporary listener or a running instance
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 

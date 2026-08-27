@@ -108,6 +108,16 @@ Only configured signals get Collector pipelines. The example accepts traces with
 Inspect a representative sample before planning when runtime values or casts are involved:
 
 ```bash
+telescope capture \
+  --listen-http 127.0.0.1:14318 \
+  --limit 100 \
+  --timeout 2m \
+  traces > traces.otlp.json
+```
+
+This standalone mode requires neither `telescope.yaml` nor ScopeDB. It accepts the selected OTLP/HTTP signal, retains only the bounded sample, and does not forward telemetry; configure it as a temporary second exporter if the original stream must continue elsewhere. Use the repository sample below for initial exploration, or replace its path with the captured file for the real mapping.
+
+```bash
 telescope preview \
   --offline \
   --strict \
@@ -185,6 +195,8 @@ telescope capture --limit 100 traces |
 ```
 
 The capture is active only for this request and stops at the record limit or timeout. It observes exporter input after Collector batch processing and before the sending queue, so low-volume telemetry can take up to the batch timeout to appear while append retries cannot duplicate the sample. The default 45-second capture timeout exceeds the bundled 30-second batch timeout.
+
+This running-instance form is selected when `--listen-http` is omitted. `--endpoint` chooses the operational endpoint to read from and cannot be combined with `--listen-http`.
 
 Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `telescope preview` for the mapping itself.
 

@@ -25,20 +25,34 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	osSignal "os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	statusapi "github.com/scopedb/telescope/internal/status"
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
 
 const defaultCaptureEndpoint = "http://127.0.0.1:8080"
 
 func runCapture(args []string) error {
-	return runCaptureWithWriters(args, os.Stdout, os.Stderr)
+	ctx, stop := osSignal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runCaptureWithContextAndWriters(ctx, args, os.Stdout, os.Stderr)
 }
 
 func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) error {
+	return runCaptureWithContextAndWriters(context.Background(), args, stdout, stderr)
+}
+
+func runCaptureWithContextAndWriters(
+	ctx context.Context,
+	args []string,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	flags := flag.NewFlagSet("capture", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
@@ -46,10 +60,12 @@ func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) er
 		fmt.Fprintln(stderr, "\nCapture a bounded live OTLP sample from logs, traces, or metrics.")
 		fmt.Fprintln(stderr, "\nOptions:")
 		flags.PrintDefaults()
-		fmt.Fprintln(stderr, "\nExample:")
+		fmt.Fprintln(stderr, "\nExamples:")
+		fmt.Fprintln(stderr, "  telescope capture --listen-http 127.0.0.1:4318 traces > traces.otlp.json")
 		fmt.Fprintln(stderr, "  telescope capture traces | telescope preview --offline --sample traces=- telescope.yaml")
 	}
 	endpoint := flags.String("endpoint", defaultCaptureEndpoint, "Telescope operational HTTP base URL")
+	listenHTTP := flags.String("listen-http", "", "standalone OTLP/HTTP listen address; does not require a running Telescope")
 	limit := flags.Int("limit", statusapi.DefaultCaptureLimit, "maximum records to capture")
 	timeout := flags.Duration("timeout", statusapi.DefaultCaptureTimeout, "time to wait for telemetry")
 	if err := flags.Parse(args); err != nil {
@@ -68,10 +84,37 @@ func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) er
 	if *timeout <= 0 {
 		return errors.New("--timeout must be greater than zero")
 	}
+	endpointSet := false
+	flags.Visit(func(current *flag.Flag) {
+		endpointSet = endpointSet || current.Name == "endpoint"
+	})
+	if strings.TrimSpace(*listenHTTP) != "" && endpointSet {
+		return errors.New("--listen-http and --endpoint cannot be used together")
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout+5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, *timeout+5*time.Second)
 	defer cancel()
-	payload, records, err := requestCapture(ctx, &http.Client{}, *endpoint, signal, *limit, *timeout)
+	var payload []byte
+	var records int
+	var err error
+	if address := strings.TrimSpace(*listenHTTP); address != "" {
+		var sample scopedbexporter.CapturedSample
+		sample, err = captureStandaloneHTTP(ctx, address, signal, *limit, *timeout, func(endpoint string) {
+			fmt.Fprintf(
+				stderr,
+				"listening for %s OTLP/HTTP at %s/v1/%s (limit=%d, timeout=%s)\n",
+				signal,
+				endpoint,
+				signal,
+				*limit,
+				*timeout,
+			)
+		})
+		payload = sample.Payload
+		records = sample.Records
+	} else {
+		payload, records, err = requestCapture(ctx, &http.Client{}, *endpoint, signal, *limit, *timeout)
+	}
 	if err != nil {
 		return err
 	}

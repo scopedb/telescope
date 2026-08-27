@@ -91,11 +91,27 @@ func TestCaptureHelpShowsUsageAndPreviewPipeline(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Usage: telescope capture [options] <signal>",
+		"--listen-http",
 		"telescope preview --offline",
 	} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("capture help missing %q: %s", expected, stderr.String())
 		}
+	}
+}
+
+func TestRunCaptureRejectsRemoteAndStandaloneModesTogether(t *testing.T) {
+	err := runCaptureWithWriters(
+		[]string{
+			"--endpoint", "http://127.0.0.1:8080",
+			"--listen-http", "127.0.0.1:4318",
+			"traces",
+		},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

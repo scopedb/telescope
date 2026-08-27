@@ -359,7 +359,7 @@ Usage:
     telescope status [options]                     Report local delivery state
 
   Diagnostics:
-    telescope capture [options] <signal>           Capture live OTLP for mapping preview
+    telescope capture [options] <signal>           Capture OTLP samples for mapping preview
     telescope verify [options] [signals...]        Verify synthetic OTLP-to-append delivery
 
   Other:
@@ -385,6 +385,7 @@ Plan options:
 
 Capture options:
   --endpoint                 Telescope operational HTTP base URL
+  --listen-http              Standalone OTLP/HTTP address; no config or ScopeDB required
   --limit                    Maximum records to capture, default 100
   --timeout                  Time to wait for telemetry, default 45s
 

@@ -69,6 +69,16 @@ func NewCaptureRegistry() *CaptureRegistry {
 	return &CaptureRegistry{sessions: make(map[string]*captureSession, 3)}
 }
 
+func (r *CaptureRegistry) HasActiveCapture(signal string) bool {
+	if r == nil || !r.active.Load() {
+		return false
+	}
+	r.mu.Lock()
+	active := r.sessions[signal] != nil
+	r.mu.Unlock()
+	return active
+}
+
 func (r *CaptureRegistry) Capture(
 	ctx context.Context,
 	signal string,
