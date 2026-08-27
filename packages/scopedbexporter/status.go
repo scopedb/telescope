@@ -67,31 +67,21 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 	if r == nil || cfg == nil {
 		return
 	}
-	status := SignalRuntimeStatus{
-		Signal:               signal,
-		Table:                cfg.tableForSignal(signal),
-		InvalidItemsByReason: make(map[string]uint64),
-	}
-	if cfg.SendingQueue.HasValue() {
-		status.QueueEnabled = true
-		status.QueueCapacity = cfg.SendingQueue.Get().QueueSize
-		status.QueueUnit = cfg.SendingQueue.Get().Sizer.String()
-	}
 
 	r.mu.Lock()
-	if current, ok := r.signals[signal]; ok {
-		status.Ready = current.Ready
-		status.DestinationVerified = current.DestinationVerified
-		status.LastWriteAttempt = current.LastWriteAttempt
-		status.LastWriteSuccess = current.LastWriteSuccess
-		status.LastWriteFailure = current.LastWriteFailure
-		status.LastWriteDuration = current.LastWriteDuration
-		status.LastError = current.LastError
-		status.LastProbeIDs = append([]string(nil), current.LastProbeIDs...)
-		status.LastProbeSuccess = current.LastProbeSuccess
-		status.PermanentFailedRecords = current.PermanentFailedRecords
-		status.PermanentExportRecords = current.PermanentExportRecords
-		status.InvalidItemsByReason = cloneReasonCounts(current.InvalidItemsByReason)
+	status := r.signals[signal]
+	status.Signal = signal
+	status.Table = cfg.tableForSignal(signal)
+	status.QueueEnabled = cfg.SendingQueue.HasValue()
+	status.QueueCapacity = 0
+	status.QueueUnit = ""
+	if cfg.SendingQueue.HasValue() {
+		queue := cfg.SendingQueue.Get()
+		status.QueueCapacity = queue.QueueSize
+		status.QueueUnit = queue.Sizer.String()
+	}
+	if status.InvalidItemsByReason == nil {
+		status.InvalidItemsByReason = make(map[string]uint64)
 	}
 	r.signals[signal] = status
 	r.mu.Unlock()

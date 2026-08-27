@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/config/configoptional"
+	"go.opentelemetry.io/collector/exporter/exporterhelper"
 )
 
 func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
@@ -79,4 +81,24 @@ func TestStatusRegistrySnapshotIsIndependent(t *testing.T) {
 	require.Equal(t, "test.traces", registry.Snapshot().Signals[signalTraces].Table)
 	require.Equal(t, []string{"probe-1"}, registry.Snapshot().Signals[signalTraces].LastProbeIDs)
 	require.NotContains(t, registry.Snapshot().Signals[signalTraces].InvalidItemsByReason, "changed")
+}
+
+func TestStatusRegistryReconfigurePreservesRuntimeState(t *testing.T) {
+	registry := NewStatusRegistry()
+	cfg := validTestConfig()
+	registry.configure(signalLogs, cfg)
+	registry.markReady(signalLogs)
+	registry.recordProbeSuccess(signalLogs, []string{"probe-1"})
+
+	cfg.Tables.Logs = "replacement.logs"
+	cfg.SendingQueue = configoptional.None[exporterhelper.QueueBatchConfig]()
+	registry.configure(signalLogs, cfg)
+
+	status := registry.Snapshot().Signals[signalLogs]
+	assert.Equal(t, "replacement.logs", status.Table)
+	assert.False(t, status.QueueEnabled)
+	assert.Zero(t, status.QueueCapacity)
+	assert.Empty(t, status.QueueUnit)
+	assert.True(t, status.Ready)
+	assert.Equal(t, []string{"probe-1"}, status.LastProbeIDs)
 }
