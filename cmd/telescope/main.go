@@ -67,6 +67,10 @@ func run(args []string) error {
 		return runTelescope(args[1:])
 	case "validate":
 		return runValidate(args[1:])
+	case "preview":
+		return runPreview(args[1:])
+	case "capture":
+		return runCapture(args[1:])
 	case "verify":
 		return runVerify(args[1:])
 	case "status":
@@ -316,12 +320,14 @@ func printUsage(w io.Writer) {
 Usage:
   Setup:
     telescope validate [options] [telescope.yaml]  Validate config and destination tables
+    telescope preview [options] [telescope.yaml]   Preview sample projection without appending
     telescope run [options] [telescope.yaml]       Run the OTLP-to-ScopeDB data plane
 
   Operations:
     telescope status [options]                     Report local delivery state
 
   Diagnostics:
+    telescope capture [options] <signal>            Capture live OTLP for mapping preview
     telescope verify [options] [signals...]        Verify synthetic OTLP-to-append delivery
 
   Other:
@@ -334,7 +340,15 @@ Connection options:
 
 Validate options:
   --offline                  Skip ScopeDB destination checks
+
+Preview options:
+  --offline                  Skip ScopeDB destination checks
   --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
+
+Capture options:
+  --endpoint                 Telescope operational HTTP base URL
+  --limit                    Maximum records to capture, default 100
+  --timeout                  Time to wait for telemetry, default 10s
 
 Run options:
   --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR

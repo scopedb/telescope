@@ -55,7 +55,7 @@ exporters:
 
 `mappings.<signal>` is `destination column: OpenTelemetry source`. Destination columns must be unquoted ScopeDB identifiers. A source value that is absent or null is omitted from that NDJSON row; selected empty strings and numeric zeroes are preserved. Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
 
-The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `validate --sample signal=path` to expose their coverage and observed types without appending rows. Signal routes may point to the same table when their mappings target a compatible schema.
+The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `preview --sample signal=path` to expose their coverage and observed types without appending rows. Signal routes may point to the same table when their mappings target a compatible schema.
 
 ## Mapping Sources
 

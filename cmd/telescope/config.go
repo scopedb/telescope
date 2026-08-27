@@ -33,15 +33,29 @@ import (
 const defaultTelescopeConfigPath = "telescope.yaml"
 
 func runValidate(args []string) error {
-	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
+	return runConfigCommand("validate", args, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runPreview(args []string) error {
+	return runConfigCommand("preview", args, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+	preview := command == "preview"
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(stderr)
 	bootstrap := addBootstrapFlags(flags)
 	offline := flags.Bool("offline", false, "validate configuration without connecting to ScopeDB")
 	timeout := flags.Duration("timeout", 30*time.Second, "destination validation timeout")
 	var samples sampleFlags
-	flags.Var(&samples, "sample", "preview a real OTLP payload as signal=path; repeat for multiple signals")
+	if preview {
+		flags.Var(&samples, "sample", "OTLP JSON or protobuf as signal=path; use - for stdin; repeat per signal")
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if preview && len(samples.paths) == 0 {
+		return errors.New("preview requires at least one --sample signal=path")
 	}
 	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
@@ -61,18 +75,18 @@ func runValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	previews, err := loadMappingSamples(samples.paths, ingestion)
+	previews, err := loadMappingSamples(samples.paths, ingestion, stdin)
 	if err != nil {
 		return err
 	}
 
-	printConfigPlan(os.Stdout, descriptions)
-	printConfigurationSummary(os.Stdout, descriptions)
+	printConfigPlan(stdout, descriptions)
+	printConfigurationSummary(stdout, descriptions)
 
 	var destinations []scopedbexporter.SignalDestinationValidation
 	var validationErrors []error
 	if *offline {
-		fmt.Fprintln(os.Stdout, "destination: skipped (--offline)")
+		fmt.Fprintln(stdout, "destination: skipped (--offline)")
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 		defer cancel()
@@ -83,15 +97,15 @@ func runValidate(args []string) error {
 			ingestion,
 		)
 		if err != nil {
-			fmt.Fprintln(os.Stdout, "destination: check failed")
+			fmt.Fprintln(stdout, "destination: check failed")
 			validationErrors = append(validationErrors, fmt.Errorf("destination validation failed: %w", err))
 		} else {
-			printDestinationSummary(os.Stdout, destinations)
+			printDestinationSummary(stdout, destinations)
 		}
 	}
 
 	for _, sample := range previews {
-		if err := printMappingPreview(os.Stdout, sample, destinations); err != nil {
+		if err := printMappingPreview(stdout, sample, destinations); err != nil {
 			validationErrors = append(validationErrors, err)
 		}
 	}

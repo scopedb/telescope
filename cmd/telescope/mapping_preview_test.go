@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/scopedb/telescope/packages/scopedbexporter"
@@ -32,6 +33,43 @@ func TestSampleFlagsRequireOneFilePerSignal(t *testing.T) {
 	assert.ErrorContains(t, samples.Set("traces=other.json"), "provided more than once")
 	assert.ErrorContains(t, samples.Set("profiles=sample.json"), "unsupported sample signal")
 	assert.ErrorContains(t, samples.Set("logs"), "signal=path")
+}
+
+func TestLoadMappingSamplesReadsStdin(t *testing.T) {
+	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
+		Logs: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.logs",
+			Mapping: map[string]string{"message": "log.message"},
+		},
+	}}
+	sample := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"hello"}}]}]}]}`
+
+	previews, err := loadMappingSamples(map[string]string{"logs": "-"}, ingestion, strings.NewReader(sample))
+	require.NoError(t, err)
+	require.Len(t, previews, 1)
+	assert.Equal(t, "-", previews[0].path)
+	assert.Equal(t, 1, previews[0].preview.Records)
+	assert.Equal(t, "hello", previews[0].preview.Rows[0]["message"])
+}
+
+func TestLoadMappingSamplesRejectsMultipleStdinSamples(t *testing.T) {
+	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
+		Logs: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.logs",
+			Mapping: map[string]string{"message": "log.message"},
+		},
+		Traces: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.traces",
+			Mapping: map[string]string{"name": "span.name"},
+		},
+	}}
+
+	_, err := loadMappingSamples(
+		map[string]string{"logs": "-", "traces": "-"},
+		ingestion,
+		strings.NewReader("{}"),
+	)
+	assert.ErrorContains(t, err, "stdin can provide only one signal sample")
 }
 
 func TestPrintMappingPreviewRejectsObservedTypeMismatch(t *testing.T) {

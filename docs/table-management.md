@@ -93,7 +93,7 @@ The check command prints `signal -> table -> destination column -> OTel source`,
 Use representative OTLP JSON or protobuf to inspect those values before deployment:
 
 ```bash
-telescope validate \
+telescope preview \
   --sample logs=logs.otlp.json \
   --sample metrics=metrics.otlp.pb \
   ./telescope.yaml
@@ -109,7 +109,16 @@ Full Collector configuration can still be checked without contacting ScopeDB:
 make validate
 ```
 
-Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `validate --sample` for the mapping itself.
+For an existing deployment, obtain the sample from the actual exporter input instead of assembling one manually:
+
+```bash
+telescope capture --limit 100 traces |
+  telescope preview --sample traces=- ./telescope.yaml
+```
+
+The capture is active only for this request and stops at the record limit or timeout. It runs before the sending queue, so append retries cannot duplicate the sample.
+
+Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `telescope preview` for the mapping itself.
 
 ## Mapping Changes
 

@@ -18,6 +18,8 @@ package status
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -26,10 +28,17 @@ import (
 
 const serviceName = "telescope"
 
+var errCaptureSignalNotConfigured = errors.New("capture signal is not configured")
+
+type captureReader interface {
+	Capture(context.Context, string, int, time.Duration) (scopedbexporter.CapturedSample, error)
+}
+
 type service struct {
 	version          string
 	now              func() time.Time
 	ingestionRuntime exporterStatusReader
+	ingestionCapture captureReader
 	ingestionMetrics collectorMetricsReader
 	queueStorage     queueStorageReader
 }
@@ -39,9 +48,22 @@ func newService(version string) *service {
 		version:          strings.TrimSpace(version),
 		now:              func() time.Time { return time.Now().UTC() },
 		ingestionRuntime: scopedbexporter.DefaultStatusRegistry,
+		ingestionCapture: scopedbexporter.DefaultCaptureRegistry,
 		ingestionMetrics: newPrometheusCollectorMetricsReader(),
 		queueStorage:     newDirectoryQueueStorageReader(),
 	}
+}
+
+func (s *service) Capture(
+	ctx context.Context,
+	signal string,
+	limit int,
+	timeout time.Duration,
+) (scopedbexporter.CapturedSample, error) {
+	if _, configured := s.ingestionRuntime.Snapshot().Signals[signal]; !configured {
+		return scopedbexporter.CapturedSample{}, fmt.Errorf("%w: %s", errCaptureSignalNotConfigured, signal)
+	}
+	return s.ingestionCapture.Capture(ctx, signal, limit, timeout)
 }
 
 func (s *service) Health(_ context.Context) HealthResponse {

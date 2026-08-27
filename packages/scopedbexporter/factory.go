@@ -25,41 +25,50 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
 )
 
 func NewFactory() exporter.Factory {
-	return NewFactoryWithStatus(DefaultStatusRegistry)
+	return newFactory(DefaultStatusRegistry, DefaultCaptureRegistry)
 }
 
 func NewFactoryWithStatus(statuses *StatusRegistry) exporter.Factory {
+	return newFactory(statuses, NewCaptureRegistry())
+}
+
+func newFactory(statuses *StatusRegistry, captures *CaptureRegistry) exporter.Factory {
 	if statuses == nil {
 		statuses = NewStatusRegistry()
+	}
+	if captures == nil {
+		captures = NewCaptureRegistry()
 	}
 	return exporter.NewFactory(
 		typeStr,
 		createDefaultConfig,
 		exporter.WithLogs(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
-			return createLogsExporter(ctx, set, cfg, statuses)
+			return createLogsExporter(ctx, set, cfg, statuses, captures)
 		}, component.StabilityLevelDevelopment),
 		exporter.WithTraces(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Traces, error) {
-			return createTracesExporter(ctx, set, cfg, statuses)
+			return createTracesExporter(ctx, set, cfg, statuses, captures)
 		}, component.StabilityLevelDevelopment),
 		exporter.WithMetrics(func(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
-			return createMetricsExporter(ctx, set, cfg, statuses)
+			return createMetricsExporter(ctx, set, cfg, statuses, captures)
 		}, component.StabilityLevelDevelopment),
 	)
 }
 
-func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Logs, error) {
+func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry, captures *CaptureRegistry) (exporter.Logs, error) {
 	baseCfg := cfg.(*Config)
 	exp, err := newDBExporter(baseCfg, set, signalLogs, statuses)
 	if err != nil {
 		return nil, err
 	}
 
-	return exporterhelper.NewLogs(
+	logsExporter, err := exporterhelper.NewLogs(
 		ctx,
 		set,
 		cfg,
@@ -71,16 +80,20 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
 		exporterhelper.WithQueue(baseCfg.SendingQueue),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &capturingLogsExporter{Logs: logsExporter, captures: captures}, nil
 }
 
-func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Traces, error) {
+func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry, captures *CaptureRegistry) (exporter.Traces, error) {
 	baseCfg := cfg.(*Config)
 	exp, err := newDBExporter(baseCfg, set, signalTraces, statuses)
 	if err != nil {
 		return nil, err
 	}
 
-	return exporterhelper.NewTraces(
+	tracesExporter, err := exporterhelper.NewTraces(
 		ctx,
 		set,
 		cfg,
@@ -92,9 +105,13 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
 		exporterhelper.WithQueue(baseCfg.SendingQueue),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &capturingTracesExporter{Traces: tracesExporter, captures: captures}, nil
 }
 
-func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry) (exporter.Metrics, error) {
+func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry, captures *CaptureRegistry) (exporter.Metrics, error) {
 	baseCfg := cfg.(*Config)
 	exp, err := newDBExporter(baseCfg, set, signalMetrics, statuses)
 	if err != nil {
@@ -119,17 +136,40 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 	return &metricFilteringExporter{
 		Metrics:  metricsExporter,
 		statuses: statuses,
+		captures: captures,
 		logger:   set.Logger.Named("scopedbexporter"),
 	}, nil
+}
+
+type capturingLogsExporter struct {
+	exporter.Logs
+	captures *CaptureRegistry
+}
+
+func (e *capturingLogsExporter) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
+	e.captures.ObserveLogs(logs)
+	return e.Logs.ConsumeLogs(ctx, logs)
+}
+
+type capturingTracesExporter struct {
+	exporter.Traces
+	captures *CaptureRegistry
+}
+
+func (e *capturingTracesExporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
+	e.captures.ObserveTraces(traces)
+	return e.Traces.ConsumeTraces(ctx, traces)
 }
 
 type metricFilteringExporter struct {
 	exporter.Metrics
 	statuses *StatusRegistry
+	captures *CaptureRegistry
 	logger   *zap.Logger
 }
 
 func (e *metricFilteringExporter) ConsumeMetrics(ctx context.Context, metrics pmetric.Metrics) error {
+	e.captures.ObserveMetrics(metrics)
 	filtered, failures := filterInvalidMetrics(metrics)
 	if len(failures) == 0 {
 		return e.Metrics.ConsumeMetrics(ctx, metrics)

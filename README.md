@@ -8,7 +8,7 @@ It provides:
 - user-owned signal-to-table mappings
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
-- preflight validation and exact ScopeDB delivery probes
+- preflight validation, live OTLP capture, mapping preview, and exact ScopeDB delivery probes
 - operational health, readiness, and ingestion status endpoints
 
 Telescope does not create or modify ScopeDB tables. You choose the signals to enable, the destination table for each signal, and the fields to append. Its responsibility ends when ScopeDB reports the append result; it does not query or interpret stored data.
@@ -62,10 +62,10 @@ docker run --rm \
   validate /etc/telescope/telescope.yaml
 ```
 
-For runtime-typed selectors such as attributes and `log.body`, preview a real OTLP JSON or protobuf payload before deployment:
+For runtime-typed selectors such as attributes and `log.body`, preview a representative OTLP JSON or protobuf payload before deployment:
 
 ```bash
-telescope validate --offline \
+telescope preview --offline \
   --sample traces=traces.otlp.json \
   deploy/telescope.yaml
 ```
@@ -117,6 +117,23 @@ service:
 ```
 
 ## Operate Telescope
+
+### Preview a Mapping with Live Data
+
+Capture a bounded sample at the running exporter's input and pipe it directly through a candidate mapping:
+
+```bash
+telescope capture \
+  --endpoint http://127.0.0.1:8080 \
+  --limit 100 \
+  --timeout 10s \
+  traces |
+  telescope preview \
+    --sample traces=- \
+    deploy/telescope.yaml
+```
+
+`capture` waits until it collects the requested number of log records, spans, or metric points, or until the timeout returns a partial sample. It retains nothing when no capture is active. The sample is copied before the exporter sending queue, so retries do not duplicate it. `preview` uses the production mapper and does not append the sample. Redirect `capture` to a file when the same input should be replayed later.
 
 ### Inspect Delivery Status
 
@@ -172,15 +189,17 @@ make build
 Commands:
 
 - Setup:
-  - `telescope validate`: validate selectors and destination tables; `--sample signal=path` previews real OTLP data
+  - `telescope validate`: validate selectors and destination tables
+  - `telescope preview`: project OTLP samples through a candidate mapping without appending
   - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
 - Operations:
   - `telescope status`: report local receiver, queue, and ScopeDB delivery state
 - Diagnostics:
+  - `telescope capture`: capture a bounded live OTLP sample from a running instance
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`validate` and `run` use the same `telescope.yaml` contract. `status` and `verify` are operational tools for a running instance, not additional setup stages; both discover enabled signals from that instance. `validate --offline` checks the file and can preview samples without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`validate`, `preview`, and `run` use the same `telescope.yaml` contract. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 

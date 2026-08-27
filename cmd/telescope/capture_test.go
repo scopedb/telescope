@@ -1,0 +1,86 @@
+/*
+ * Copyright 2026 ScopeDB, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package main
+
+import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestRunCaptureWritesOnlyOTLPPayloadToStdout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/ingestion/capture" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		if got := request.URL.Query().Get("signal"); got != "traces" {
+			t.Fatalf("unexpected signal: %q", got)
+		}
+		if got := request.URL.Query().Get("limit"); got != "2" {
+			t.Fatalf("unexpected limit: %q", got)
+		}
+		if got := request.URL.Query().Get("timeout"); got != "3s" {
+			t.Fatalf("unexpected timeout: %q", got)
+		}
+		w.Header().Set("X-Telescope-Signal", "traces")
+		w.Header().Set("X-Telescope-Records", "2")
+		_, _ = w.Write([]byte(`{"resourceSpans":[]}`))
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := runCaptureWithWriters([]string{
+		"--endpoint", server.URL,
+		"--limit", "2",
+		"--timeout", "3s",
+		"traces",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runCaptureWithWriters() error = %v", err)
+	}
+	if got := stdout.String(); got != "{\"resourceSpans\":[]}\n" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+	if got := stderr.String(); got != "captured traces: 2 records\n" {
+		t.Fatalf("unexpected stderr: %q", got)
+	}
+}
+
+func TestRunCaptureRejectsInvalidSignal(t *testing.T) {
+	err := runCaptureWithWriters([]string{"profiles"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRunCaptureReportsEndpointError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "capture completed without data", http.StatusRequestTimeout)
+	}))
+	defer server.Close()
+
+	err := runCaptureWithWriters(
+		[]string{"--endpoint", server.URL, "--timeout", "1ms", "logs"},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

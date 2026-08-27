@@ -32,7 +32,7 @@ The following shared context is available to every signal mapping:
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
-`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. Add repeatable `--sample signal=path` arguments to project representative OTLP JSON or protobuf, report per-column coverage and observed types, and compare them with the destination without appending rows.
+`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the production mapper, reports per-column coverage and observed types, and compares them with the destination without appending rows. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
 
 ## Logs
 
@@ -89,6 +89,8 @@ Current reasons are:
 
 ## Ingestion Status
 
+`GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture before the exporter sending queue and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer.
+
 `GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
 
 - OTLP receiver accepted, failed, and refused records;
@@ -113,7 +115,7 @@ When the embedded profile uses `unit: bytes`, queue size and capacity are logica
 
 `GET /metrics` exposes the same delivery facts as stable Prometheus metrics. This includes accepted, written, and finally dropped items; logical queue size and capacity; last write success; destination verification; and allocated queue storage. Load [`deploy/prometheus-rules.yaml`](../deploy/prometheus-rules.yaml) for the baseline alerts. Disk high-water history belongs in Prometheus and is calculated with `max_over_time`; Telescope does not retain another history database. The endpoint returns `503` rather than publishing false zeroes when Collector metrics are unavailable.
 
-Both operational endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
+The status and metrics endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
 
 ## Known `v1` Gaps
 

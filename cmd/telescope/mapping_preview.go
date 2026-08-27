@@ -69,7 +69,7 @@ func (samples *sampleFlags) Set(value string) error {
 	return nil
 }
 
-func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.IngestionConfig) ([]mappingSample, error) {
+func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.IngestionConfig, stdin io.Reader) ([]mappingSample, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -82,6 +82,15 @@ func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.Inges
 			return nil, fmt.Errorf("sample provided for disabled signal %q", signal)
 		}
 	}
+	stdinSamples := 0
+	for _, path := range paths {
+		if path == "-" {
+			stdinSamples++
+		}
+	}
+	if stdinSamples > 1 {
+		return nil, fmt.Errorf("stdin can provide only one signal sample")
+	}
 
 	previews := make([]mappingSample, 0, len(paths))
 	for _, signal := range ingestion.EnabledSignals() {
@@ -89,7 +98,13 @@ func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.Inges
 		if !ok {
 			continue
 		}
-		contents, err := os.ReadFile(path)
+		var contents []byte
+		var err error
+		if path == "-" {
+			contents, err = io.ReadAll(stdin)
+		} else {
+			contents, err = os.ReadFile(path)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read %s sample %s: %w", signal, path, err)
 		}

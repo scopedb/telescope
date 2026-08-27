@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,7 @@ import (
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
@@ -83,6 +85,56 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, map[string]any{"message": "hello"}, rows[0])
 	assert.Equal(t, []string{"probe-1"}, statuses.Snapshot().Signals[signalLogs].LastProbeIDs)
+}
+
+func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeTableDescription(t, w, "vendor_otel_logs_test", []string{"message"})
+			return
+		}
+		writeAppendCommitted(t, w, 1)
+	}))
+	defer server.Close()
+
+	captures := NewCaptureRegistry()
+	previousStatuses := DefaultStatusRegistry
+	previousCaptures := DefaultCaptureRegistry
+	DefaultStatusRegistry = NewStatusRegistry()
+	DefaultCaptureRegistry = captures
+	t.Cleanup(func() {
+		DefaultStatusRegistry = previousStatuses
+		DefaultCaptureRegistry = previousCaptures
+	})
+	captured := make(chan captureResult, 1)
+	go func() {
+		sample, err := captures.Capture(context.Background(), signalLogs, 1, time.Second)
+		captured <- captureResult{sample: sample, err: err}
+	}()
+	require.Eventually(t, func() bool {
+		return captureActive(captures, signalLogs)
+	}, time.Second, time.Millisecond)
+
+	cfg := testExporterConfig(server.URL)
+	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	exp, err := NewFactory().CreateLogs(
+		context.Background(),
+		exportertest.NewNopSettings(typeStr),
+		cfg,
+	)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer exp.Shutdown(context.Background())
+
+	logs := plog.NewLogs()
+	logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("hello")
+	require.NoError(t, exp.ConsumeLogs(context.Background(), logs))
+
+	result := <-captured
+	require.NoError(t, result.err)
+	request := plogotlp.NewExportRequest()
+	require.NoError(t, request.UnmarshalJSON(result.sample.Payload))
+	assert.Equal(t, 1, request.Logs().LogRecordCount())
 }
 
 func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {

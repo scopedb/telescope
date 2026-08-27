@@ -20,9 +20,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/prometheus/common/expfmt"
+
+	"github.com/scopedb/telescope/packages/scopedbexporter"
+)
+
+const (
+	DefaultCaptureLimit   = 100
+	DefaultCaptureTimeout = 10 * time.Second
 )
 
 type Server struct {
@@ -41,6 +52,7 @@ func newServer(service *service) *Server {
 	mux.HandleFunc("GET /readyz", server.getReadiness)
 	mux.HandleFunc("GET /metrics", server.getMetrics)
 	mux.HandleFunc("GET /v1/ingestion/status", server.getIngestionStatus)
+	mux.HandleFunc("GET /v1/ingestion/capture", server.getIngestionCapture)
 	server.handler = mux
 	return server
 }
@@ -69,6 +81,62 @@ func (s *Server) getReadiness(w http.ResponseWriter, request *http.Request) {
 
 func (s *Server) getIngestionStatus(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, s.service.IngestionStatus(request.Context()))
+}
+
+func (s *Server) getIngestionCapture(w http.ResponseWriter, request *http.Request) {
+	signal, limit, timeout, err := parseCaptureOptions(request)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sample, err := s.service.Capture(request.Context(), signal, limit, timeout)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, errCaptureSignalNotConfigured):
+			status = http.StatusNotFound
+		case errors.Is(err, scopedbexporter.ErrCaptureInProgress):
+			status = http.StatusConflict
+		case errors.Is(err, scopedbexporter.ErrNoCapturedData),
+			errors.Is(err, context.Canceled),
+			errors.Is(err, context.DeadlineExceeded):
+			status = http.StatusRequestTimeout
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Telescope-Signal", sample.Signal)
+	w.Header().Set("X-Telescope-Records", strconv.Itoa(sample.Records))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(sample.Payload)
+}
+
+func parseCaptureOptions(request *http.Request) (string, int, time.Duration, error) {
+	query := request.URL.Query()
+	signal := strings.TrimSpace(query.Get("signal"))
+	if signal != "logs" && signal != "traces" && signal != "metrics" {
+		return "", 0, 0, errors.New("signal must be logs, traces, or metrics")
+	}
+
+	limit := DefaultCaptureLimit
+	if value := strings.TrimSpace(query.Get("limit")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed <= 0 {
+			return "", 0, 0, errors.New("limit must be a positive integer")
+		}
+		limit = parsed
+	}
+
+	timeout := DefaultCaptureTimeout
+	if value := strings.TrimSpace(query.Get("timeout")); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return "", 0, 0, errors.New("timeout must be a positive duration")
+		}
+		timeout = parsed
+	}
+	return signal, limit, timeout, nil
 }
 
 func (s *Server) getMetrics(w http.ResponseWriter, request *http.Request) {
