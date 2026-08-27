@@ -131,12 +131,7 @@ func (cfg *Config) enabledSignals() []string {
 }
 
 func (cfg *Config) signalEnabled(signal string) bool {
-	for _, enabled := range cfg.enabledSignals() {
-		if enabled == signal {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(cfg.tableForSignal(signal)) != "" || cfg.mappingForSignal(signal) != nil
 }
 
 func (cfg *Config) compressionMode() string {

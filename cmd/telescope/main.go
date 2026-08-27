@@ -105,14 +105,7 @@ func runTelescope(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return err
-	}
-	configPath, err := telescopeConfigPath(flags)
-	if err != nil {
-		return err
-	}
-	ingestion, err := collector.LoadConfig(configPath)
+	configPath, ingestion, err := loadTelescopeConfig(flags, bootstrap)
 	if err != nil {
 		return err
 	}
@@ -278,6 +271,12 @@ func setEnvFallback(target string, fallback string) error {
 		return nil
 	}
 	return setEnvIfValue(target, os.Getenv(fallback))
+}
+
+func scopeDBCredentials() (string, string) {
+	endpoint := strings.TrimSpace(os.Getenv(telescopeScopeDBEndpointEnv))
+	apiKey := strings.TrimSpace(os.Getenv(telescopeScopeDBAPIKeyEnv))
+	return endpoint, apiKey
 }
 
 func loadEnvFile(path string) error {

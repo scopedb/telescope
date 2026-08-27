@@ -67,14 +67,7 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	if preview && len(samples.paths) == 0 {
 		return errors.New("preview requires at least one --sample signal=path; capture live input with: telescope capture logs | telescope preview --offline --sample logs=- telescope.yaml")
 	}
-	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return err
-	}
-	configPath, err := telescopeConfigPath(flags)
-	if err != nil {
-		return err
-	}
-	ingestion, err := collector.LoadConfig(configPath)
+	_, ingestion, err := loadTelescopeConfig(flags, bootstrap)
 	if err != nil {
 		return err
 	}
@@ -100,10 +93,11 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 		defer cancel()
+		endpoint, apiKey := scopeDBCredentials()
 		destinations, err = scopedbexporter.InspectIngestionDestinations(
 			ctx,
-			strings.TrimSpace(os.Getenv(telescopeScopeDBEndpointEnv)),
-			strings.TrimSpace(os.Getenv(telescopeScopeDBAPIKeyEnv)),
+			endpoint,
+			apiKey,
 			ingestion,
 		)
 		if err != nil {
@@ -120,6 +114,21 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 		}
 	}
 	return errors.Join(validationErrors...)
+}
+
+func loadTelescopeConfig(
+	flags *flag.FlagSet,
+	bootstrap bootstrapFlags,
+) (string, scopedbexporter.IngestionConfig, error) {
+	if err := applyBootstrapFlags(bootstrap); err != nil {
+		return "", scopedbexporter.IngestionConfig{}, err
+	}
+	path, err := telescopeConfigPath(flags)
+	if err != nil {
+		return "", scopedbexporter.IngestionConfig{}, err
+	}
+	config, err := collector.LoadConfig(path)
+	return path, config, err
 }
 
 func telescopeConfigPath(flags *flag.FlagSet) (string, error) {

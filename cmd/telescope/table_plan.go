@@ -28,7 +28,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/scopedb/telescope/internal/collector"
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"go.yaml.in/yaml/v3"
 )
@@ -68,14 +67,7 @@ func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.
 	if *outputPath == "-" {
 		return fmt.Errorf("--out requires a file path; use --format scopeql for stdout")
 	}
-	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return err
-	}
-	configPath, err := telescopeConfigPath(flags)
-	if err != nil {
-		return err
-	}
-	ingestion, err := collector.LoadConfig(configPath)
+	_, ingestion, err := loadTelescopeConfig(flags, bootstrap)
 	if err != nil {
 		return err
 	}
@@ -90,10 +82,11 @@ func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	endpoint, apiKey := scopeDBCredentials()
 	plan, err := scopedbexporter.PlanIngestionTables(
 		ctx,
-		strings.TrimSpace(os.Getenv(telescopeScopeDBEndpointEnv)),
-		strings.TrimSpace(os.Getenv(telescopeScopeDBAPIKeyEnv)),
+		endpoint,
+		apiKey,
 		ingestion,
 		previewValues,
 	)

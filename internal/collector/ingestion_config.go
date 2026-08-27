@@ -61,42 +61,21 @@ func ConfigURI(config scopedbexporter.IngestionConfig) (string, error) {
 	if err := yaml.Unmarshal([]byte(defaultConfig), &rendered); err != nil {
 		return "", fmt.Errorf("decode embedded collector config: %w", err)
 	}
-	exporters, ok := rendered["exporters"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("embedded collector config has no exporters map")
-	}
-	scopeDB, ok := exporters["scopedb"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("embedded collector config has no scopedb exporter")
-	}
-	signals := config.EnabledSignals()
-	tables := make(map[string]string, len(signals))
-	mappings := make(map[string]scopedbexporter.MappingConfig, len(signals))
-	for _, signal := range signals {
-		signalConfig, _ := config.Signal(signal)
+	scopeDB := rendered["exporters"].(map[string]any)["scopedb"].(map[string]any)
+	pipelines := rendered["service"].(map[string]any)["pipelines"].(map[string]any)
+	tables := make(map[string]string, 3)
+	mappings := make(map[string]scopedbexporter.MappingConfig, 3)
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		signalConfig, enabled := config.Signal(signal)
+		if !enabled {
+			delete(pipelines, signal)
+			continue
+		}
 		tables[signal] = signalConfig.Table
 		mappings[signal] = signalConfig.Mapping
 	}
 	scopeDB["tables"] = tables
 	scopeDB["mappings"] = mappings
-
-	service, ok := rendered["service"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("embedded collector config has no service map")
-	}
-	pipelines, ok := service["pipelines"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("embedded collector config has no pipelines map")
-	}
-	enabled := make(map[string]bool, len(signals))
-	for _, signal := range signals {
-		enabled[signal] = true
-	}
-	for _, signal := range []string{"logs", "traces", "metrics"} {
-		if !enabled[signal] {
-			delete(pipelines, signal)
-		}
-	}
 
 	data, err := yaml.Marshal(rendered)
 	if err != nil {

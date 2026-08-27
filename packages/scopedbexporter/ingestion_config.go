@@ -147,23 +147,15 @@ func InspectIngestionDestinations(
 }
 
 func (cfg IngestionConfig) exporterConfig() (TableRoutingConfig, SignalMappingConfig) {
-	var tables TableRoutingConfig
-	var mappings SignalMappingConfig
-	for _, signal := range cfg.EnabledSignals() {
-		signalConfig, _ := cfg.Signal(signal)
-		switch signal {
-		case signalLogs:
-			tables.Logs = signalConfig.Table
-			mappings.Logs = signalConfig.Mapping
-		case signalTraces:
-			tables.Traces = signalConfig.Table
-			mappings.Traces = signalConfig.Mapping
-		case signalMetrics:
-			tables.Metrics = signalConfig.Table
-			mappings.Metrics = signalConfig.Mapping
+	return TableRoutingConfig{
+			Logs:    cfg.Signals.Logs.Table,
+			Traces:  cfg.Signals.Traces.Table,
+			Metrics: cfg.Signals.Metrics.Table,
+		}, SignalMappingConfig{
+			Logs:    cfg.Signals.Logs.Mapping,
+			Traces:  cfg.Signals.Traces.Mapping,
+			Metrics: cfg.Signals.Metrics.Mapping,
 		}
-	}
-	return tables, mappings
 }
 
 func ingestionConfigFromExporter(tables TableRoutingConfig, mappings SignalMappingConfig) IngestionConfig {
