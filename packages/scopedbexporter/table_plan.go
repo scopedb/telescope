@@ -66,12 +66,29 @@ type TablePlan struct {
 }
 
 type TableColumnPlan struct {
-	Name          string            `json:"name"`
-	RequiredType  string            `json:"required_type,omitempty"`
-	ActualType    string            `json:"actual_type,omitempty"`
-	Status        TableColumnStatus `json:"status"`
-	ObservedTypes []string          `json:"observed_types,omitempty"`
-	Reason        string            `json:"reason,omitempty"`
+	Name          string                   `json:"name"`
+	RequiredType  string                   `json:"required_type,omitempty"`
+	ActualType    string                   `json:"actual_type,omitempty"`
+	Status        TableColumnStatus        `json:"status"`
+	ObservedTypes []string                 `json:"observed_types,omitempty"`
+	Reason        string                   `json:"reason,omitempty"`
+	Requirements  []TableColumnRequirement `json:"requirements,omitempty"`
+}
+
+// TableColumnRequirement identifies the per-signal mapping and optional sample
+// evidence behind one destination column. SuggestedCast is evidence-based but
+// is never applied automatically.
+type TableColumnRequirement struct {
+	Signal        string                    `json:"signal"`
+	Mapping       string                    `json:"mapping"`
+	OutputType    string                    `json:"output_type"`
+	Sampled       bool                      `json:"sampled,omitempty"`
+	Present       int                       `json:"present,omitempty"`
+	Total         int                       `json:"total,omitempty"`
+	Errors        int                       `json:"errors,omitempty"`
+	ObservedTypes []string                  `json:"observed_types,omitempty"`
+	Selections    []MappingSelectionPreview `json:"selections,omitempty"`
+	SuggestedCast string                    `json:"suggested_cast,omitempty"`
 }
 
 func (p IngestionTablePlan) Blocked() bool {
@@ -345,18 +362,38 @@ func planTableColumn(
 		return requirements[left].signal < requirements[right].signal
 	})
 	column := TableColumnPlan{Name: name}
+	details := make([]TableColumnRequirement, 0, len(requirements))
+	includeDetails := len(requirements) > 1
 	types := make(map[string]struct{}, len(requirements))
 	var unresolved bool
 	var sampleErrors []string
 	observed := make(map[string]struct{})
 	for _, requirement := range requirements {
-		if _, ok := scopeDBTableType(requirement.description.OutputType); ok {
+		detail := TableColumnRequirement{
+			Signal:     requirement.signal,
+			Mapping:    requirement.description.Source,
+			OutputType: requirement.description.OutputType,
+		}
+		_, resolvedType := scopeDBTableType(requirement.description.OutputType)
+		if resolvedType {
 			types[requirement.description.OutputType] = struct{}{}
 		} else {
 			unresolved = true
+			includeDetails = true
 		}
 		if requirement.preview == nil {
+			details = append(details, detail)
 			continue
+		}
+		includeDetails = true
+		detail.Sampled = true
+		detail.Present = requirement.preview.Present
+		detail.Total = requirement.preview.Total
+		detail.Errors = requirement.preview.Errors
+		detail.ObservedTypes = append([]string(nil), requirement.preview.ObservedTypes...)
+		detail.Selections = append([]MappingSelectionPreview(nil), requirement.preview.Selections...)
+		if !resolvedType && requirement.preview.Errors == 0 && len(detail.ObservedTypes) == 1 && supportedMappingCast(detail.ObservedTypes[0]) {
+			detail.SuggestedCast = detail.ObservedTypes[0]
 		}
 		for _, valueType := range requirement.preview.ObservedTypes {
 			observed[valueType] = struct{}{}
@@ -364,25 +401,33 @@ func planTableColumn(
 		if requirement.preview.Errors > 0 {
 			sampleErrors = append(sampleErrors, fmt.Sprintf("%s=%d", requirement.signal, requirement.preview.Errors))
 		}
+		details = append(details, detail)
 	}
 	for valueType := range observed {
 		column.ObservedTypes = append(column.ObservedTypes, valueType)
 	}
 	sort.Strings(column.ObservedTypes)
+	finish := func() TableColumnPlan {
+		if includeDetails {
+			column.Requirements = details
+		}
+		return column
+	}
 
 	if len(types) > 1 {
+		includeDetails = true
 		parts := make([]string, 0, len(requirements))
 		for _, requirement := range requirements {
 			parts = append(parts, requirement.signal+"="+requirement.description.OutputType)
 		}
 		column.Status = TableColumnConflict
 		column.Reason = "signals require different output types: " + strings.Join(parts, ", ")
-		return column
+		return finish()
 	}
 	if unresolved {
 		column.Status = TableColumnBlocked
 		column.Reason = "output type is runtime-dependent; add an explicit cast to the mapping"
-		return column
+		return finish()
 	}
 	for valueType := range types {
 		column.RequiredType = valueType
@@ -390,25 +435,26 @@ func planTableColumn(
 	if len(sampleErrors) > 0 {
 		column.Status = TableColumnBlocked
 		column.Reason = "sample mapping failed: " + strings.Join(sampleErrors, ", ")
-		return column
+		return finish()
 	}
 	if !exists {
 		column.Status = TableColumnCreate
-		return column
+		return finish()
 	}
 	actualType, found := actual[name]
 	if !found {
 		column.Status = TableColumnAdd
-		return column
+		return finish()
 	}
 	column.ActualType = string(actualType)
 	if selectorType(column.RequiredType).compatibilityWith(actualType) == MappingIncompatible {
+		includeDetails = true
 		column.Status = TableColumnConflict
 		column.Reason = fmt.Sprintf("mapping requires %s but the table has %s", column.RequiredType, actualType)
-		return column
+		return finish()
 	}
 	column.Status = TableColumnExists
-	return column
+	return finish()
 }
 
 func scopeDBTableType(value string) (scopedb.DataType, bool) {

@@ -81,20 +81,114 @@ signals:
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--format", "human",
+		"--sample", "logs=-",
 		configPath,
-	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	}, strings.NewReader(`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"kvlistValue":{"values":[{"key":"request_id","value":{"stringValue":"42"}}]}}}]}]}]}`), &stdout, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected blocked plan error")
 	}
 	for _, expected := range []string{
 		"table app.logs [logs]: blocked",
 		"output type is runtime-dependent",
-		"add an explicit cast",
+		"logs.body <- log.body",
+		"coverage=1/1",
+		"suggested edit for signals.logs.mapping.body:",
+		"cast: object",
 		"resolve blocked mappings or table conflicts",
 	} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("plan output missing %q: %s", expected, stdout.String())
 		}
+	}
+}
+
+func TestPlanCommandWritesScopeQLWithoutASecondCatalogRead(t *testing.T) {
+	clearBootstrapEnv(t)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	configPath := writeTablePlanConfig(t, `
+signals:
+  logs:
+    table: app.logs
+    mapping:
+      message: log.message
+`)
+	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
+	var stdout bytes.Buffer
+
+	err := runPlanCommand([]string{
+		"--scopedb-endpoint", server.URL,
+		"--scopedb-api-key", "test-key",
+		"--out", outputPath,
+		configPath,
+	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("runPlanCommand() error = %v", err)
+	}
+	contents, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read ScopeQL output: %v", err)
+	}
+	if got, want := string(contents), "CREATE TABLE `app`.`logs` (\n    `message` string\n);\n"; got != want {
+		t.Fatalf("ScopeQL file = %q, want %q", got, want)
+	}
+	if !strings.Contains(stdout.String(), "scopeql output: "+outputPath) || !strings.Contains(stdout.String(), "scopeql run -f "+outputPath) {
+		t.Fatalf("plan output does not identify written ScopeQL: %s", stdout.String())
+	}
+	if requests != 1 {
+		t.Fatalf("catalog requests = %d, want 1", requests)
+	}
+}
+
+func TestPlanCommandDoesNotOverwriteOutputWhenBlocked(t *testing.T) {
+	clearBootstrapEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	configPath := writeTablePlanConfig(t, `
+signals:
+  logs:
+    table: app.logs
+    mapping:
+      body: log.body
+`)
+	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
+	if err := os.WriteFile(outputPath, []byte("existing\n"), 0o600); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	err := runPlanCommand([]string{
+		"--scopedb-endpoint", server.URL,
+		"--scopedb-api-key", "test-key",
+		"--out", outputPath,
+		configPath,
+	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected blocked plan error")
+	}
+	contents, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatalf("read existing output: %v", readErr)
+	}
+	if got := string(contents); got != "existing\n" {
+		t.Fatalf("blocked plan overwrote output: %q", got)
+	}
+}
+
+func TestPlanCommandRejectsOutWithMachineFormat(t *testing.T) {
+	err := runPlanCommand(
+		[]string{"--format", "scopeql", "--out", "tables.scopeql"},
+		strings.NewReader(""),
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "--out requires --format human") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -160,6 +254,7 @@ func TestPlanHelpShowsContractAndScopeQLFormats(t *testing.T) {
 	for _, expected := range []string{
 		"Usage: telescope plan [options] [telescope.yaml]",
 		"human, json, or scopeql",
+		"write additive ScopeQL",
 		"scopeql run -f",
 	} {
 		if !strings.Contains(stderr.String(), expected) {

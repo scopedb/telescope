@@ -75,8 +75,8 @@ type MappingColumnPreview struct {
 }
 
 type MappingSelectionPreview struct {
-	Source string
-	Count  int
+	Source string `json:"source"`
+	Count  int    `json:"count"`
 }
 
 type MappingPreviewError struct {
