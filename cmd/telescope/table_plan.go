@@ -148,6 +148,15 @@ func printTablePlan(
 	for _, tablePlan := range plan.Tables {
 		counts[tablePlan.Action]++
 		fmt.Fprintf(w, "table %s [%s]: %s\n", tablePlan.Table, strings.Join(tablePlan.Signals, ","), tablePlan.Action)
+		if tablePlan.CreateDatabase {
+			fmt.Fprintln(w, "namespace: create database "+tablePlan.Database)
+		}
+		if tablePlan.CreateSchema {
+			fmt.Fprintf(w, "namespace: create schema %s.%s\n", tablePlan.Database, tablePlan.Schema)
+		}
+		if !tablePlan.Exists {
+			fmt.Fprintln(w, "physical policy: unspecified; review retention, clustering, distinct keys, and indexes")
+		}
 		table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(table, "COLUMN\tREQUIRED\tACTUAL\tOBSERVED\tSTATUS\tREASON")
 		for _, column := range tablePlan.Columns {

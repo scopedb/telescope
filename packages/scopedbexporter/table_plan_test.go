@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,10 +29,7 @@ import (
 )
 
 func TestPlanIngestionTablesCreatesMissingTable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/databases/scopedb/schemas/app/tables/logs", r.URL.Path)
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
@@ -103,9 +101,7 @@ func TestPlanIngestionTablesClassifiesExistingColumns(t *testing.T) {
 }
 
 func TestPlanIngestionTablesDoesNotInferTypeFromSample(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
@@ -146,9 +142,7 @@ func TestPlanIngestionTablesDoesNotInferTypeFromSample(t *testing.T) {
 }
 
 func TestPlanIngestionTablesPreservesSampleCoverageAndSelections(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
@@ -200,9 +194,7 @@ func TestPlanIngestionTablesPreservesSampleCoverageAndSelections(t *testing.T) {
 }
 
 func TestPlanIngestionTablesUsesExplicitStructuredCast(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
@@ -221,9 +213,7 @@ func TestPlanIngestionTablesUsesExplicitStructuredCast(t *testing.T) {
 }
 
 func TestPlanIngestionTablesMergesSignalsSharingATable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{
@@ -251,9 +241,7 @@ func TestPlanIngestionTablesMergesSignalsSharingATable(t *testing.T) {
 }
 
 func TestPlanIngestionTablesBlocksConflictingSharedColumn(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTablePlanServer(t, "app")
 	defer server.Close()
 
 	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{
@@ -292,6 +280,112 @@ func TestRenderTablePlanScopeQLAddsColumns(t *testing.T) {
 	scopeql, err := RenderTablePlanScopeQL(plan)
 	require.NoError(t, err)
 	assert.Equal(t, "ALTER TABLE `app`.`logs` ADD COLUMN `service` string;\nALTER TABLE `app`.`logs` ADD COLUMN `ts` timestamp;\n", scopeql)
+}
+
+func TestPlanIngestionTablesCreatesMissingDatabaseAndSchema(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/databases/analytics/schemas/otel/tables/logs",
+			"/v1/databases/analytics/schemas/otel",
+			"/v1/databases/analytics":
+			http.NotFound(w, r)
+		default:
+			t.Fatalf("unexpected catalog request: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
+		Table:   "analytics.otel.logs",
+		Mapping: shorthandMapping(map[string]string{"message": "log.message"}),
+	}}}
+	plan, err := PlanIngestionTables(context.Background(), server.URL, "test-key", ingestion, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Tables, 1)
+	table := plan.Tables[0]
+	assert.Equal(t, "analytics", table.Database)
+	assert.Equal(t, "otel", table.Schema)
+	assert.True(t, table.CreateDatabase)
+	assert.True(t, table.CreateSchema)
+
+	scopeql, err := RenderTablePlanScopeQL(plan)
+	require.NoError(t, err)
+	assert.Equal(t, "CREATE DATABASE `analytics`;\nCREATE SCHEMA `analytics`.`otel`;\nCREATE TABLE `analytics`.`otel`.`logs` (\n    `message` string\n);\n", scopeql)
+}
+
+func TestPlanIngestionTablesCreatesMissingSchemaInExistingDatabase(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/databases/analytics/schemas/otel/tables/logs", "/v1/databases/analytics/schemas/otel":
+			http.NotFound(w, r)
+		case "/v1/databases/analytics":
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"name": "analytics", "comment": nil}))
+		default:
+			t.Fatalf("unexpected catalog request: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
+		Table:   "analytics.otel.logs",
+		Mapping: shorthandMapping(map[string]string{"message": "log.message"}),
+	}}}
+	plan, err := PlanIngestionTables(context.Background(), server.URL, "test-key", ingestion, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Tables, 1)
+	assert.False(t, plan.Tables[0].CreateDatabase)
+	assert.True(t, plan.Tables[0].CreateSchema)
+}
+
+func TestRenderTablePlanScopeQLDeduplicatesNamespaces(t *testing.T) {
+	plan := IngestionTablePlan{Version: TablePlanVersion, Tables: []TablePlan{
+		{
+			Table:          "analytics.otel.logs",
+			Database:       "analytics",
+			Schema:         "otel",
+			CreateDatabase: true,
+			CreateSchema:   true,
+			Action:         TableActionCreate,
+			Columns:        []TableColumnPlan{{Name: "message", RequiredType: "string", Status: TableColumnCreate}},
+		},
+		{
+			Table:          "analytics.otel.spans",
+			Database:       "analytics",
+			Schema:         "otel",
+			CreateDatabase: true,
+			CreateSchema:   true,
+			Action:         TableActionCreate,
+			Columns:        []TableColumnPlan{{Name: "name", RequiredType: "string", Status: TableColumnCreate}},
+		},
+	}}
+
+	scopeql, err := RenderTablePlanScopeQL(plan)
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(scopeql, "CREATE DATABASE"))
+	assert.Equal(t, 1, strings.Count(scopeql, "CREATE SCHEMA"))
+	assert.Less(t, strings.Index(scopeql, "CREATE DATABASE"), strings.Index(scopeql, "CREATE SCHEMA"))
+	assert.Less(t, strings.Index(scopeql, "CREATE SCHEMA"), strings.Index(scopeql, "CREATE TABLE"))
+}
+
+func missingTablePlanServer(t *testing.T, schema string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		schemaPath := "/v1/databases/scopedb/schemas/" + schema
+		switch {
+		case r.URL.Path == schemaPath:
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"database": "scopedb",
+				"name":     schema,
+				"comment":  nil,
+			}))
+		case strings.HasPrefix(r.URL.Path, schemaPath+"/tables/"):
+			http.NotFound(w, r)
+		default:
+			t.Fatalf("unexpected catalog request: %s", r.URL.Path)
+		}
+	}))
 }
 
 func tablePlanServer(t *testing.T, schema string, table string, columns []map[string]any) *httptest.Server {

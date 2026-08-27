@@ -31,6 +31,11 @@ import (
 
 const TablePlanVersion = 1
 
+const (
+	defaultCatalogDatabase = "scopedb"
+	defaultCatalogSchema   = "public"
+)
+
 type TablePlanAction string
 
 const (
@@ -58,11 +63,15 @@ type IngestionTablePlan struct {
 }
 
 type TablePlan struct {
-	Table   string            `json:"table"`
-	Signals []string          `json:"signals"`
-	Exists  bool              `json:"exists"`
-	Action  TablePlanAction   `json:"action"`
-	Columns []TableColumnPlan `json:"columns"`
+	Table          string            `json:"table"`
+	Database       string            `json:"database"`
+	Schema         string            `json:"schema"`
+	Signals        []string          `json:"signals"`
+	Exists         bool              `json:"exists"`
+	CreateDatabase bool              `json:"create_database,omitempty"`
+	CreateSchema   bool              `json:"create_schema,omitempty"`
+	Action         TablePlanAction   `json:"action"`
+	Columns        []TableColumnPlan `json:"columns"`
 }
 
 type TableColumnPlan struct {
@@ -147,7 +156,33 @@ func PlanIngestionTables(
 		if describeErr != nil && !isCatalogNotFound(describeErr) {
 			return IngestionTablePlan{}, fmt.Errorf("describe target table %s: %w", builder.ref.String(), describeErr)
 		}
-		result.Tables = append(result.Tables, buildTablePlan(builder, exists, resource))
+		database, schema := resolvedTableNamespace(builder.ref)
+		createDatabase := false
+		createSchema := false
+		if !exists {
+			_, schemaErr := client.sdk.FetchSchema(ctx, database, schema)
+			switch {
+			case schemaErr == nil:
+			case isCatalogNotFound(schemaErr):
+				createSchema = true
+				_, databaseErr := client.sdk.FetchDatabase(ctx, database)
+				switch {
+				case databaseErr == nil:
+				case isCatalogNotFound(databaseErr):
+					createDatabase = true
+				default:
+					return IngestionTablePlan{}, fmt.Errorf("describe target database %s: %w", database, databaseErr)
+				}
+			default:
+				return IngestionTablePlan{}, fmt.Errorf("describe target schema %s.%s: %w", database, schema, schemaErr)
+			}
+		}
+		tablePlan := buildTablePlan(builder, exists, resource)
+		tablePlan.Database = database
+		tablePlan.Schema = schema
+		tablePlan.CreateDatabase = createDatabase
+		tablePlan.CreateSchema = createSchema
+		result.Tables = append(result.Tables, tablePlan)
 	}
 	return result, nil
 }
@@ -170,11 +205,56 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 		return "", fmt.Errorf("table plan is blocked: %s", strings.Join(blocked, ", "))
 	}
 
+	databaseSet := make(map[string]struct{})
+	type schemaName struct {
+		database string
+		schema   string
+	}
+	schemaSet := make(map[schemaName]struct{})
+	for _, table := range plan.Tables {
+		database, schema, err := tablePlanNamespace(table)
+		if err != nil {
+			return "", err
+		}
+		if table.CreateDatabase {
+			databaseSet[database] = struct{}{}
+		}
+		if table.CreateSchema {
+			schemaSet[schemaName{database: database, schema: schema}] = struct{}{}
+		}
+	}
+	databases := make([]string, 0, len(databaseSet))
+	for database := range databaseSet {
+		databases = append(databases, database)
+	}
+	sort.Strings(databases)
+	schemas := make([]schemaName, 0, len(schemaSet))
+	for schema := range schemaSet {
+		schemas = append(schemas, schema)
+	}
+	sort.Slice(schemas, func(left int, right int) bool {
+		if schemas[left].database == schemas[right].database {
+			return schemas[left].schema < schemas[right].schema
+		}
+		return schemas[left].database < schemas[right].database
+	})
+
+	var statements []string
+	for _, database := range databases {
+		statements = append(statements, fmt.Sprintf("CREATE DATABASE %s;", scopeQLIdentifier(database)))
+	}
+	for _, schema := range schemas {
+		statements = append(statements, fmt.Sprintf(
+			"CREATE SCHEMA %s.%s;",
+			scopeQLIdentifier(schema.database),
+			scopeQLIdentifier(schema.schema),
+		))
+	}
+
 	tables := append([]TablePlan(nil), plan.Tables...)
 	sort.Slice(tables, func(left int, right int) bool {
 		return tables[left].Table < tables[right].Table
 	})
-	var statements []string
 	for _, table := range tables {
 		identifier, err := scopeQLTableIdentifier(table.Table)
 		if err != nil {
@@ -215,6 +295,39 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 		return "", nil
 	}
 	return strings.Join(statements, "\n") + "\n", nil
+}
+
+func resolvedTableNamespace(ref tableRef) (string, string) {
+	database := ref.Database
+	if database == "" {
+		database = defaultCatalogDatabase
+	}
+	schema := ref.Schema
+	if schema == "" {
+		schema = defaultCatalogSchema
+	}
+	return database, schema
+}
+
+func tablePlanNamespace(plan TablePlan) (string, string, error) {
+	ref, err := parseTableRef(plan.Table)
+	if err != nil {
+		return "", "", err
+	}
+	database, schema := resolvedTableNamespace(ref)
+	if plan.Database != "" {
+		database = plan.Database
+	}
+	if plan.Schema != "" {
+		schema = plan.Schema
+	}
+	if !tablePartPattern.MatchString(database) {
+		return "", "", fmt.Errorf("database %q is not an unquoted ScopeDB identifier", database)
+	}
+	if !tablePartPattern.MatchString(schema) {
+		return "", "", fmt.Errorf("schema %q is not an unquoted ScopeDB identifier", schema)
+	}
+	return database, schema, nil
 }
 
 type tableColumnRequirement struct {

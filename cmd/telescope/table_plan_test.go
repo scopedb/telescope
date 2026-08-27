@@ -32,9 +32,7 @@ import (
 
 func TestPlanCommandRendersScopeQLForMissingTable(t *testing.T) {
 	clearBootstrapEnv(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTableCommandServer(t, "app")
 	defer server.Close()
 	configPath := writeTablePlanConfig(t, `
 signals:
@@ -64,9 +62,7 @@ signals:
 
 func TestPlanCommandPrintsActionableBlockedPlan(t *testing.T) {
 	clearBootstrapEnv(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTableCommandServer(t, "app")
 	defer server.Close()
 	configPath := writeTablePlanConfig(t, `
 signals:
@@ -107,6 +103,11 @@ func TestPlanCommandWritesScopeQLWithoutASecondCatalogRead(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		if r.URL.Path == "/v1/databases/scopedb/schemas/app" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"database": "scopedb", "name": "app", "comment": nil})
+			return
+		}
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
@@ -139,16 +140,14 @@ signals:
 	if !strings.Contains(stdout.String(), "scopeql output: "+outputPath) || !strings.Contains(stdout.String(), "scopeql run -f "+outputPath) {
 		t.Fatalf("plan output does not identify written ScopeQL: %s", stdout.String())
 	}
-	if requests != 1 {
-		t.Fatalf("catalog requests = %d, want 1", requests)
+	if requests != 2 {
+		t.Fatalf("catalog requests = %d, want one table and one schema read", requests)
 	}
 }
 
 func TestPlanCommandDoesNotOverwriteOutputWhenBlocked(t *testing.T) {
 	clearBootstrapEnv(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTableCommandServer(t, "app")
 	defer server.Close()
 	configPath := writeTablePlanConfig(t, `
 signals:
@@ -194,9 +193,7 @@ func TestPlanCommandRejectsOutWithMachineFormat(t *testing.T) {
 
 func TestPlanCommandRendersVersionedJSON(t *testing.T) {
 	clearBootstrapEnv(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+	server := missingTableCommandServer(t, "app")
 	defer server.Close()
 	configPath := writeTablePlanConfig(t, `
 signals:
@@ -225,6 +222,49 @@ signals:
 	}
 	if len(plan.Tables) != 1 || plan.Tables[0].Action != scopedbexporter.TableActionCreate {
 		t.Fatalf("unexpected plan: %+v", plan)
+	}
+}
+
+func TestPlanCommandShowsMissingNamespaceAndPhysicalPolicy(t *testing.T) {
+	clearBootstrapEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	configPath := writeTablePlanConfig(t, `
+signals:
+  logs:
+    table: analytics.otel.logs
+    mapping:
+      message: log.message
+`)
+	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
+	var stdout bytes.Buffer
+
+	err := runPlanCommand([]string{
+		"--scopedb-endpoint", server.URL,
+		"--scopedb-api-key", "test-key",
+		"--out", outputPath,
+		configPath,
+	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("runPlanCommand() error = %v", err)
+	}
+	for _, expected := range []string{
+		"namespace: create database analytics",
+		"namespace: create schema analytics.otel",
+		"physical policy: unspecified; review retention, clustering, distinct keys, and indexes",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("plan output missing %q: %s", expected, stdout.String())
+		}
+	}
+	contents, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatalf("read ScopeQL output: %v", readErr)
+	}
+	if !strings.HasPrefix(string(contents), "CREATE DATABASE `analytics`;\nCREATE SCHEMA `analytics`.`otel`;\nCREATE TABLE") {
+		t.Fatalf("unexpected ScopeQL output: %s", contents)
 	}
 }
 
@@ -270,4 +310,23 @@ func writeTablePlanConfig(t *testing.T, contents string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func missingTableCommandServer(t *testing.T, schema string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		schemaPath := "/v1/databases/scopedb/schemas/" + schema
+		switch {
+		case r.URL.Path == schemaPath:
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{"database": "scopedb", "name": schema, "comment": nil}); err != nil {
+				t.Errorf("encode schema: %v", err)
+			}
+		case strings.HasPrefix(r.URL.Path, schemaPath+"/tables/"):
+			http.NotFound(w, r)
+		default:
+			t.Errorf("unexpected catalog request: %s", r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+		}
+	}))
 }
