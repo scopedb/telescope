@@ -1,18 +1,19 @@
 # ScopeDB Mapping and Table Management
 
-Telescope maps OpenTelemetry values into existing ScopeDB tables. It does not own a universal telemetry row or generate table DDL from the mapping.
+Telescope maps OpenTelemetry values into user-owned ScopeDB tables. It does not own a universal telemetry row or execute table DDL. It can render an additive ScopeQL plan from mappings whose output types are explicit.
 
 The ownership boundary is:
 
 | Concern | Owner |
 | --- | --- |
 | Signal-to-table routing and destination projection (selection, fallback/default, constants, casts) | Telescope exporter config |
-| Column types, nullability/defaults, partitioning, clustering, retention, and indexes | User-managed ScopeDB DDL |
+| Logical required column types and live catalog diff | `telescope plan` |
+| DDL review/execution, nullability/defaults, partitioning, clustering, retention, and indexes | User-managed ScopeDB DDL and ScopeQL |
 | Telemetry mutation, filtering, sampling, content-based routing, arithmetic, regex, and aggregation | Upstream OpenTelemetry processors |
 | Persistent queue and retry schedule | OpenTelemetry Collector `exporterhelper` |
 | One append request and its `committed`/`rejected`/`unknown` result | ScopeDB Go SDK `AppendNDJSON` |
 
-This separation is intentional. A mapping can identify the destination column name, but it cannot infer whether a customer wants a string or enum, a scalar or object, a nullable field or default, or a particular physical layout.
+This separation is intentional. A statically typed selector or explicit `cast` determines the logical append type. A representative sample only tests that decision; it cannot determine future shape or infer a physical layout.
 
 Telescope's boundary ends at the append result. It does not query or interpret the stored columns.
 
@@ -89,7 +90,7 @@ This projection runs only while building the ScopeDB row. It does not mutate the
 
 The full source selector reference is in the [ScopeDB exporter README](../packages/scopedbexporter/README.md#mapping-sources).
 
-## Ingestion Configuration and Validation
+## Plan and Apply Tables
 
 Put only the routes and mappings in `telescope.yaml`; Collector receivers, batching, persistence, compression, and retry remain Telescope-owned:
 
@@ -104,7 +105,43 @@ signals:
 
 Only configured signals get Collector pipelines. The example accepts traces without requiring placeholder log and metric tables. Add independent `logs` or `metrics` blocks when needed.
 
-Validate the mapping against the live destination before accepting OTLP:
+Inspect a representative sample before planning when runtime values or casts are involved:
+
+```bash
+telescope preview \
+  --offline \
+  --strict \
+  --sample traces=traces.otlp.json \
+  ./telescope.yaml
+```
+
+Then compare the logical write contract with the live catalog:
+
+```bash
+telescope plan \
+  --scopedb-endpoint https://<region>.scopedb.cloud \
+  --scopedb-api-key sk_... \
+  --sample traces=traces.otlp.json \
+  ./telescope.yaml
+
+telescope plan \
+  --scopedb-endpoint https://<region>.scopedb.cloud \
+  --scopedb-api-key sk_... \
+  --format scopeql \
+  ./telescope.yaml > tables.scopeql
+
+scopeql run -f tables.scopeql
+```
+
+The human plan groups every configured signal by destination table and classifies it as `create`, `alter`, `no-op`, or `blocked`. Generated ScopeQL contains only `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN`; it is never executed by Telescope. The entire script is withheld when any table is blocked, so setup cannot silently apply a partial contract. `--format json` returns the same versioned generated plan for other tooling.
+
+A fixed selector type or explicit `cast` is authoritative. Observed sample types and coverage are included as evidence only. An uncast attribute, nested path, `log.body`, or `datapoint.value` therefore blocks table creation even when one sample happens to show a stable type. Add a cast such as `string`, `object`, `array`, or explicitly `any` to record the intended table type. Incompatible existing columns and conflicting requirements from signals sharing one table also block the plan.
+
+Review the generated DDL before applying it. Telescope deliberately does not infer column defaults, partitioning, clustering, retention, distinct keys, or indexes from telemetry samples.
+
+## Validate and Run
+
+Validate the applied contract before accepting OTLP:
 
 ```bash
 telescope validate \
@@ -118,19 +155,7 @@ telescope run \
   ./telescope.yaml
 ```
 
-The validate command prints `signal -> table -> destination column -> mapping rule`, then describes every configured destination. It reports all invalid selectors and rules in one run, suggests close selector names, and reports missing columns or statically known output-type mismatches. An explicit cast supplies the output type for catalog validation. A cast from runtime data is still marked runtime-dependent when sample values determine whether conversion succeeds. Uncast attribute values, nested paths, `log.body`, and `datapoint.value` also remain runtime-dependent because their output type is unknown.
-
-Use representative OTLP JSON or protobuf to inspect those values before deployment:
-
-```bash
-telescope preview \
-  --strict \
-  --sample logs=logs.otlp.json \
-  --sample metrics=metrics.otlp.pb \
-  ./telescope.yaml
-```
-
-Each sample is decoded and passed through the production mapper, including fallback, defaults, constants, and casts. Telescope reports coverage, observed output types, and source/default selection counts for every mapped column, compares them with the live destination type, and prints the first three valid projected NDJSON rows. It does not append the sample. `--offline` keeps the projection and omits the destination comparison. Mapping failures are collected across the sample and identify the 1-based record, destination column, and selected source. `--strict` also returns a failure for unobserved, partial, or default-only columns, which makes representative-sample checks usable in CI.
+The validate command prints `signal -> table -> destination column -> mapping rule`, then describes every configured destination. It reports all invalid selectors and rules in one run, suggests close selector names, and reports missing columns or statically known output-type mismatches. An explicit cast supplies the output type for catalog validation. A cast from runtime data is still marked runtime-dependent when sample values determine whether conversion succeeds.
 
 `telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 
@@ -155,8 +180,8 @@ Use `telescope verify` after startup to send a minimal synthetic record for ever
 
 Treat a mapping change like an application-to-database contract change:
 
-1. Apply compatible DDL first.
-2. Update the mapping.
+1. Update the candidate mapping and preview representative input.
+2. Run `telescope plan`, review the generated additive ScopeQL, and apply it explicitly.
 3. Run `telescope validate`, then restart or roll out Telescope.
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.

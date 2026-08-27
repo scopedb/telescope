@@ -8,16 +8,16 @@ It provides:
 - user-owned signal-to-table mappings
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
-- preflight validation, live OTLP capture, mapping preview, and exact ScopeDB delivery probes
+- mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
 - operational health, readiness, and ingestion status endpoints
 
-Telescope does not create or modify ScopeDB tables. You choose the signals to enable, the destination table for each signal, and the fields to append. Its responsibility ends when ScopeDB reports the append result; it does not query or interpret stored data.
+Telescope never executes DDL. You choose the signals, destination tables, and fields to append. `telescope plan` can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain user-owned. At runtime Telescope's responsibility ends when ScopeDB reports the append result, and it does not query or interpret stored data.
 
 ## Requirements
 
 - Docker with Docker Compose for the recommended deployment path
 - a reachable ScopeDB endpoint and API key
-- pre-existing destination tables
+- pre-existing destination tables, or the ScopeQL CLI to apply a generated table plan
 - OpenTelemetry clients, SDKs, or Collectors that can export OTLP
 
 ## Quick Start
@@ -59,16 +59,6 @@ signals:
 
 A mapping value can stay as a source-selector shorthand, or use an expanded rule for ordered fallback, a missing-value default, a constant, and an explicit output cast. Object and array sources support chained access such as `log.body["request"]["id"]`. See [ScopeDB Mapping and Table Management](docs/table-management.md) for the complete contract.
 
-Validate the destination table and mapping before deployment:
-
-```bash
-docker run --rm \
-  --env-file deploy/.env \
-  -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
-  ghcr.io/scopedb/telescope:latest \
-  validate /etc/telescope/telescope.yaml
-```
-
 For runtime-typed selectors such as attributes and `log.body`, and for casts whose input values vary at runtime, preview a representative OTLP JSON or protobuf payload before deployment:
 
 ```bash
@@ -79,6 +69,30 @@ telescope preview --offline \
 ```
 
 The preview shows destination-column coverage, observed output types, and which ordered source or default supplied each value, then prints projected NDJSON without writing to ScopeDB. Mapping failures are collected across the sample and identify the record, column, and selected source. `--strict` also fails on unobserved, partial, or default-only columns. Omit `--offline` to include destination column types and detect sample/type mismatches.
+
+Plan missing tables or columns, review the generated ScopeQL, and apply it explicitly:
+
+```bash
+docker run --rm \
+  --env-file deploy/.env \
+  -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
+  ghcr.io/scopedb/telescope:latest \
+  plan --format scopeql /etc/telescope/telescope.yaml > tables.scopeql
+
+scopeql run -f tables.scopeql
+```
+
+`plan` generates only `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN`. It blocks on runtime-dependent output types, sample conversion failures, shared-column type disagreements, and incompatible existing columns. A sample can provide evidence, but it never chooses a table type; add an explicit mapping `cast` when the source type is dynamic. Telescope does not infer retention, clustering, distinct keys, or indexes, so review and extend the ScopeQL before applying it.
+
+Validate the applied table contract before deployment:
+
+```bash
+docker run --rm \
+  --env-file deploy/.env \
+  -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
+  ghcr.io/scopedb/telescope:latest \
+  validate /etc/telescope/telescope.yaml
+```
 
 Start Telescope:
 
@@ -190,6 +204,8 @@ Build and run the embedded Collector:
 ```bash
 make build
 
+./bin/telescope preview --offline --sample traces=traces.otlp.json deploy/telescope.yaml
+./bin/telescope plan --env-file deploy/.env deploy/telescope.yaml
 ./bin/telescope validate --env-file deploy/.env deploy/telescope.yaml
 ./bin/telescope run --env-file deploy/.env deploy/telescope.yaml
 ```
@@ -197,8 +213,9 @@ make build
 Commands:
 
 - Setup:
-  - `telescope validate`: validate mapping rules and destination tables
   - `telescope preview`: project OTLP samples through a candidate mapping without appending
+  - `telescope plan`: compare mappings with live tables and render additive ScopeQL
+  - `telescope validate`: validate mapping rules and destination tables
   - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
 - Operations:
   - `telescope status`: report local receiver, queue, and ScopeDB delivery state
@@ -207,7 +224,7 @@ Commands:
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`validate`, `preview`, and `run` use the same `telescope.yaml` contract. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` writes only executable additive DDL and refuses partial output when any table is blocked. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 
