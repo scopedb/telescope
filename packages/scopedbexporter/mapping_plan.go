@@ -240,10 +240,6 @@ func selectorTypeFor(source string) selectorType {
 	}
 }
 
-func (t selectorType) compatibleWith(actual scopedb.DataType) bool {
-	return t.compatibilityWith(actual) != MappingIncompatible
-}
-
 func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatibility {
 	if actual == scopedb.AnyDataType {
 		return MappingCompatible

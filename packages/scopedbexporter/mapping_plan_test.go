@@ -264,11 +264,11 @@ func TestMappingPlanRejectsInvalidNestedSelectors(t *testing.T) {
 }
 
 func TestSelectorTypeCompatibility(t *testing.T) {
-	assert.True(t, selectorTypeFor("log.timestamp").compatibleWith(scopedb.TimestampDataType))
-	assert.True(t, selectorTypeFor("log.timestamp").compatibleWith(scopedb.StringDataType))
-	assert.False(t, selectorTypeFor("log.severity_number").compatibleWith(scopedb.StringDataType))
-	assert.True(t, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibleWith(scopedb.StringDataType))
-	assert.True(t, selectorTypeFor("span.events").compatibleWith(scopedb.ObjectDataType))
+	assert.Equal(t, MappingCompatible, selectorTypeFor("log.timestamp").compatibilityWith(scopedb.TimestampDataType))
+	assert.Equal(t, MappingCompatible, selectorTypeFor("log.timestamp").compatibilityWith(scopedb.StringDataType))
+	assert.Equal(t, MappingIncompatible, selectorTypeFor("log.severity_number").compatibilityWith(scopedb.StringDataType))
+	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibilityWith(scopedb.StringDataType))
+	assert.Equal(t, MappingCompatible, selectorTypeFor("span.events").compatibilityWith(scopedb.ObjectDataType))
 	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibilityWith(scopedb.StringDataType))
 	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.IntDataType))
 	assert.Equal(t, MappingIncompatible, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.StringDataType))

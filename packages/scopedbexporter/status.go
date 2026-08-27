@@ -75,7 +75,7 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 	status.QueueEnabled = cfg.SendingQueue.HasValue()
 	status.QueueCapacity = 0
 	status.QueueUnit = ""
-	if cfg.SendingQueue.HasValue() {
+	if status.QueueEnabled {
 		queue := cfg.SendingQueue.Get()
 		status.QueueCapacity = queue.QueueSize
 		status.QueueUnit = queue.Sizer.String()
