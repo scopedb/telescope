@@ -52,6 +52,12 @@ const (
 func runVerify(args []string) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: telescope verify [options] [signals...]")
+		fmt.Fprintln(os.Stderr, "\nSend synthetic OTLP and wait for confirmed ScopeDB append acknowledgements.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
+		flags.PrintDefaults()
+	}
 	otlpEndpoint := flags.String("otlp-endpoint", defaultOTLPEndpoint, "OTLP HTTP base endpoint")
 	statusEndpoint := flags.String("status-endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
 	timeout := flags.Duration("timeout", 45*time.Second, "time to wait for each confirmed ScopeDB append")

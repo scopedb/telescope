@@ -96,7 +96,7 @@ Current reasons are:
 
 ## Ingestion Status
 
-`GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture before the exporter sending queue and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer.
+`GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture at exporter input, after Collector batch processing and before the exporter sending queue, and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer. The default 45-second timeout exceeds the bundled 30-second batch timeout so low-volume input can reach the capture.
 
 `GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
 
@@ -116,7 +116,9 @@ This endpoint reports data-plane delivery state only. It does not report table q
 
 Receiver, final exporter failure, and queue counts come from the OpenTelemetry Collector's internal metrics. `written` instead counts native signal items only when ScopeDB confirms a chunk as `committed` with the expected inserted-row count, so a committed prefix remains visible even if a later chunk fails. The exporter outcome metric wraps Collector's retry sender, so intermediate attempts are not counted as drops. `dropped` combines final exporter failures, queue enqueue failures, invalid items isolated locally, and complete ScopeDB row rejections. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when retry cannot continue during shutdown or an advanced Collector configuration sets a finite horizon. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
 
-`invalid_items_by_reason` counts locally identifiable mapping failures, while the delivery counters use each signal's native unit: log records, spans, or metric points. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
+The reported exporter queue excludes telemetry held by the Collector batch processor and an export currently in flight. Therefore a transient `received > written + dropped` with an empty exporter queue does not imply data loss. Human-readable `telescope status` calls this out as accepted items without a final outcome; it does not publish a synthetic durable counter for that transient state.
+
+`invalid_items_by_reason` counts locally identifiable mapping failures, while the delivery counters use each signal's native unit: log records, spans, or metric points. Human-readable `telescope status` prints the non-zero reason counts for each signal. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
 
 When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. `queue_storage.allocated_bytes` separately reports filesystem blocks allocated to files in `TELESCOPE_QUEUE_DIR`; it does not treat the queue database's logical file length as current disk use.
 

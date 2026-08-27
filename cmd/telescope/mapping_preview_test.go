@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,6 +51,35 @@ func TestLoadMappingSamplesReadsStdin(t *testing.T) {
 	assert.Equal(t, "-", previews[0].path)
 	assert.Equal(t, 1, previews[0].preview.Records)
 	assert.Equal(t, "hello", previews[0].preview.Rows[0]["message"])
+}
+
+func TestDeploymentSamplesCanBePreviewed(t *testing.T) {
+	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
+		Logs: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.logs",
+			Mapping: scopedbexporter.MappingConfig{"message": {Source: "log.message"}},
+		},
+		Traces: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.traces",
+			Mapping: scopedbexporter.MappingConfig{"name": {Source: "span.name"}},
+		},
+		Metrics: scopedbexporter.SignalIngestionConfig{
+			Table:   "app.metrics",
+			Mapping: scopedbexporter.MappingConfig{"name": {Source: "metric.name"}},
+		},
+	}}
+	paths := make(map[string]string, 3)
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		paths[signal] = filepath.Join("..", "..", "deploy", "samples", signal+".otlp.json")
+	}
+
+	previews, err := loadMappingSamples(paths, ingestion, strings.NewReader(""))
+	require.NoError(t, err)
+	require.Len(t, previews, 3)
+	for _, sample := range previews {
+		assert.Equal(t, 1, sample.preview.Records, sample.preview.Signal)
+		assert.Zero(t, sample.preview.ErrorCount, sample.preview.Signal)
+	}
 }
 
 func TestLoadMappingSamplesRejectsMultipleStdinSamples(t *testing.T) {

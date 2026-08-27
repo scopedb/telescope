@@ -41,6 +41,14 @@ func runCapture(args []string) error {
 func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) error {
 	flags := flag.NewFlagSet("capture", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(stderr, "Usage: telescope capture [options] <signal>")
+		fmt.Fprintln(stderr, "\nCapture a bounded live OTLP sample from logs, traces, or metrics.")
+		fmt.Fprintln(stderr, "\nOptions:")
+		flags.PrintDefaults()
+		fmt.Fprintln(stderr, "\nExample:")
+		fmt.Fprintln(stderr, "  telescope capture traces | telescope preview --offline --sample traces=- telescope.yaml")
+	}
 	endpoint := flags.String("endpoint", defaultCaptureEndpoint, "Telescope operational HTTP base URL")
 	limit := flags.Int("limit", statusapi.DefaultCaptureLimit, "maximum records to capture")
 	timeout := flags.Duration("timeout", statusapi.DefaultCaptureTimeout, "time to wait for telemetry")

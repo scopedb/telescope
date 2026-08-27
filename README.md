@@ -17,7 +17,7 @@ Telescope never executes DDL. You choose the signals, destination tables, and fi
 
 - Docker with Docker Compose for the recommended deployment path
 - a reachable ScopeDB endpoint and API key
-- pre-existing destination tables, or the ScopeQL CLI to apply a generated table plan
+- pre-existing destination tables, or the ScopeQL CLI with a configured connection to apply a generated table plan
 - OpenTelemetry clients, SDKs, or Collectors that can export OTLP
 
 ## Quick Start
@@ -62,13 +62,19 @@ A mapping value can stay as a source-selector shorthand, or use an expanded rule
 For runtime-typed selectors such as attributes and `log.body`, and for casts whose input values vary at runtime, preview a representative OTLP JSON or protobuf payload before deployment:
 
 ```bash
-telescope preview --offline \
-  --strict \
-  --sample traces=traces.otlp.json \
-  deploy/telescope.yaml
+docker run --rm \
+  -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
+  -v "$PWD/deploy/samples:/samples:ro" \
+  ghcr.io/scopedb/telescope:latest \
+  preview --offline \
+    --strict \
+    --sample traces=/samples/traces.otlp.json \
+    /etc/telescope/telescope.yaml
 ```
 
 The preview shows destination-column coverage, observed output types, and which ordered source or default supplied each value, then prints projected NDJSON without writing to ScopeDB. Mapping failures are collected across the sample and identify the record, column, and selected source. `--strict` also fails on unobserved, partial, or default-only columns. Omit `--offline` to include destination column types and detect sample/type mismatches.
+
+The repository includes minimal OTLP payloads for all three signals under `deploy/samples/`; replace them with captured application traffic before finalizing a production mapping.
 
 Plan missing tables or columns, review the generated ScopeQL, and apply it explicitly:
 
@@ -78,9 +84,18 @@ docker run --rm \
   -v "$PWD/deploy/telescope.yaml:/etc/telescope/telescope.yaml:ro" \
   ghcr.io/scopedb/telescope:latest \
   plan --format scopeql /etc/telescope/telescope.yaml > tables.scopeql
+```
 
+ScopeQL owns its connection and authentication configuration independently of Telescope. Before the first DDL apply on a host, configure and select the intended connection, then verify it before running the generated script:
+
+```bash
+scopeql config set-connection production
+scopeql config use-connection production
+scopeql config get-connections
 scopeql run -f tables.scopeql
 ```
+
+`scopeql config set-connection` prompts for the endpoint and authentication fields required by the installed ScopeQL version. Telescope's `--env-file` and `SCOPEDB_*` fallbacks do not create or migrate that ScopeQL connection.
 
 `plan` generates only the missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, in dependency order. It blocks on runtime-dependent output types, sample conversion failures, shared-column type disagreements, and incompatible existing columns. A sample can provide evidence, but it never chooses a table type; add an explicit mapping `cast` when the source type is dynamic. Telescope does not infer retention, clustering, distinct keys, or indexes, so review and extend the ScopeQL before applying it.
 
@@ -148,14 +163,14 @@ Capture a bounded sample at the running exporter's input and pipe it directly th
 telescope capture \
   --endpoint http://127.0.0.1:8080 \
   --limit 100 \
-  --timeout 10s \
+  --timeout 45s \
   traces |
   telescope preview \
     --sample traces=- \
     deploy/telescope.yaml
 ```
 
-`capture` waits until it collects the requested number of log records, spans, or metric points, or until the timeout returns a partial sample. It retains nothing when no capture is active. The sample is copied before the exporter sending queue, so retries do not duplicate it. `preview` uses the production mapper and does not append the sample. Redirect `capture` to a file when the same input should be replayed later.
+`capture` waits until it collects the requested number of log records, spans, or metric points, or until the timeout returns a partial sample. It retains nothing when no capture is active. Capture observes exporter input after Collector batch processing and before the sending queue. The 45-second default exceeds the bundled 30-second batch timeout, while retries cannot duplicate the sample. `preview` uses the production mapper and does not append the sample. Redirect `capture` to a file when the same input should be replayed later.
 
 ### Inspect Delivery Status
 
@@ -168,7 +183,7 @@ curl -sS http://127.0.0.1:8080/v1/ingestion/status
 curl -sS http://127.0.0.1:8080/metrics
 ```
 
-The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. A locally identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
+The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. The exporter queue does not include telemetry still waiting in the Collector batch processor or an in-flight export; human-readable `telescope status` calls out accepted items that do not yet have a final outcome when the queue is empty. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. A locally identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
 
 `/metrics` is the stable Prometheus surface for Telescope delivery and queue alerts. The bundled [Prometheus rules](deploy/prometheus-rules.yaml) cover queue saturation, final drops, stalled delivery, and unverified destinations, and record the queue directory's 24-hour disk high-water mark. Prometheus should also alert on its standard `up` metric: `/metrics` returns `503` instead of publishing false zeroes when Collector's internal telemetry is unavailable.
 
@@ -207,13 +222,13 @@ make build
 export SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 export SCOPEDB_API_KEY=sk_...
 
-./bin/telescope preview --offline --sample traces=traces.otlp.json deploy/telescope.yaml
+./bin/telescope preview --offline --sample traces=deploy/samples/traces.otlp.json deploy/telescope.yaml
 ./bin/telescope plan --out tables.scopeql deploy/telescope.yaml
 ./bin/telescope validate deploy/telescope.yaml
 ./bin/telescope run deploy/telescope.yaml
 ```
 
-The local CLI accepts the shared ScopeDB variables `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY`, so the same credential file can be reused across ScopeDB tools. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over the shared variables. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
+The local Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fallbacks. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over those fallback variables. ScopeQL uses its own selected connection; Telescope environment files do not configure it. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
 
 Commands:
 

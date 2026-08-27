@@ -23,6 +23,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -32,6 +34,12 @@ import (
 func runStatus(args []string) error {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: telescope status [options]")
+		fmt.Fprintln(os.Stderr, "\nReport local receiver, batch, queue, and ScopeDB delivery state.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
+		flags.PrintDefaults()
+	}
 	endpoint := flags.String("endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
 	timeout := flags.Duration("timeout", 5*time.Second, "status request timeout")
 	if err := flags.Parse(args); err != nil {
@@ -81,10 +89,40 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		fmt.Fprintf(w, "internal telemetry: %s\n", status.InternalTelemetry.Error)
 	}
 	for _, signal := range status.Signals {
+		if reasons := formatInvalidReasons(signal.InvalidItemsByReason); reasons != "" {
+			fmt.Fprintf(w, "%s invalid: %s\n", signal.Signal, reasons)
+		}
+		if unsettled := unsettledRecords(signal); unsettled > 0 {
+			fmt.Fprintf(
+				w,
+				"%s: %d accepted items have no final outcome yet; they may be waiting in Collector batch processing or an in-flight export\n",
+				signal.Signal,
+				unsettled,
+			)
+		}
 		if signal.LastError != "" {
 			fmt.Fprintf(w, "%s: %s\n", signal.Signal, signal.LastError)
 		}
 	}
+}
+
+func formatInvalidReasons(counts map[string]uint64) string {
+	reasons := make([]string, 0, len(counts))
+	for reason, count := range counts {
+		if count > 0 {
+			reasons = append(reasons, fmt.Sprintf("%s=%d", reason, count))
+		}
+	}
+	sort.Strings(reasons)
+	return strings.Join(reasons, ", ")
+}
+
+func unsettledRecords(signal statusapi.IngestionSignalStatus) uint64 {
+	final := signal.Written + signal.Dropped
+	if !signal.Queue.Observed || signal.Queue.Size > 0 || signal.Received <= final {
+		return 0
+	}
+	return signal.Received - final
 }
 
 func formatQueue(queue statusapi.IngestionQueueStatus) string {

@@ -18,8 +18,10 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +61,41 @@ func TestRunCaptureWritesOnlyOTLPPayloadToStdout(t *testing.T) {
 	}
 	if got := stderr.String(); got != "captured traces: 2 records\n" {
 		t.Fatalf("unexpected stderr: %q", got)
+	}
+}
+
+func TestRunCaptureUsesDefaultTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if got := request.URL.Query().Get("timeout"); got != "45s" {
+			t.Fatalf("unexpected timeout: %q", got)
+		}
+		_, _ = w.Write([]byte(`{"resourceSpans":[]}`))
+	}))
+	defer server.Close()
+
+	err := runCaptureWithWriters(
+		[]string{"--endpoint", server.URL, "traces"},
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err != nil {
+		t.Fatalf("runCaptureWithWriters() error = %v", err)
+	}
+}
+
+func TestCaptureHelpShowsUsageAndPreviewPipeline(t *testing.T) {
+	var stderr bytes.Buffer
+	err := runCaptureWithWriters([]string{"--help"}, &bytes.Buffer{}, &stderr)
+	if err != flag.ErrHelp {
+		t.Fatalf("runCaptureWithWriters() error = %v, want %v", err, flag.ErrHelp)
+	}
+	for _, expected := range []string{
+		"Usage: telescope capture [options] <signal>",
+		"telescope preview --offline",
+	} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("capture help missing %q: %s", expected, stderr.String())
+		}
 	}
 }
 

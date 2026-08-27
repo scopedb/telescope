@@ -60,6 +60,10 @@ func TestWriteStatus(t *testing.T) {
 			Received: 12,
 			Written:  10,
 			Dropped:  2,
+			InvalidItemsByReason: map[string]uint64{
+				"mapped_row_too_large": 1,
+				"mapping_cast_failed":  2,
+			},
 			Queue: statusapi.IngestionQueueStatus{
 				Enabled:  true,
 				Observed: true,
@@ -76,7 +80,39 @@ func TestWriteStatus(t *testing.T) {
 	assert.Contains(t, output.String(), "DROPPED")
 	assert.Contains(t, output.String(), "256 B/1 KiB")
 	assert.Contains(t, output.String(), "queue storage: 8 KiB allocated")
+	assert.Contains(t, output.String(), "traces invalid: mapped_row_too_large=1, mapping_cast_failed=2")
 	assert.Contains(t, output.String(), "destination unavailable")
+}
+
+func TestWriteStatusExplainsAcceptedItemsWithoutFinalOutcome(t *testing.T) {
+	var output bytes.Buffer
+	writeStatus(&output, statusapi.IngestionStatusResponse{
+		State: "ready",
+		Signals: []statusapi.IngestionSignalStatus{{
+			Signal:   "traces",
+			State:    "ready",
+			Received: 2,
+			Queue: statusapi.IngestionQueueStatus{
+				Enabled:  true,
+				Observed: true,
+			},
+		}},
+	})
+
+	assert.Contains(t, output.String(), "2 accepted items have no final outcome yet")
+	assert.Contains(t, output.String(), "Collector batch processing")
+}
+
+func TestUnsettledRecordsRequiresAnObservedEmptyQueue(t *testing.T) {
+	base := statusapi.IngestionSignalStatus{Received: 2}
+	assert.Zero(t, unsettledRecords(base))
+
+	base.Queue.Observed = true
+	base.Queue.Size = 1
+	assert.Zero(t, unsettledRecords(base))
+
+	base.Queue.Size = 0
+	assert.Equal(t, uint64(2), unsettledRecords(base))
 }
 
 func TestWriteStatusReportsUnavailableQueueStorage(t *testing.T) {

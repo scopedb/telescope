@@ -100,6 +100,12 @@ func run(args []string) error {
 func runTelescope(args []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: telescope run [options] [telescope.yaml]")
+		fmt.Fprintln(os.Stderr, "\nRun the OTLP-to-ScopeDB data plane from the validated Telescope contract.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
+		flags.PrintDefaults()
+	}
 	bootstrap := addBootstrapFlags(flags)
 	httpAddr := flags.String("http-addr", "", "operational HTTP listen address; overrides TELESCOPE_HTTP_ADDR")
 	if err := flags.Parse(args); err != nil {
@@ -353,7 +359,7 @@ Usage:
     telescope status [options]                     Report local delivery state
 
   Diagnostics:
-    telescope capture [options] <signal>            Capture live OTLP for mapping preview
+    telescope capture [options] <signal>           Capture live OTLP for mapping preview
     telescope verify [options] [signals...]        Verify synthetic OTLP-to-append delivery
 
   Other:
@@ -380,7 +386,7 @@ Plan options:
 Capture options:
   --endpoint                 Telescope operational HTTP base URL
   --limit                    Maximum records to capture, default 100
-  --timeout                  Time to wait for telemetry, default 10s
+  --timeout                  Time to wait for telemetry, default 45s
 
 Run options:
   --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR

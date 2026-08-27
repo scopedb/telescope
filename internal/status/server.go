@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultCaptureLimit   = 100
-	DefaultCaptureTimeout = 10 * time.Second
+	DefaultCaptureTimeout = 45 * time.Second
 )
 
 type Server struct {

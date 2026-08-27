@@ -111,7 +111,7 @@ Inspect a representative sample before planning when runtime values or casts are
 telescope preview \
   --offline \
   --strict \
-  --sample traces=traces.otlp.json \
+  --sample traces=deploy/samples/traces.otlp.json \
   ./telescope.yaml
 ```
 
@@ -122,16 +122,30 @@ export SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
 export SCOPEDB_API_KEY=sk_...
 
 telescope plan \
-  --sample traces=traces.otlp.json \
+  --sample traces=deploy/samples/traces.otlp.json \
   --out tables.scopeql \
   ./telescope.yaml
+```
 
+ScopeQL owns its connection configuration. If the intended connection is not already present and selected, initialize it before applying Telescope's generated DDL:
+
+```bash
+scopeql config set-connection production
+scopeql config use-connection production
+scopeql config get-connections
+```
+
+The setup command prompts for the endpoint and authentication fields supported by the installed ScopeQL version. Telescope's `--env-file`, `TELESCOPE_SCOPEDB_*`, and `SCOPEDB_*` inputs configure Telescope only; they do not create or migrate ScopeQL connections.
+
+After reviewing the generated script and confirming the intended ScopeQL connection, apply it explicitly:
+
+```bash
 scopeql run -f tables.scopeql
 ```
 
 The human plan groups every configured signal by destination table and classifies it as `create`, `alter`, `no-op`, or `blocked`. It shows the mapping behind a conflict, sample coverage and observed types, and an evidence-based `cast` edit when one sample type consistently resolves a dynamic mapping. `--out` atomically writes the ScopeQL from the same catalog read while retaining that feedback on stdout. The output file is left untouched when any table is blocked, so setup cannot silently apply a partial contract. `--format json` returns the same versioned generated plan for other tooling, and `--format scopeql` writes DDL to stdout for pipelines.
 
-Generated ScopeQL contains only missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, ordered by dependency and deduplicated across tables. It is never executed by Telescope. `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` are shared fallbacks for local ScopeDB tooling; explicit connection flags override `TELESCOPE_SCOPEDB_*`, which override the shared variables.
+Generated ScopeQL contains only missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, ordered by dependency and deduplicated across tables. It is never executed by Telescope. For Telescope, explicit connection flags override `TELESCOPE_SCOPEDB_*`, which override its `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` fallbacks. ScopeQL uses its independently selected connection.
 
 A fixed selector type or explicit `cast` is authoritative. Observed sample types and coverage are included as evidence only. An uncast attribute, nested path, `log.body`, or `datapoint.value` therefore blocks table creation even when one sample happens to show a stable type. Add a cast such as `string`, `object`, `array`, or explicitly `any` to record the intended table type. Incompatible existing columns and conflicting requirements from signals sharing one table also block the plan.
 
@@ -170,7 +184,7 @@ telescope capture --limit 100 traces |
   telescope preview --sample traces=- ./telescope.yaml
 ```
 
-The capture is active only for this request and stops at the record limit or timeout. It runs before the sending queue, so append retries cannot duplicate the sample.
+The capture is active only for this request and stops at the record limit or timeout. It observes exporter input after Collector batch processing and before the sending queue, so low-volume telemetry can take up to the batch timeout to appear while append retries cannot duplicate the sample. The default 45-second capture timeout exceeds the bundled 30-second batch timeout.
 
 Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `telescope preview` for the mapping itself.
 

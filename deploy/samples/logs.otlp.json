@@ -1,0 +1,27 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "telescope.sample"},
+          "logRecords": [
+            {
+              "timeUnixNano": "1787796000000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {"stringValue": "order accepted"},
+              "attributes": [
+                {"key": "order.id", "value": {"stringValue": "order-123"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
