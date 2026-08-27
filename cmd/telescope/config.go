@@ -102,8 +102,8 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 		defer cancel()
 		destinations, err = scopedbexporter.InspectIngestionDestinations(
 			ctx,
-			strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT")),
-			strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_API_KEY")),
+			strings.TrimSpace(os.Getenv(telescopeScopeDBEndpointEnv)),
+			strings.TrimSpace(os.Getenv(telescopeScopeDBAPIKeyEnv)),
 			ingestion,
 		)
 		if err != nil {

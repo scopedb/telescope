@@ -92,8 +92,8 @@ func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.
 	defer cancel()
 	plan, err := scopedbexporter.PlanIngestionTables(
 		ctx,
-		strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT")),
-		strings.TrimSpace(os.Getenv("TELESCOPE_SCOPEDB_API_KEY")),
+		strings.TrimSpace(os.Getenv(telescopeScopeDBEndpointEnv)),
+		strings.TrimSpace(os.Getenv(telescopeScopeDBAPIKeyEnv)),
 		ingestion,
 		previewValues,
 	)

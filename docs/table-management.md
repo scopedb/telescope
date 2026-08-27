@@ -118,22 +118,20 @@ telescope preview \
 Then compare the logical write contract with the live catalog:
 
 ```bash
-telescope plan \
-  --scopedb-endpoint https://<region>.scopedb.cloud \
-  --scopedb-api-key sk_... \
-  --sample traces=traces.otlp.json \
-  ./telescope.yaml
+export SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
+export SCOPEDB_API_KEY=sk_...
 
 telescope plan \
-  --scopedb-endpoint https://<region>.scopedb.cloud \
-  --scopedb-api-key sk_... \
-  --format scopeql \
-  ./telescope.yaml > tables.scopeql
+  --sample traces=traces.otlp.json \
+  --out tables.scopeql \
+  ./telescope.yaml
 
 scopeql run -f tables.scopeql
 ```
 
-The human plan groups every configured signal by destination table and classifies it as `create`, `alter`, `no-op`, or `blocked`. Generated ScopeQL contains only `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN`; it is never executed by Telescope. The entire script is withheld when any table is blocked, so setup cannot silently apply a partial contract. `--format json` returns the same versioned generated plan for other tooling.
+The human plan groups every configured signal by destination table and classifies it as `create`, `alter`, `no-op`, or `blocked`. It shows the mapping behind a conflict, sample coverage and observed types, and an evidence-based `cast` edit when one sample type consistently resolves a dynamic mapping. `--out` atomically writes the ScopeQL from the same catalog read while retaining that feedback on stdout. The output file is left untouched when any table is blocked, so setup cannot silently apply a partial contract. `--format json` returns the same versioned generated plan for other tooling, and `--format scopeql` writes DDL to stdout for pipelines.
+
+Generated ScopeQL contains only missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, ordered by dependency and deduplicated across tables. It is never executed by Telescope. `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` are shared fallbacks for local ScopeDB tooling; explicit connection flags override `TELESCOPE_SCOPEDB_*`, which override the shared variables.
 
 A fixed selector type or explicit `cast` is authoritative. Observed sample types and coverage are included as evidence only. An uncast attribute, nested path, `log.body`, or `datapoint.value` therefore blocks table creation even when one sample happens to show a stable type. Add a cast such as `string`, `object`, `array`, or explicitly `any` to record the intended table type. Incompatible existing columns and conflicting requirements from signals sharing one table also block the plan.
 

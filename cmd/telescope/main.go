@@ -38,6 +38,13 @@ import (
 
 var version = "(unknown)"
 
+const (
+	telescopeScopeDBEndpointEnv = "TELESCOPE_SCOPEDB_ENDPOINT"
+	telescopeScopeDBAPIKeyEnv   = "TELESCOPE_SCOPEDB_API_KEY"
+	sharedScopeDBEndpointEnv    = "SCOPEDB_ENDPOINT"
+	sharedScopeDBAPIKeyEnv      = "SCOPEDB_API_KEY"
+)
+
 func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if info.Main.Version != "" {
@@ -240,8 +247,8 @@ type bootstrapFlags struct {
 func addBootstrapFlags(flags *flag.FlagSet) bootstrapFlags {
 	return bootstrapFlags{
 		envFile:         flags.String("env-file", "", "load bootstrap environment variables from a KEY=VALUE file"),
-		scopedbEndpoint: flags.String("scopedb-endpoint", "", "ScopeDB physical region endpoint; overrides TELESCOPE_SCOPEDB_ENDPOINT"),
-		scopedbAPIKey:   flags.String("scopedb-api-key", "", "ScopeDB API key; overrides TELESCOPE_SCOPEDB_API_KEY"),
+		scopedbEndpoint: flags.String("scopedb-endpoint", "", "ScopeDB physical region endpoint; overrides Telescope and shared ScopeDB environment"),
+		scopedbAPIKey:   flags.String("scopedb-api-key", "", "ScopeDB API key; overrides Telescope and shared ScopeDB environment"),
 	}
 }
 
@@ -251,13 +258,26 @@ func applyBootstrapFlags(flags bootstrapFlags) error {
 			return err
 		}
 	}
-	if err := setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", valueOf(flags.scopedbEndpoint)); err != nil {
+	if err := setEnvFallback(telescopeScopeDBEndpointEnv, sharedScopeDBEndpointEnv); err != nil {
 		return err
 	}
-	if err := setEnvIfValue("TELESCOPE_SCOPEDB_API_KEY", valueOf(flags.scopedbAPIKey)); err != nil {
+	if err := setEnvFallback(telescopeScopeDBAPIKeyEnv, sharedScopeDBAPIKeyEnv); err != nil {
+		return err
+	}
+	if err := setEnvIfValue(telescopeScopeDBEndpointEnv, valueOf(flags.scopedbEndpoint)); err != nil {
+		return err
+	}
+	if err := setEnvIfValue(telescopeScopeDBAPIKeyEnv, valueOf(flags.scopedbAPIKey)); err != nil {
 		return err
 	}
 	return nil
+}
+
+func setEnvFallback(target string, fallback string) error {
+	if strings.TrimSpace(os.Getenv(target)) != "" {
+		return nil
+	}
+	return setEnvIfValue(target, os.Getenv(fallback))
 }
 
 func loadEnvFile(path string) error {
@@ -352,6 +372,7 @@ Preview options:
 Plan options:
   --sample signal=path       Add representative mapping evidence; repeat per signal
   --format                   Output human, json, or scopeql, default human
+  --out                      Write ScopeQL while retaining the human plan on stdout
 
 Capture options:
   --endpoint                 Telescope operational HTTP base URL
@@ -364,6 +385,8 @@ Run options:
 Environment:
   TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
   TELESCOPE_SCOPEDB_API_KEY    ScopeDB API key
+  SCOPEDB_ENDPOINT             Shared fallback for TELESCOPE_SCOPEDB_ENDPOINT
+  SCOPEDB_API_KEY              Shared fallback for TELESCOPE_SCOPEDB_API_KEY
   TELESCOPE_HTTP_ADDR          Operational HTTP listen address, default :8080
   TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317
   TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318

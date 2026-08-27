@@ -111,6 +111,65 @@ TELESCOPE_SCOPEDB_API_KEY=sk_file
 	}
 }
 
+func TestApplyBootstrapFlagsUsesSharedScopeDBEnvironment(t *testing.T) {
+	clearBootstrapEnv(t)
+	path := writeEnvFile(t, `
+SCOPEDB_ENDPOINT=https://shared.scopedb.cloud
+SCOPEDB_API_KEY=sk_shared
+`)
+
+	if err := applyBootstrapFlags(bootstrapFlags{envFile: &path}); err != nil {
+		t.Fatalf("applyBootstrapFlags() error = %v", err)
+	}
+
+	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://shared.scopedb.cloud" {
+		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
+	}
+	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_shared" {
+		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
+	}
+}
+
+func TestApplyBootstrapFlagsPrefersTelescopeEnvironment(t *testing.T) {
+	clearBootstrapEnv(t)
+	t.Setenv("SCOPEDB_ENDPOINT", "https://shared.scopedb.cloud")
+	t.Setenv("SCOPEDB_API_KEY", "sk_shared")
+	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://telescope.scopedb.cloud")
+	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "sk_telescope")
+
+	if err := applyBootstrapFlags(bootstrapFlags{}); err != nil {
+		t.Fatalf("applyBootstrapFlags() error = %v", err)
+	}
+
+	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://telescope.scopedb.cloud" {
+		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
+	}
+	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_telescope" {
+		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
+	}
+}
+
+func TestApplyBootstrapFlagsPreferFlagsOverEveryEnvironment(t *testing.T) {
+	clearBootstrapEnv(t)
+	t.Setenv("SCOPEDB_ENDPOINT", "https://shared.scopedb.cloud")
+	t.Setenv("SCOPEDB_API_KEY", "sk_shared")
+	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://telescope.scopedb.cloud")
+	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "sk_telescope")
+	endpoint := "https://flag.scopedb.cloud"
+	apiKey := "sk_flag"
+
+	if err := applyBootstrapFlags(bootstrapFlags{scopedbEndpoint: &endpoint, scopedbAPIKey: &apiKey}); err != nil {
+		t.Fatalf("applyBootstrapFlags() error = %v", err)
+	}
+
+	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != endpoint {
+		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
+	}
+	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != apiKey {
+		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
+	}
+}
+
 func TestLoadEnvFileRejectsInvalidLine(t *testing.T) {
 	clearBootstrapEnv(t)
 	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT\n")
@@ -189,6 +248,8 @@ func clearBootstrapEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "")
 	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "")
+	t.Setenv("SCOPEDB_ENDPOINT", "")
+	t.Setenv("SCOPEDB_API_KEY", "")
 }
 
 func writeEnvFile(t *testing.T, content string) string {

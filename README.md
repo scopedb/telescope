@@ -82,7 +82,7 @@ docker run --rm \
 scopeql run -f tables.scopeql
 ```
 
-`plan` generates only `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN`. It blocks on runtime-dependent output types, sample conversion failures, shared-column type disagreements, and incompatible existing columns. A sample can provide evidence, but it never chooses a table type; add an explicit mapping `cast` when the source type is dynamic. Telescope does not infer retention, clustering, distinct keys, or indexes, so review and extend the ScopeQL before applying it.
+`plan` generates only the missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, in dependency order. It blocks on runtime-dependent output types, sample conversion failures, shared-column type disagreements, and incompatible existing columns. A sample can provide evidence, but it never chooses a table type; add an explicit mapping `cast` when the source type is dynamic. Telescope does not infer retention, clustering, distinct keys, or indexes, so review and extend the ScopeQL before applying it.
 
 Validate the applied table contract before deployment:
 
@@ -204,11 +204,16 @@ Build and run the embedded Collector:
 ```bash
 make build
 
+export SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
+export SCOPEDB_API_KEY=sk_...
+
 ./bin/telescope preview --offline --sample traces=traces.otlp.json deploy/telescope.yaml
-./bin/telescope plan --env-file deploy/.env deploy/telescope.yaml
-./bin/telescope validate --env-file deploy/.env deploy/telescope.yaml
-./bin/telescope run --env-file deploy/.env deploy/telescope.yaml
+./bin/telescope plan --out tables.scopeql deploy/telescope.yaml
+./bin/telescope validate deploy/telescope.yaml
+./bin/telescope run deploy/telescope.yaml
 ```
+
+The local CLI accepts the shared ScopeDB variables `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY`, so the same credential file can be reused across ScopeDB tools. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over the shared variables. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
 
 Commands:
 
@@ -224,7 +229,7 @@ Commands:
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` writes only executable additive DDL and refuses partial output when any table is blocked. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --out tables.scopeql` keeps the actionable human plan on stdout and atomically writes the executable DDL without a second catalog read; a blocked plan leaves any existing output file untouched. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` remains available for stdout pipelines. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 
