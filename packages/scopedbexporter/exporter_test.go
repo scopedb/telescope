@@ -196,7 +196,7 @@ func TestExporterStartsWhenDestinationConnectionIsRefused(t *testing.T) {
 	assert.Contains(t, status.LastError, "connection refused")
 }
 
-func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
+func TestExporterDropsCompleteScopeDBRowRejection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			writeTableDescription(t, w, "vendor_otel_logs_test", []string{"message"})
@@ -219,17 +219,110 @@ func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
 
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	statuses := NewStatusRegistry()
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
 
 	logs := plog.NewLogs()
 	logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("hello")
-	err = exp.ConsumeLogs(context.Background(), logs)
+	require.NoError(t, exp.ConsumeLogs(context.Background(), logs))
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Zero(t, status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
+	assert.Contains(t, status.LastError, "column=message")
+}
+
+func TestExporterRetriesGoodRowsOnceAfterCompleteScopeDBRowErrors(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	attempt := 0
+	var retried []map[string]any
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		attempt++
+		if attempt == 1 {
+			return scopedb.AppendRowsResult{}, &scopedb.Error{
+				Kind:    scopedb.ErrorKindAppendRowsFailed,
+				Message: "invalid row",
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateRejected,
+					RowErrors: []scopedb.AppendRowError{{
+						RowIndex: 1,
+						Column:   "message",
+						Message:  "wrong type",
+					}},
+				},
+			}
+		}
+		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(line, &row))
+			retried = append(retried, row)
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	for _, message := range []string{"before", "invalid", "after"} {
+		records.AppendEmpty().Body().SetStr(message)
+	}
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	require.NoError(t, exp.pushLogs(context.Background(), logs))
+	assert.Equal(t, 2, attempt)
+	assert.Equal(t, []map[string]any{{"message": "before"}, {"message": "after"}}, retried)
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Equal(t, uint64(2), status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
+	assert.Contains(t, status.LastError, "column=message")
+}
+
+func TestExporterDoesNotSplitTruncatedScopeDBRowErrors(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	attempts := 0
+	client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
+		attempts++
+		return scopedb.AppendRowsResult{}, &scopedb.Error{
+			Kind:    scopedb.ErrorKindAppendRowsFailed,
+			Message: "invalid rows",
+			AppendDetails: &scopedb.AppendErrorDetails{
+				AppendState:        scopedb.AppendStateRejected,
+				RowErrors:          []scopedb.AppendRowError{{RowIndex: 1, Column: "message", Message: "wrong type"}},
+				RowErrorsTruncated: true,
+			},
+		}
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	for _, message := range []string{"one", "two", "three"} {
+		records.AppendEmpty().Body().SetStr(message)
+	}
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	err = exp.pushLogs(context.Background(), logs)
 	require.Error(t, err)
 	assert.True(t, consumererror.IsPermanent(err))
-	assert.ErrorContains(t, err, "column=message")
+	assert.Equal(t, 1, attempts)
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Zero(t, status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(3), status.PermanentFailedRecords)
 }
 
 func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
@@ -255,16 +348,17 @@ func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
 	records.AppendEmpty().Body().SetStr(strings.Repeat("a", 5*1024*1024))
 	records.AppendEmpty().Body().SetStr(strings.Repeat("b", 5*1024*1024))
+	records.AppendEmpty().Body().SetStr(strings.Repeat("c", 5*1024*1024))
 
 	exp := &dbExporter{cfg: cfg, client: client, statuses: NewStatusRegistry()}
 	err = exp.pushLogs(context.Background(), logs)
 	require.Error(t, err)
 	var partial consumererror.Logs
 	require.ErrorAs(t, err, &partial)
-	assert.Equal(t, 1, partial.Data().LogRecordCount())
-	body := partial.Data().ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Str()
-	assert.Len(t, body, 5*1024*1024)
-	assert.Equal(t, byte('b'), body[0])
+	assert.Equal(t, 2, partial.Data().LogRecordCount())
+	partialRecords := partial.Data().ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	assert.Equal(t, byte('b'), partialRecords.At(0).Body().Str()[0])
+	assert.Equal(t, byte('c'), partialRecords.At(1).Body().Str()[0])
 }
 
 func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
@@ -296,6 +390,7 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
 	records.AppendEmpty().Body().SetStr(strings.Repeat("a", 5*1024*1024))
 	records.AppendEmpty().Body().SetStr(strings.Repeat("b", 5*1024*1024))
+	records.AppendEmpty().Body().SetStr(strings.Repeat("c", 5*1024*1024))
 	statuses := NewStatusRegistry()
 	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
 
@@ -304,9 +399,11 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	assert.True(t, consumererror.IsPermanent(err))
 	var partial consumererror.Logs
 	require.ErrorAs(t, err, &partial)
-	assert.Equal(t, 1, partial.Data().LogRecordCount())
-	assert.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].PermanentFailedRecords)
-	assert.Equal(t, uint64(2), statuses.Snapshot().Signals[signalLogs].PermanentExportRecords)
+	assert.Equal(t, 2, partial.Data().LogRecordCount())
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Equal(t, uint64(1), status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(2), status.PermanentFailedRecords)
+	assert.Equal(t, uint64(3), status.PermanentExportRecords)
 }
 
 func TestExporterReportsMappingCastFailure(t *testing.T) {
@@ -329,13 +426,87 @@ func TestExporterReportsMappingCastFailure(t *testing.T) {
 	statuses := NewStatusRegistry()
 	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
 
-	err = exp.pushLogs(context.Background(), logs)
-	require.Error(t, err)
-	assert.True(t, consumererror.IsPermanent(err))
+	require.NoError(t, exp.pushLogs(context.Background(), logs))
 	assert.Zero(t, appendCalls)
 	status := statuses.Snapshot().Signals[signalLogs]
 	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
 	assert.Equal(t, uint64(1), status.InvalidItemsByReason[mappingReasonCastFailed])
+}
+
+func TestExporterDropsOnlyInvalidMappedLogRecord(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = MappingConfig{
+		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
+	}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	var appended []map[string]any
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(line, &row))
+			appended = append(appended, row)
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	for _, attempt := range []string{"1", "invalid", "3"} {
+		records.AppendEmpty().Body().SetEmptyMap().PutStr("attempt", attempt)
+	}
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	require.NoError(t, exp.pushLogs(context.Background(), logs))
+	assert.Equal(t, []map[string]any{{"attempt": float64(1)}, {"attempt": float64(3)}}, appended)
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Equal(t, uint64(2), status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
+	assert.Equal(t, uint64(1), status.InvalidItemsByReason[mappingReasonCastFailed])
+}
+
+func TestExporterRetrySubsetExcludesLocallyRejectedRecords(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = MappingConfig{
+		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
+	}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+	client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
+		return scopedb.AppendRowsResult{}, errors.New("temporary append failure")
+	}
+
+	logs := plog.NewLogs()
+	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	for _, attempt := range []string{"1", "invalid", "3"} {
+		records.AppendEmpty().Body().SetEmptyMap().PutStr("attempt", attempt)
+	}
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	err = exp.pushLogs(context.Background(), logs)
+	require.Error(t, err)
+	assert.False(t, consumererror.IsPermanent(err))
+	var partial consumererror.Logs
+	require.ErrorAs(t, err, &partial)
+	require.Equal(t, 2, partial.Data().LogRecordCount())
+	partialRecords := partial.Data().ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	firstAttempt, found := partialRecords.At(0).Body().Map().Get("attempt")
+	require.True(t, found)
+	lastAttempt, found := partialRecords.At(1).Body().Map().Get("attempt")
+	require.True(t, found)
+	assert.Equal(t, "1", firstAttempt.Str())
+	assert.Equal(t, "3", lastAttempt.Str())
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Zero(t, status.ConfirmedWrittenRecords)
+	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
 }
 
 func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {

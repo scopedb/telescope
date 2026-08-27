@@ -34,16 +34,17 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {
-				Signal:                 "logs",
-				Ready:                  true,
-				DestinationVerified:    true,
-				Table:                  "scopedb.otel.logs",
-				QueueEnabled:           true,
-				QueueCapacity:          5000,
-				QueueUnit:              "bytes",
-				LastWriteSuccess:       lastSuccess,
-				PermanentFailedRecords: 2,
-				PermanentExportRecords: 1,
+				Signal:                  "logs",
+				Ready:                   true,
+				DestinationVerified:     true,
+				Table:                   "scopedb.otel.logs",
+				QueueEnabled:            true,
+				QueueCapacity:           5000,
+				QueueUnit:               "bytes",
+				LastWriteSuccess:        lastSuccess,
+				ConfirmedWrittenRecords: 7,
+				PermanentFailedRecords:  2,
+				PermanentExportRecords:  1,
 				InvalidItemsByReason: map[string]uint64{
 					"unsupported_number_value_type": 1,
 					"unsupported_metric_type":       2,
@@ -61,7 +62,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	}}
 	service.ingestionMetrics = fakeCollectorMetricsReader{snapshot: collectorMetricsSnapshot{
 		Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, Written: 7, ExportFailed: 3, EnqueueFailed: 1, QueueSize: 5, QueueCapacity: 5000},
+			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 1, QueueSize: 5, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		},
 	}}
@@ -88,7 +89,7 @@ telescope_ingestion_dropped_total{signal="logs",table="scopedb.otel.logs",reason
 telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="retry_exhausted"} 0
 telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="enqueue_failed"} 0
 telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="permanent_rejected"} 0
-# HELP telescope_ingestion_invalid_items_total Invalid OpenTelemetry items rejected before export, partitioned by reason.
+# HELP telescope_ingestion_invalid_items_total Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason.
 # TYPE telescope_ingestion_invalid_items_total counter
 telescope_ingestion_invalid_items_total{signal="logs",reason="unsupported_metric_type"} 2
 telescope_ingestion_invalid_items_total{signal="logs",reason="unsupported_number_value_type"} 1

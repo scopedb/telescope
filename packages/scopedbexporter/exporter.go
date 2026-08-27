@@ -89,20 +89,20 @@ func (e *dbExporter) shutdown(_ context.Context) error {
 }
 
 func (e *dbExporter) pushLogs(ctx context.Context, logs plog.Logs) error {
-	return pushSignal(e, ctx, signalLogs, logs, logs.LogRecordCount(), mapLogs, func(err error, from int) error {
-		return consumererror.NewLogs(err, logsFromRecord(logs, from))
+	return pushSignal(e, ctx, signalLogs, logs, logs.LogRecordCount(), mapLogs, func(err error, indexes []int) error {
+		return consumererror.NewLogs(err, logsFromRecords(logs, indexes))
 	})
 }
 
 func (e *dbExporter) pushTraces(ctx context.Context, traces ptrace.Traces) error {
-	return pushSignal(e, ctx, signalTraces, traces, traces.SpanCount(), mapTraces, func(err error, from int) error {
-		return consumererror.NewTraces(err, tracesFromRecord(traces, from))
+	return pushSignal(e, ctx, signalTraces, traces, traces.SpanCount(), mapTraces, func(err error, indexes []int) error {
+		return consumererror.NewTraces(err, tracesFromRecords(traces, indexes))
 	})
 }
 
 func (e *dbExporter) pushMetrics(ctx context.Context, metrics pmetric.Metrics) error {
-	return pushSignal(e, ctx, signalMetrics, metrics, metrics.DataPointCount(), mapMetrics, func(err error, from int) error {
-		return consumererror.NewMetrics(err, metricsFromRecord(metrics, from))
+	return pushSignal(e, ctx, signalMetrics, metrics, metrics.DataPointCount(), mapMetrics, func(err error, indexes []int) error {
+		return consumererror.NewMetrics(err, metricsFromRecords(metrics, indexes))
 	})
 }
 
@@ -113,27 +113,47 @@ func pushSignal[T any](
 	data T,
 	records int,
 	mapData func(T) (*IngestPayload, error),
-	wrapSuffix func(error, int) error,
+	wrapSubset func(error, []int) error,
 ) error {
 	started := time.Now().UTC()
 	payload, err := mapData(data)
 	if err != nil {
 		permanentErr := consumererror.NewPermanent(err)
 		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
-		return permanentErr
-	}
-	err = exporter.client.Send(ctx, signal, payload)
-	affectedRecords := records
-	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
-		affectedRecords = records - uncommittedFrom
-		err = wrapSuffix(err, uncommittedFrom)
-	}
-	exporter.statuses.recordWrite(signal, affectedRecords, started, err, consumererror.IsPermanent(err))
-	if consumererror.IsPermanent(err) {
 		exporter.statuses.recordPermanentExport(signal, records)
+		return wrapSubset(permanentErr, recordIndexes(0, records))
 	}
-	if err == nil {
-		exporter.statuses.recordProbeSuccess(signal, probeIDsFromPayload(payload))
+	outcome := exporter.client.send(ctx, signal, payload)
+	if len(outcome.committed) > 0 {
+		exporter.statuses.recordWrite(signal, len(outcome.committed), started, nil, false)
+		exporter.statuses.recordProbeSuccess(signal, probeIDsFromRecords(payload, outcome.committed))
+	}
+	if len(outcome.rejected) > 0 {
+		for _, failure := range outcome.rejected {
+			exporter.statuses.recordWrite(
+				signal,
+				1,
+				started,
+				consumererror.NewPermanent(failure.err),
+				true,
+			)
+		}
+		if exporter.logger != nil {
+			exporter.logger.Warn(
+				"Dropped invalid records while preserving the rest of the batch",
+				zap.String("signal", signal),
+				zap.Int("rejected_records", len(outcome.rejected)),
+				zap.Error(outcome.rejected[0].err),
+			)
+		}
+	}
+	if outcome.err == nil {
+		return nil
+	}
+	err = wrapSubset(outcome.err, outcome.uncommitted)
+	exporter.statuses.recordWrite(signal, len(outcome.uncommitted), started, err, consumererror.IsPermanent(err))
+	if consumererror.IsPermanent(outcome.err) {
+		exporter.statuses.recordPermanentExport(signal, records)
 	}
 	return err
 }

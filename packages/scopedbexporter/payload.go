@@ -45,13 +45,17 @@ type IngestPayload struct {
 
 type Record map[string]any
 
-func probeIDsFromPayload(payload *IngestPayload) []string {
+func probeIDsFromRecords(payload *IngestPayload, indexes []int) []string {
 	if payload == nil {
 		return nil
 	}
 	var probeIDs []string
 	seen := make(map[string]bool)
-	for _, record := range payload.Records {
+	for _, index := range indexes {
+		if index < 0 || index >= len(payload.Records) {
+			continue
+		}
+		record := payload.Records[index]
 		resource, ok := record["resource"].(map[string]any)
 		if !ok {
 			continue

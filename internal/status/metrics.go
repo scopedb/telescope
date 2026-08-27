@@ -107,7 +107,7 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 		},
 		{
 			name:    "telescope_ingestion_invalid_items_total",
-			help:    "Invalid OpenTelemetry items rejected before export, partitioned by reason.",
+			help:    "Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason.",
 			typeOf:  dto.MetricType_COUNTER,
 			metrics: invalid,
 		},

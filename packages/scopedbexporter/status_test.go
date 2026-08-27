@@ -46,6 +46,7 @@ func TestStatusRegistryTracksLifecycleAndWrites(t *testing.T) {
 	assert.Equal(t, "bytes", status.QueueUnit)
 	assert.Equal(t, now, status.LastWriteSuccess)
 	assert.Equal(t, 25*time.Millisecond, status.LastWriteDuration)
+	assert.Equal(t, uint64(2), status.ConfirmedWrittenRecords)
 	assert.Empty(t, status.LastError)
 	assert.Equal(t, []string{"probe-1", "probe-2"}, status.LastProbeIDs)
 	assert.Equal(t, now, status.LastProbeSuccess)
@@ -88,6 +89,7 @@ func TestStatusRegistryReconfigurePreservesRuntimeState(t *testing.T) {
 	cfg := validTestConfig()
 	registry.configure(signalLogs, cfg)
 	registry.markReady(signalLogs)
+	registry.recordWrite(signalLogs, 3, time.Now(), nil, false)
 	registry.recordProbeSuccess(signalLogs, []string{"probe-1"})
 
 	cfg.Tables.Logs = "replacement.logs"
@@ -100,5 +102,6 @@ func TestStatusRegistryReconfigurePreservesRuntimeState(t *testing.T) {
 	assert.Zero(t, status.QueueCapacity)
 	assert.Empty(t, status.QueueUnit)
 	assert.True(t, status.Ready)
+	assert.Equal(t, uint64(3), status.ConfirmedWrittenRecords)
 	assert.Equal(t, []string{"probe-1"}, status.LastProbeIDs)
 }

@@ -69,19 +69,20 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
 			"logs": {
-				Signal:                 "logs",
-				Ready:                  true,
-				DestinationVerified:    true,
-				Table:                  "scopedb.otel.logs",
-				QueueEnabled:           true,
-				QueueCapacity:          5000,
-				QueueUnit:              "bytes",
-				LastWriteAttempt:       now.Add(-time.Second),
-				LastWriteSuccess:       now.Add(-time.Second),
-				LastProbeIDs:           []string{"probe-1", "probe-2"},
-				LastProbeSuccess:       now.Add(-time.Second),
-				PermanentFailedRecords: 2,
-				PermanentExportRecords: 1,
+				Signal:                  "logs",
+				Ready:                   true,
+				DestinationVerified:     true,
+				Table:                   "scopedb.otel.logs",
+				QueueEnabled:            true,
+				QueueCapacity:           5000,
+				QueueUnit:               "bytes",
+				LastWriteAttempt:        now.Add(-time.Second),
+				LastWriteSuccess:        now.Add(-time.Second),
+				LastProbeIDs:            []string{"probe-1", "probe-2"},
+				LastProbeSuccess:        now.Add(-time.Second),
+				ConfirmedWrittenRecords: 10,
+				PermanentFailedRecords:  2,
+				PermanentExportRecords:  1,
 			},
 			"traces": {
 				Signal:              "traces",
@@ -96,7 +97,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, Written: 10, ExportFailed: 3, EnqueueFailed: 1, QueueCapacity: 5000},
+			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 1, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
@@ -225,7 +226,6 @@ otelcol_exporter_queue_capacity{exporter="scopedb",data_type="logs"} 5000
 	logs := snapshot.Signals["logs"]
 	assert.Equal(t, uint64(10), logs.Received)
 	assert.Equal(t, uint64(2), logs.ReceiverRefused)
-	assert.Equal(t, uint64(8), logs.Written)
 	assert.Equal(t, uint64(3), logs.ExportFailed)
 	assert.Equal(t, uint64(1), logs.EnqueueFailed)
 	assert.Equal(t, int64(5), logs.QueueSize)

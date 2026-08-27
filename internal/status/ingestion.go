@@ -53,7 +53,6 @@ type collectorSignalMetrics struct {
 	Received        uint64
 	ReceiverFailed  uint64
 	ReceiverRefused uint64
-	Written         uint64
 	ExportFailed    uint64
 	EnqueueFailed   uint64
 	QueueSize       int64
@@ -114,7 +113,6 @@ func (r *prometheusCollectorMetricsReader) Read(ctx context.Context) (collectorM
 			Received:        uintMetric(families, names.received, receiverComponent),
 			ReceiverFailed:  uintMetric(families, names.receiverFailed, receiverComponent),
 			ReceiverRefused: uintMetric(families, names.receiverRefused, receiverComponent),
-			Written:         uintMetric(families, names.written, scopeDBExporterComponent),
 			ExportFailed:    uintMetric(families, names.exportFailed, scopeDBExporterComponent),
 			EnqueueFailed:   uintMetric(families, names.enqueueFailed, scopeDBExporterComponent),
 			QueueSize:       intMetric(families, "otelcol_exporter_queue_size", queueForSignal(signal)),
@@ -128,7 +126,6 @@ type signalMetricsNames struct {
 	received        string
 	receiverFailed  string
 	receiverRefused string
-	written         string
 	exportFailed    string
 	enqueueFailed   string
 }
@@ -149,7 +146,6 @@ func signalMetricNames(signal string) signalMetricsNames {
 		received:        "otelcol_receiver_accepted_" + unit,
 		receiverFailed:  "otelcol_receiver_failed_" + unit,
 		receiverRefused: "otelcol_receiver_refused_" + unit,
-		written:         "otelcol_exporter_sent_" + unit,
 		exportFailed:    "otelcol_exporter_send_failed_" + unit,
 		enqueueFailed:   "otelcol_exporter_enqueue_failed_" + unit,
 	}
@@ -270,7 +266,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			Received:             metricStatus.Received,
 			ReceiverFailed:       metricStatus.ReceiverFailed,
 			ReceiverRefused:      metricStatus.ReceiverRefused,
-			Written:              metricStatus.Written,
+			Written:              runtimeStatus.ConfirmedWrittenRecords,
 			Dropped:              dropped,
 			RetryExhausted:       retryExhausted,
 			EnqueueFailed:        metricStatus.EnqueueFailed,

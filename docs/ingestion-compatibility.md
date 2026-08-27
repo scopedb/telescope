@@ -82,6 +82,8 @@ Metric name, description, unit, metadata, resource, and scope context are availa
 
 Telescope removes an invalid metric before the exporter queue and continues with the valid metrics in the same Collector batch. The invalid metric is dropped as a unit: if one gauge or sum point has no value, the other points belonging to that metric are not written. Telescope does not attempt per-data-point repair.
 
+After dequeue, destination projection treats each log record, span, or metric point independently. A cast, JSON encoding, or row-size failure drops only that item and does not prevent valid items in the same batch from being appended. If ScopeDB rejects a chunk and reports a complete, non-truncated set of row errors, Telescope removes those rows and attempts the remaining rows once. It does not bisect a chunk or repeat this isolation pass; incomplete rejection details fail the whole uncommitted chunk.
+
 Current reasons are:
 
 | Reason | Trigger |
@@ -89,6 +91,8 @@ Current reasons are:
 | `unsupported_metric_type` | A metric has no supported OTLP data type. |
 | `unsupported_number_value_type` | A gauge or sum data point has no integer or double value. |
 | `mapping_cast_failed` | A present runtime value cannot be converted by the configured mapping cast. |
+| `mapping_encoding_failed` | A projected row contains a value that cannot be represented as JSON. |
+| `mapped_row_too_large` | One projected NDJSON row exceeds the ScopeDB append request limit. |
 
 ## Ingestion Status
 
@@ -110,9 +114,9 @@ Current reasons are:
 
 This endpoint reports data-plane delivery state only. It does not report table queryability.
 
-Receiver, final exporter outcome, and queue counts come directly from the OpenTelemetry Collector's internal metrics. The exporter outcome metric wraps Collector's retry sender, so intermediate attempts are not counted as drops. `dropped` combines final exporter failures, queue enqueue failures, and metric points removed by local mapping validation. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when retry cannot continue during shutdown or an advanced Collector configuration sets a finite horizon. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
+Receiver, final exporter failure, and queue counts come from the OpenTelemetry Collector's internal metrics. `written` instead counts native signal items only when ScopeDB confirms a chunk as `committed` with the expected inserted-row count, so a committed prefix remains visible even if a later chunk fails. The exporter outcome metric wraps Collector's retry sender, so intermediate attempts are not counted as drops. `dropped` combines final exporter failures, queue enqueue failures, invalid items isolated locally, and complete ScopeDB row rejections. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when retry cannot continue during shutdown or an advanced Collector configuration sets a finite horizon. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
 
-`invalid_items_by_reason` counts invalid metrics, while the delivery counters use each signal's native unit: log records, spans, or metric points. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
+`invalid_items_by_reason` counts locally identifiable mapping failures, while the delivery counters use each signal's native unit: log records, spans, or metric points. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
 
 When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. `queue_storage.allocated_bytes` separately reports filesystem blocks allocated to files in `TELESCOPE_QUEUE_DIR`; it does not treat the queue database's logical file length as current disk use.
 

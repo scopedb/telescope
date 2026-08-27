@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	scopedb "github.com/scopedb/goscopedb"
@@ -42,17 +43,16 @@ type Client struct {
 	appendFn func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error)
 }
 
-type deliveryError struct {
-	err       error
-	retryFrom int
+type recordFailure struct {
+	index int
+	err   error
 }
 
-func (e *deliveryError) Error() string {
-	return e.err.Error()
-}
-
-func (e *deliveryError) Unwrap() error {
-	return e.err
+type sendOutcome struct {
+	committed   []int
+	rejected    []recordFailure
+	uncommitted []int
+	err         error
 }
 
 func NewClient(cfg *Config, settings exporter.Settings) (*Client, error) {
@@ -158,82 +158,218 @@ func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalD
 }
 
 func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload) error {
+	outcome := c.send(ctx, signal, payload)
+	if outcome.err != nil {
+		return outcome.err
+	}
+	if len(outcome.rejected) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(outcome.rejected))
+	for _, failure := range outcome.rejected {
+		errs = append(errs, failure.err)
+	}
+	return consumererror.NewPermanent(fmt.Errorf(
+		"%d mapped rows rejected: %w",
+		len(outcome.rejected),
+		errors.Join(errs...),
+	))
+}
+
+func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload) sendOutcome {
 	if payload == nil {
-		return consumererror.NewPermanent(errors.New("nil append payload"))
+		return sendOutcome{err: consumererror.NewPermanent(errors.New("nil append payload"))}
 	}
 	plan, ok := c.plans[signal]
 	if !ok {
-		return consumererror.NewPermanent(fmt.Errorf("no mapping plan for signal %q", signal))
+		return sendOutcome{
+			uncommitted: recordIndexes(0, len(payload.Records)),
+			err:         consumererror.NewPermanent(fmt.Errorf("no mapping plan for signal %q", signal)),
+		}
 	}
 	if len(payload.Records) == 0 {
-		return nil
+		return sendOutcome{}
 	}
 
+	outcome := sendOutcome{}
 	table := c.table(plan.table)
 	body := make([]byte, 0, min(maxAppendRequestBytes, len(payload.Records)*256))
-	chunkRows := 0
-	chunkStart := 0
-	flush := func() error {
-		if chunkRows == 0 {
-			return nil
-		}
-		result, err := c.appendFn(ctx, table, body)
+	chunkIndexes := make([]int, 0, min(maxAppendRequestRows, len(payload.Records)))
+	chunkStarts := make([]int, 0, cap(chunkIndexes))
+	resetChunk := func() {
+		body = body[:0]
+		chunkIndexes = chunkIndexes[:0]
+		chunkStarts = chunkStarts[:0]
+	}
+	setDeliveryError := func(err error, remainingFrom int) {
+		outcome.uncommitted = append(outcome.uncommitted[:0], chunkIndexes...)
+		outcome.uncommitted = append(outcome.uncommitted, recordIndexes(remainingFrom, len(payload.Records))...)
+		outcome.err = err
+	}
+	appendChunk := func(chunkBody []byte, rows int) error {
+		result, err := c.appendFn(ctx, table, chunkBody)
 		if err != nil {
-			return &deliveryError{err: classifyAppendError(err), retryFrom: chunkStart}
+			return err
 		}
-		if result.AppendState != scopedb.AppendStateCommitted || result.NumRowsInserted != int64(chunkRows) {
-			err := fmt.Errorf(
+		if result.AppendState != scopedb.AppendStateCommitted || result.NumRowsInserted != int64(rows) {
+			return consumererror.NewRetryableError(fmt.Errorf(
 				"append to %s did not confirm all rows committed: state=%s inserted=%d expected=%d",
-				plan.table.String(), result.AppendState, result.NumRowsInserted, chunkRows,
-			)
-			return &deliveryError{err: consumererror.NewRetryableError(err), retryFrom: chunkStart}
+				plan.table.String(), result.AppendState, result.NumRowsInserted, rows,
+			))
 		}
 		c.logger.Debug(
 			"Appended rows to ScopeDB",
 			zap.String("signal", signal),
 			zap.String("table", plan.table.String()),
-			zap.Int("records", chunkRows),
-			zap.Int("uncompressed_bytes", len(body)),
+			zap.Int("records", rows),
+			zap.Int("uncompressed_bytes", len(chunkBody)),
 		)
-		body = body[:0]
-		chunkRows = 0
 		return nil
 	}
-	permanentAt := func(index int, err error) error {
-		if chunkRows > 0 {
-			if flushErr := flush(); flushErr != nil {
-				return flushErr
-			}
+	flush := func(remainingFrom int) bool {
+		if len(chunkIndexes) == 0 {
+			return true
 		}
-		return &deliveryError{err: consumererror.NewPermanent(err), retryFrom: index}
+		err := appendChunk(body, len(chunkIndexes))
+		if err == nil {
+			outcome.committed = append(outcome.committed, chunkIndexes...)
+			resetChunk()
+			return true
+		}
+
+		rowErrors, ok := completeRejectedRows(err, len(chunkIndexes))
+		if !ok {
+			setDeliveryError(classifyAppendError(err), remainingFrom)
+			return false
+		}
+
+		badRows := make(map[int]struct{}, len(rowErrors))
+		for _, rowErr := range rowErrors {
+			position := int(rowErr.RowIndex)
+			badRows[position] = struct{}{}
+			outcome.rejected = append(outcome.rejected, recordFailure{
+				index: chunkIndexes[position],
+				err:   formatRejectedRowError(plan.table.String(), chunkIndexes[position], rowErr),
+			})
+		}
+		body, chunkIndexes, chunkStarts = removeChunkRows(body, chunkIndexes, chunkStarts, badRows)
+		if len(chunkIndexes) == 0 {
+			resetChunk()
+			return true
+		}
+		if err := appendChunk(body, len(chunkIndexes)); err != nil {
+			setDeliveryError(classifyAppendError(err), remainingFrom)
+			return false
+		}
+		outcome.committed = append(outcome.committed, chunkIndexes...)
+		resetChunk()
+		return true
+	}
+	reject := func(index int, err error) {
+		outcome.rejected = append(outcome.rejected, recordFailure{index: index, err: err})
 	}
 
 	for index, record := range payload.Records {
 		row, err := plan.project(record)
 		if err != nil {
-			return permanentAt(index, fmt.Errorf("project mapped row %d: %w", index, err))
+			reject(index, fmt.Errorf("project mapped row %d: %w", index, err))
+			continue
 		}
 		line, err := json.Marshal(row)
 		if err != nil {
-			return permanentAt(index, fmt.Errorf("marshal mapped row %d: %w", index, err))
+			reject(index, &mappingError{
+				reason: mappingReasonEncodingFailed,
+				err:    fmt.Errorf("marshal mapped row %d: %w", index, err),
+			})
+			continue
 		}
 		lineBytes := len(line) + 1
 		if lineBytes > maxAppendRequestBytes {
-			return permanentAt(index, fmt.Errorf(
-				"mapped row %d is %d bytes; maximum is %d", index, lineBytes, maxAppendRequestBytes,
-			))
+			reject(index, &mappingError{
+				reason: mappingReasonRowTooLarge,
+				err: fmt.Errorf(
+					"mapped row %d is %d bytes; maximum is %d", index, lineBytes, maxAppendRequestBytes,
+				),
+			})
+			continue
 		}
-		if chunkRows > 0 && (len(body)+lineBytes > maxAppendRequestBytes || chunkRows == maxAppendRequestRows) {
-			if err := flush(); err != nil {
-				return err
+		if len(chunkIndexes) > 0 && (len(body)+lineBytes > maxAppendRequestBytes || len(chunkIndexes) == maxAppendRequestRows) {
+			if !flush(index) {
+				return outcome
 			}
-			chunkStart = index
 		}
+		chunkStarts = append(chunkStarts, len(body))
 		body = append(body, line...)
 		body = append(body, '\n')
-		chunkRows++
+		chunkIndexes = append(chunkIndexes, index)
 	}
-	return flush()
+	flush(len(payload.Records))
+	return outcome
+}
+
+func completeRejectedRows(err error, rowCount int) ([]scopedb.AppendRowError, bool) {
+	var scopeErr *scopedb.Error
+	if !errors.As(err, &scopeErr) || scopeErr.Retryable || scopeErr.AppendDetails == nil {
+		return nil, false
+	}
+	details := scopeErr.AppendDetails
+	if details.AppendState != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
+		return nil, false
+	}
+	rows := append([]scopedb.AppendRowError(nil), details.RowErrors...)
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].RowIndex < rows[j].RowIndex })
+	unique := rows[:0]
+	for _, row := range rows {
+		if row.RowIndex >= uint64(rowCount) {
+			return nil, false
+		}
+		if len(unique) == 0 || row.RowIndex != unique[len(unique)-1].RowIndex {
+			unique = append(unique, row)
+		}
+	}
+	return unique, true
+}
+
+func removeChunkRows(
+	body []byte,
+	indexes []int,
+	starts []int,
+	rejected map[int]struct{},
+) ([]byte, []int, []int) {
+	filteredBody := make([]byte, 0, len(body))
+	filteredIndexes := make([]int, 0, len(indexes)-len(rejected))
+	filteredStarts := make([]int, 0, cap(filteredIndexes))
+	for position, recordIndex := range indexes {
+		if _, found := rejected[position]; found {
+			continue
+		}
+		end := len(body)
+		if position+1 < len(starts) {
+			end = starts[position+1]
+		}
+		filteredStarts = append(filteredStarts, len(filteredBody))
+		filteredBody = append(filteredBody, body[starts[position]:end]...)
+		filteredIndexes = append(filteredIndexes, recordIndex)
+	}
+	return filteredBody, filteredIndexes, filteredStarts
+}
+
+func formatRejectedRowError(table string, recordIndex int, row scopedb.AppendRowError) error {
+	return fmt.Errorf(
+		"ScopeDB rejected mapped row %d for %s: column=%s reason=%s",
+		recordIndex,
+		table,
+		row.Column,
+		row.Message,
+	)
+}
+
+func recordIndexes(from int, to int) []int {
+	indexes := make([]int, 0, max(0, to-from))
+	for index := from; index < to; index++ {
+		indexes = append(indexes, index)
+	}
+	return indexes
 }
 
 func (c *Client) table(ref tableRef) *scopedb.Table {

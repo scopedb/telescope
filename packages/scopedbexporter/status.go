@@ -37,23 +37,24 @@ type StatusSnapshot struct {
 }
 
 type SignalRuntimeStatus struct {
-	Signal                 string
-	Table                  string
-	QueueEnabled           bool
-	QueueCapacity          int64
-	QueueUnit              string
-	Ready                  bool
-	DestinationVerified    bool
-	LastWriteAttempt       time.Time
-	LastWriteSuccess       time.Time
-	LastWriteFailure       time.Time
-	LastWriteDuration      time.Duration
-	LastError              string
-	LastProbeIDs           []string
-	LastProbeSuccess       time.Time
-	PermanentFailedRecords uint64
-	PermanentExportRecords uint64
-	InvalidItemsByReason   map[string]uint64
+	Signal                  string
+	Table                   string
+	QueueEnabled            bool
+	QueueCapacity           int64
+	QueueUnit               string
+	Ready                   bool
+	DestinationVerified     bool
+	LastWriteAttempt        time.Time
+	LastWriteSuccess        time.Time
+	LastWriteFailure        time.Time
+	LastWriteDuration       time.Duration
+	LastError               string
+	LastProbeIDs            []string
+	LastProbeSuccess        time.Time
+	ConfirmedWrittenRecords uint64
+	PermanentFailedRecords  uint64
+	PermanentExportRecords  uint64
+	InvalidItemsByReason    map[string]uint64
 }
 
 func NewStatusRegistry() *StatusRegistry {
@@ -132,6 +133,9 @@ func (r *StatusRegistry) recordWrite(signal string, records int, started time.Ti
 		status.LastWriteAttempt = finished
 		status.LastWriteDuration = finished.Sub(started)
 		if err == nil {
+			if records > 0 {
+				status.ConfirmedWrittenRecords += uint64(records)
+			}
 			status.DestinationVerified = true
 			status.LastWriteSuccess = finished
 			status.LastError = ""

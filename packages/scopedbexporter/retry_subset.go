@@ -17,32 +17,20 @@
 package scopedbexporter
 
 import (
-	"errors"
-
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func uncommittedFromRecord(err error) (int, bool) {
-	if err == nil {
-		return 0, false
-	}
-	var target *deliveryError
-	if !errors.As(err, &target) {
-		return 0, false
-	}
-	return target.retryFrom, true
-}
-
-func logsFromRecord(input plog.Logs, start int) plog.Logs {
+func logsFromRecords(input plog.Logs, indexes []int) plog.Logs {
 	output := plog.NewLogs()
 	input.CopyTo(output)
+	selected := selectedRecords(indexes)
 	index := 0
 	output.ResourceLogs().RemoveIf(func(resource plog.ResourceLogs) bool {
 		resource.ScopeLogs().RemoveIf(func(scope plog.ScopeLogs) bool {
 			scope.LogRecords().RemoveIf(func(plog.LogRecord) bool {
-				remove := index < start
+				remove := !selected[index]
 				index++
 				return remove
 			})
@@ -53,14 +41,15 @@ func logsFromRecord(input plog.Logs, start int) plog.Logs {
 	return output
 }
 
-func tracesFromRecord(input ptrace.Traces, start int) ptrace.Traces {
+func tracesFromRecords(input ptrace.Traces, indexes []int) ptrace.Traces {
 	output := ptrace.NewTraces()
 	input.CopyTo(output)
+	selected := selectedRecords(indexes)
 	index := 0
 	output.ResourceSpans().RemoveIf(func(resource ptrace.ResourceSpans) bool {
 		resource.ScopeSpans().RemoveIf(func(scope ptrace.ScopeSpans) bool {
 			scope.Spans().RemoveIf(func(ptrace.Span) bool {
-				remove := index < start
+				remove := !selected[index]
 				index++
 				return remove
 			})
@@ -71,14 +60,15 @@ func tracesFromRecord(input ptrace.Traces, start int) ptrace.Traces {
 	return output
 }
 
-func metricsFromRecord(input pmetric.Metrics, start int) pmetric.Metrics {
+func metricsFromRecords(input pmetric.Metrics, indexes []int) pmetric.Metrics {
 	output := pmetric.NewMetrics()
 	input.CopyTo(output)
+	selected := selectedRecords(indexes)
 	index := 0
 	output.ResourceMetrics().RemoveIf(func(resource pmetric.ResourceMetrics) bool {
 		resource.ScopeMetrics().RemoveIf(func(scope pmetric.ScopeMetrics) bool {
 			scope.Metrics().RemoveIf(func(metric pmetric.Metric) bool {
-				removeMetricDataPointsBefore(metric, start, &index)
+				removeMetricDataPointsExcept(metric, selected, &index)
 				return metricDataPointCount(metric) == 0
 			})
 			return scope.Metrics().Len() == 0
@@ -88,9 +78,9 @@ func metricsFromRecord(input pmetric.Metrics, start int) pmetric.Metrics {
 	return output
 }
 
-func removeMetricDataPointsBefore(metric pmetric.Metric, start int, index *int) {
+func removeMetricDataPointsExcept(metric pmetric.Metric, selected map[int]bool, index *int) {
 	remove := func() bool {
-		shouldRemove := *index < start
+		shouldRemove := !selected[*index]
 		(*index)++
 		return shouldRemove
 	}
@@ -106,6 +96,14 @@ func removeMetricDataPointsBefore(metric pmetric.Metric, start int, index *int) 
 	case pmetric.MetricTypeSummary:
 		metric.Summary().DataPoints().RemoveIf(func(pmetric.SummaryDataPoint) bool { return remove() })
 	}
+}
+
+func selectedRecords(indexes []int) map[int]bool {
+	selected := make(map[int]bool, len(indexes))
+	for _, index := range indexes {
+		selected[index] = true
+	}
+	return selected
 }
 
 func metricDataPointCount(metric pmetric.Metric) int {

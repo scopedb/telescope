@@ -133,4 +133,29 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	assert.Equal(t, "telescope append integration", objects[0]["message"])
 	assert.Equal(t, "01020300000000000000000000000000", objects[0]["trace_id"])
 	assert.Len(t, objects[0], 4)
+
+	outcome := client.send(ctx, signalLogs, &IngestPayload{Records: []Record{
+		{"message": "before invalid row"},
+		{"message": 42},
+		{"message": "after invalid row"},
+	}})
+	require.NoError(t, outcome.err)
+	assert.Equal(t, []int{0, 2}, outcome.committed)
+	require.Len(t, outcome.rejected, 1)
+	assert.Equal(t, 1, outcome.rejected[0].index)
+
+	result, err = sdkClient.Query(ctx, fmt.Sprintf("FROM %s", table.Identifier()))
+	require.NoError(t, err)
+	objects, err = result.ToObjects()
+	require.NoError(t, err)
+	require.Len(t, objects, 3)
+	messages := make([]string, 0, len(objects))
+	for _, object := range objects {
+		messages = append(messages, object["message"].(string))
+	}
+	assert.ElementsMatch(t, []string{
+		"telescope append integration",
+		"before invalid row",
+		"after invalid row",
+	}, messages)
 }

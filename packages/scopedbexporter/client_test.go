@@ -258,9 +258,6 @@ func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
 	}})
 	require.Error(t, err)
 	assert.False(t, consumererror.IsPermanent(err))
-	var delivery *deliveryError
-	require.ErrorAs(t, err, &delivery)
-	assert.Equal(t, 1, delivery.retryFrom)
 }
 
 func TestClientSendRetriesUnconfirmedAppendResult(t *testing.T) {
@@ -292,23 +289,24 @@ func TestClientSendRetriesUnconfirmedAppendResult(t *testing.T) {
 			err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "hello"}}})
 			require.Error(t, err)
 			assert.False(t, consumererror.IsPermanent(err))
-			var delivery *deliveryError
-			require.ErrorAs(t, err, &delivery)
-			assert.Equal(t, 0, delivery.retryFrom)
 		})
 	}
 }
 
-func TestClientSendCommitsBufferedPrefixBeforePermanentEncodingFailure(t *testing.T) {
+func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) {
 	cfg := testClientConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 	defer client.Close()
 
-	appendCalls := 0
+	var appended []map[string]any
 	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
-		appendCalls++
+		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(line, &row))
+			appended = append(appended, row)
+		}
 		return scopedb.AppendRowsResult{
 			AppendState:     scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
@@ -316,15 +314,14 @@ func TestClientSendCommitsBufferedPrefixBeforePermanentEncodingFailure(t *testin
 	}
 
 	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{
-		{"body": "valid"},
+		{"body": "before"},
 		{"body": math.NaN()},
+		{"body": "after"},
 	}})
 	require.Error(t, err)
 	assert.True(t, consumererror.IsPermanent(err))
-	assert.Equal(t, 1, appendCalls)
-	var delivery *deliveryError
-	require.ErrorAs(t, err, &delivery)
-	assert.Equal(t, 1, delivery.retryFrom)
+	assert.Equal(t, []map[string]any{{"body": "before"}, {"body": "after"}}, appended)
+	assert.ErrorContains(t, err, "mapped row 1")
 }
 
 func TestClientSendRejectsInvalidCastBeforeAppend(t *testing.T) {
@@ -413,6 +410,50 @@ func TestClassifyAppendError(t *testing.T) {
 			classified := classifyAppendError(tt.err)
 			assert.Equal(t, tt.permanent, consumererror.IsPermanent(classified))
 			assert.ErrorContains(t, classified, tt.contains)
+		})
+	}
+}
+
+func TestCompleteRejectedRowsRequiresAnExactRowSet(t *testing.T) {
+	tests := []struct {
+		name      string
+		retryable bool
+		truncated bool
+		rows      []scopedb.AppendRowError
+		wantRows  []scopedb.AppendRowError
+		wantOK    bool
+	}{
+		{
+			name:     "complete",
+			rows:     []scopedb.AppendRowError{{RowIndex: 1}, {RowIndex: 0}},
+			wantRows: []scopedb.AppendRowError{{RowIndex: 0}, {RowIndex: 1}},
+			wantOK:   true,
+		},
+		{name: "retryable", retryable: true, rows: []scopedb.AppendRowError{{RowIndex: 0}}},
+		{name: "truncated", truncated: true, rows: []scopedb.AppendRowError{{RowIndex: 0}}},
+		{name: "missing rows"},
+		{
+			name:     "multiple errors for one row",
+			rows:     []scopedb.AppendRowError{{RowIndex: 0}, {RowIndex: 0}},
+			wantRows: []scopedb.AppendRowError{{RowIndex: 0}},
+			wantOK:   true,
+		},
+		{name: "out of range", rows: []scopedb.AppendRowError{{RowIndex: 2}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &scopedb.Error{
+				Retryable: tt.retryable,
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState:        scopedb.AppendStateRejected,
+					RowErrors:          tt.rows,
+					RowErrorsTruncated: tt.truncated,
+				},
+			}
+			rows, ok := completeRejectedRows(err, 2)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantRows, rows)
 		})
 	}
 }

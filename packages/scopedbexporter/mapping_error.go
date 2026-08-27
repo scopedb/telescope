@@ -22,6 +22,8 @@ const (
 	mappingReasonUnsupportedMetricType      = "unsupported_metric_type"
 	mappingReasonUnsupportedNumberValueType = "unsupported_number_value_type"
 	mappingReasonCastFailed                 = "mapping_cast_failed"
+	mappingReasonEncodingFailed             = "mapping_encoding_failed"
+	mappingReasonRowTooLarge                = "mapped_row_too_large"
 )
 
 type mappingError struct {
