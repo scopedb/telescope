@@ -82,7 +82,7 @@ The rule contract is deliberately small:
 
 - Use exactly one of `source`, ordered `sources`, or constant `value`.
 - `default` is used only when every source is absent or null. Empty strings, `false`, and numeric zeroes are present values; `default` and `value` themselves cannot be null.
-- `cast` fixes the output type to `string`, `int`, `uint`, `float`, `boolean`, or `timestamp`.
+- `cast` fixes the output type to `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Structured casts validate the runtime shape instead of serializing it; `any` is never selected implicitly.
 - Object keys and array indexes can be chained with `["key"]` and `[index]`. Missing or mismatched path segments are absent and participate in fallback.
 
 This projection runs only while building the ScopeDB row. It does not mutate the OpenTelemetry record seen by other pipelines, and it is not an event-processing language. Filtering, sampling, arbitrary expressions, regex, arithmetic, aggregation, and content-based routing remain upstream concerns.

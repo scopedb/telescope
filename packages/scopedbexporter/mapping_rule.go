@@ -190,7 +190,7 @@ func (r MappingRule) normalized() (MappingRule, error) {
 		return MappingRule{}, fmt.Errorf("value cannot be null; null values are omitted")
 	}
 	if r.Cast != "" && !supportedMappingCast(r.Cast) {
-		return MappingRule{}, fmt.Errorf("unsupported cast %q; choose string, int, uint, float, boolean, or timestamp", r.Cast)
+		return MappingRule{}, fmt.Errorf("unsupported cast %q; choose string, int, uint, float, boolean, timestamp, object, array, or any", r.Cast)
 	}
 	if r.hasDefault() {
 		if _, err := json.Marshal(r.Default); err != nil {
@@ -405,7 +405,7 @@ func mappingErrorValueDescription(value any) string {
 func supportedMappingCast(value string) bool {
 	switch selectorType(value) {
 	case selectorTypeString, selectorTypeInt, selectorTypeUInt, selectorTypeFloat,
-		selectorTypeBoolean, selectorTypeTimestamp:
+		selectorTypeBoolean, selectorTypeTimestamp, selectorTypeObject, selectorTypeArray, selectorTypeAny:
 		return true
 	default:
 		return false
@@ -457,6 +457,9 @@ func selectorTypeForValue(value any) selectorType {
 }
 
 func mappingCastPossible(source selectorType, target selectorType) bool {
+	if target == selectorTypeAny {
+		return true
+	}
 	if source == selectorTypeDynamic || source == selectorTypeNumber || source == target {
 		return true
 	}
@@ -470,12 +473,19 @@ func mappingCastPossible(source selectorType, target selectorType) bool {
 		return source == selectorTypeString || source == selectorTypeBoolean
 	case selectorTypeTimestamp:
 		return source == selectorTypeString || source == selectorTypeInt || source == selectorTypeUInt || source == selectorTypeTimestamp
+	case selectorTypeObject:
+		return source == selectorTypeObject
+	case selectorTypeArray:
+		return source == selectorTypeArray
 	default:
 		return false
 	}
 }
 
 func mappingCastNeedsRuntimeCheck(source selectorType, target selectorType) bool {
+	if target == selectorTypeAny {
+		return false
+	}
 	if source == target {
 		return source == selectorTypeFloat
 	}
@@ -495,6 +505,10 @@ func mappingCastNeedsRuntimeCheck(source selectorType, target selectorType) bool
 		return source != selectorTypeBoolean
 	case selectorTypeTimestamp:
 		return source != selectorTypeTimestamp && source != selectorTypeInt
+	case selectorTypeObject:
+		return source != selectorTypeObject
+	case selectorTypeArray:
+		return source != selectorTypeArray
 	default:
 		return true
 	}
@@ -514,6 +528,18 @@ func castMappingValue(value any, target selectorType) (any, error) {
 		return mappingBoolean(value)
 	case selectorTypeTimestamp:
 		return mappingTimestamp(value)
+	case selectorTypeObject:
+		if selectorTypeForValue(value) != selectorTypeObject {
+			return nil, fmt.Errorf("expected an object")
+		}
+		return value, nil
+	case selectorTypeArray:
+		if selectorTypeForValue(value) != selectorTypeArray {
+			return nil, fmt.Errorf("expected an array")
+		}
+		return value, nil
+	case selectorTypeAny:
+		return value, nil
 	default:
 		return nil, fmt.Errorf("unsupported cast %q", target)
 	}

@@ -207,6 +207,9 @@ func TestCastMappingValue(t *testing.T) {
 		{name: "float from string", value: "1.25", target: selectorTypeFloat, want: 1.25},
 		{name: "boolean from string", value: "true", target: selectorTypeBoolean, want: true},
 		{name: "timestamp from nanos", value: "1713835425123456789", target: selectorTypeTimestamp, want: "2024-04-23T01:23:45.123456789Z"},
+		{name: "object assertion", value: map[string]any{"request_id": "42"}, target: selectorTypeObject, want: map[string]any{"request_id": "42"}},
+		{name: "array assertion", value: []any{"one", "two"}, target: selectorTypeArray, want: []any{"one", "two"}},
+		{name: "explicit any", value: map[string]any{"request_id": "42"}, target: selectorTypeAny, want: map[string]any{"request_id": "42"}},
 	}
 
 	for _, tt := range tests {
@@ -226,6 +229,10 @@ func TestCastMappingValueRejectsLossyAndInvalidValues(t *testing.T) {
 	_, err = castMappingValue("not-a-bool", selectorTypeBoolean)
 	assert.Error(t, err)
 	_, err = castMappingValue("not-a-time", selectorTypeTimestamp)
+	assert.Error(t, err)
+	_, err = castMappingValue("not-an-object", selectorTypeObject)
+	assert.Error(t, err)
+	_, err = castMappingValue(map[string]any{"not": "an array"}, selectorTypeArray)
 	assert.Error(t, err)
 }
 
@@ -271,4 +278,18 @@ func TestMappingCastRuntimeDependency(t *testing.T) {
 	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeString, selectorTypeInt))
 	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeDynamic, selectorTypeString))
 	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeFloat, selectorTypeFloat))
+}
+
+func TestCompileMappingRuleDeclaresDynamicStructuredType(t *testing.T) {
+	compiled, err := compileMappingRule(signalLogs, MappingRule{Source: "log.body", Cast: "object"})
+	require.NoError(t, err)
+	assert.Equal(t, selectorTypeObject, compiled.valueType)
+	assert.True(t, compiled.runtimeDependent)
+
+	evaluation, err := compiled.evaluate(Record{"body": map[string]any{"request_id": "42"}})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"request_id": "42"}, evaluation.value)
+
+	_, err = compiled.evaluate(Record{"body": "not-an-object"})
+	require.Error(t, err)
 }

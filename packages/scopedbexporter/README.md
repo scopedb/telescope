@@ -75,7 +75,7 @@ mapping:
 
 An expanded rule accepts exactly one of `source`, `sources`, or `value`. `sources` is an ordered fallback list and selects the first present value. `default` applies only when every source is absent or null. `value` emits a constant and cannot be combined with a source or default. Neither `default` nor `value` may be null. Selected empty strings, `false`, and numeric zeroes are present; they do not trigger fallback. Without a default, an absent result is omitted from that NDJSON row.
 
-`cast` may be `string`, `int`, `uint`, `float`, `boolean`, or `timestamp`. Integer casts reject fractional or out-of-range values; casting a large integer to float can lose precision. A timestamp accepts RFC 3339 text or Unix nanoseconds and emits UTC RFC 3339. Known invalid constants and defaults fail configuration validation. A bad runtime value is reported as a permanent `mapping_cast_failed` rejection; use `telescope preview` with representative input before rollout.
+`cast` may be `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Integer casts reject fractional or out-of-range values; casting a large integer to float can lose precision. A timestamp accepts RFC 3339 text or Unix nanoseconds and emits UTC RFC 3339. Structured casts validate the runtime shape without serializing it, and `any` is never selected implicitly. Known invalid constants and defaults fail configuration validation. A bad runtime value is reported as a permanent `mapping_cast_failed` rejection; use `telescope preview` with representative input before rollout.
 
 Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
 

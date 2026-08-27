@@ -124,6 +124,7 @@ const (
 	selectorTypeBoolean   selectorType = "boolean"
 	selectorTypeObject    selectorType = "object"
 	selectorTypeArray     selectorType = "array"
+	selectorTypeAny       selectorType = "any"
 	selectorTypeNumber    selectorType = "int or float"
 )
 
@@ -275,6 +276,8 @@ func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatib
 		compatible = actual == scopedb.ObjectDataType
 	case selectorTypeArray:
 		compatible = actual == scopedb.ArrayDataType || actual == scopedb.ObjectDataType
+	case selectorTypeAny:
+		compatible = actual == scopedb.AnyDataType
 	}
 	if compatible {
 		return MappingCompatible

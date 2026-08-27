@@ -130,6 +130,27 @@ func TestPlanIngestionTablesDoesNotInferTypeFromSample(t *testing.T) {
 	assert.Equal(t, "output type is runtime-dependent; add an explicit cast to the mapping", column.Reason)
 }
 
+func TestPlanIngestionTablesUsesExplicitStructuredCast(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	ingestion := IngestionConfig{Signals: IngestionSignalsConfig{Logs: SignalIngestionConfig{
+		Table: "app.logs",
+		Mapping: MappingConfig{
+			"body": {Source: "log.body", Cast: "object"},
+		},
+	}}}
+
+	plan, err := PlanIngestionTables(context.Background(), server.URL, "test-key", ingestion, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Tables, 1)
+	require.Len(t, plan.Tables[0].Columns, 1)
+	assert.Equal(t, TableActionCreate, plan.Tables[0].Action)
+	assert.Equal(t, TableColumnPlan{Name: "body", RequiredType: "object", Status: TableColumnCreate}, plan.Tables[0].Columns[0])
+}
+
 func TestPlanIngestionTablesMergesSignalsSharingATable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
