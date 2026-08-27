@@ -116,17 +116,7 @@ func InspectIngestionDestinations(
 	if err := ingestion.Validate(); err != nil {
 		return nil, err
 	}
-	tables, mappings := ingestion.exporterConfig()
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String(apiKey)
-	cfg.Tables = tables
-	cfg.Mappings = mappings
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	client, err := newClient(cfg, zap.NewNop())
+	client, err := newIngestionClient(endpoint, apiKey, ingestion)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +134,19 @@ func InspectIngestionDestinations(
 		}
 	}
 	return validations, errors.Join(errs...)
+}
+
+func newIngestionClient(endpoint string, apiKey string, ingestion IngestionConfig) (*Client, error) {
+	tables, mappings := ingestion.exporterConfig()
+	cfg := createDefaultConfig().(*Config)
+	cfg.Endpoint = endpoint
+	cfg.APIKey = configopaque.String(apiKey)
+	cfg.Tables = tables
+	cfg.Mappings = mappings
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return newClient(cfg, zap.NewNop())
 }
 
 func (cfg IngestionConfig) exporterConfig() (TableRoutingConfig, SignalMappingConfig) {

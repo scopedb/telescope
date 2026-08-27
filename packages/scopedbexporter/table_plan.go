@@ -25,8 +25,6 @@ import (
 	"strings"
 
 	scopedb "github.com/scopedb/goscopedb"
-	"go.opentelemetry.io/collector/config/configopaque"
-	"go.uber.org/zap"
 )
 
 const TablePlanVersion = 1
@@ -127,16 +125,7 @@ func PlanIngestionTables(
 		return IngestionTablePlan{}, err
 	}
 
-	tables, mappings := ingestion.exporterConfig()
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String(apiKey)
-	cfg.Tables = tables
-	cfg.Mappings = mappings
-	if err := cfg.Validate(); err != nil {
-		return IngestionTablePlan{}, err
-	}
-	client, err := newClient(cfg, zap.NewNop())
+	client, err := newIngestionClient(endpoint, apiKey, ingestion)
 	if err != nil {
 		return IngestionTablePlan{}, err
 	}
@@ -160,21 +149,9 @@ func PlanIngestionTables(
 		createDatabase := false
 		createSchema := false
 		if !exists {
-			_, schemaErr := client.sdk.FetchSchema(ctx, database, schema)
-			switch {
-			case schemaErr == nil:
-			case isCatalogNotFound(schemaErr):
-				createSchema = true
-				_, databaseErr := client.sdk.FetchDatabase(ctx, database)
-				switch {
-				case databaseErr == nil:
-				case isCatalogNotFound(databaseErr):
-					createDatabase = true
-				default:
-					return IngestionTablePlan{}, fmt.Errorf("describe target database %s: %w", database, databaseErr)
-				}
-			default:
-				return IngestionTablePlan{}, fmt.Errorf("describe target schema %s.%s: %w", database, schema, schemaErr)
+			createDatabase, createSchema, err = missingNamespace(ctx, client, database, schema)
+			if err != nil {
+				return IngestionTablePlan{}, err
 			}
 		}
 		tablePlan := buildTablePlan(builder, exists, resource)
@@ -185,6 +162,25 @@ func PlanIngestionTables(
 		result.Tables = append(result.Tables, tablePlan)
 	}
 	return result, nil
+}
+
+func missingNamespace(ctx context.Context, client *Client, database string, schema string) (bool, bool, error) {
+	_, err := client.sdk.FetchSchema(ctx, database, schema)
+	if err == nil {
+		return false, false, nil
+	}
+	if !isCatalogNotFound(err) {
+		return false, false, fmt.Errorf("describe target schema %s.%s: %w", database, schema, err)
+	}
+
+	_, err = client.sdk.FetchDatabase(ctx, database)
+	if err == nil {
+		return false, true, nil
+	}
+	if isCatalogNotFound(err) {
+		return true, true, nil
+	}
+	return false, false, fmt.Errorf("describe target database %s: %w", database, err)
 }
 
 // RenderTablePlanScopeQL renders only additive, reviewable DDL. It never
@@ -223,11 +219,7 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 			schemaSet[schemaName{database: database, schema: schema}] = struct{}{}
 		}
 	}
-	databases := make([]string, 0, len(databaseSet))
-	for database := range databaseSet {
-		databases = append(databases, database)
-	}
-	sort.Strings(databases)
+	databases := sortedStringKeys(databaseSet)
 	schemas := make([]schemaName, 0, len(schemaSet))
 	for schema := range schemaSet {
 		schemas = append(schemas, schema)
@@ -403,11 +395,7 @@ func groupTableRequirements(
 		}
 	}
 
-	tableNames := make([]string, 0, len(byTable))
-	for table := range byTable {
-		tableNames = append(tableNames, table)
-	}
-	sort.Strings(tableNames)
+	tableNames := sortedStringKeys(byTable)
 	builders := make([]tablePlanBuilder, 0, len(tableNames))
 	for _, table := range tableNames {
 		builders = append(builders, *byTable[table])
@@ -416,11 +404,7 @@ func groupTableRequirements(
 }
 
 func buildTablePlan(builder tablePlanBuilder, exists bool, resource scopedb.TableResource) TablePlan {
-	signals := make([]string, 0, len(builder.signals))
-	for signal := range builder.signals {
-		signals = append(signals, signal)
-	}
-	sort.Strings(signals)
+	signals := sortedStringKeys(builder.signals)
 
 	actual := make(map[string]scopedb.DataType, len(resource.Columns))
 	if exists {
@@ -428,11 +412,7 @@ func buildTablePlan(builder tablePlanBuilder, exists bool, resource scopedb.Tabl
 			actual[column.Name] = column.DataType
 		}
 	}
-	columnNames := make([]string, 0, len(builder.requirements))
-	for name := range builder.requirements {
-		columnNames = append(columnNames, name)
-	}
-	sort.Strings(columnNames)
+	columnNames := sortedStringKeys(builder.requirements)
 
 	plan := TablePlan{
 		Table:   builder.ref.String(),
@@ -516,10 +496,7 @@ func planTableColumn(
 		}
 		details = append(details, detail)
 	}
-	for valueType := range observed {
-		column.ObservedTypes = append(column.ObservedTypes, valueType)
-	}
-	sort.Strings(column.ObservedTypes)
+	column.ObservedTypes = sortedStringKeys(observed)
 	finish := func() TableColumnPlan {
 		if includeDetails {
 			column.Requirements = details
@@ -623,4 +600,16 @@ func scopeQLColumnDefinition(column TableColumnPlan) (string, error) {
 
 func scopeQLIdentifier(value string) string {
 	return "`" + value + "`"
+}
+
+func sortedStringKeys[V any](values map[string]V) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
