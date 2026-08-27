@@ -44,9 +44,9 @@ type TableRoutingConfig struct {
 }
 
 type SignalMappingConfig struct {
-	Logs    map[string]string `mapstructure:"logs" yaml:"logs"`
-	Traces  map[string]string `mapstructure:"traces" yaml:"traces"`
-	Metrics map[string]string `mapstructure:"metrics" yaml:"metrics"`
+	Logs    MappingConfig `mapstructure:"logs" yaml:"logs"`
+	Traces  MappingConfig `mapstructure:"traces" yaml:"traces"`
+	Metrics MappingConfig `mapstructure:"metrics" yaml:"metrics"`
 }
 
 type Config struct {
@@ -160,7 +160,7 @@ func (cfg *Config) tableForSignal(signal string) string {
 	return ""
 }
 
-func (cfg *Config) mappingForSignal(signal string) map[string]string {
+func (cfg *Config) mappingForSignal(signal string) MappingConfig {
 	switch signal {
 	case signalLogs:
 		return cfg.Mappings.Logs

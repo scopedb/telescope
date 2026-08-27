@@ -29,8 +29,8 @@ import (
 // SignalIngestionConfig routes one OpenTelemetry signal into a user-owned
 // ScopeDB table.
 type SignalIngestionConfig struct {
-	Table   string            `yaml:"table"`
-	Mapping map[string]string `yaml:"mapping"`
+	Table   string        `yaml:"table"`
+	Mapping MappingConfig `yaml:"mapping"`
 }
 
 type IngestionSignalsConfig struct {

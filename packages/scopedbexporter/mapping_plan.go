@@ -19,15 +19,13 @@ package scopedbexporter
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	scopedb "github.com/scopedb/goscopedb"
 )
-
-var attributeSourcePattern = regexp.MustCompile(`^(resource|scope|log|span|datapoint)\.attributes\["([^"]+)"\]$`)
-var metadataSourcePattern = regexp.MustCompile(`^metric\.metadata\["([^"]+)"\]$`)
 
 var commonSourceSelectors = []string{
 	"resource.attributes",
@@ -106,10 +104,12 @@ var signalSourceSelectors = map[string][]string{
 type recordGetter func(Record) (any, bool)
 
 type mappedColumn struct {
-	name       string
-	source     string
-	sourceType selectorType
-	get        recordGetter
+	name             string
+	source           string
+	outputType       selectorType
+	runtimeDependent bool
+	resolutions      []string
+	get              mappingEvaluator
 }
 
 type selectorType string
@@ -137,7 +137,7 @@ func (t selectorType) runtimeDependent() bool {
 	return t == selectorTypeDynamic || t == selectorTypeNumber
 }
 
-func compileMappingPlan(signal string, table string, columns map[string]string) (*mappingPlan, error) {
+func compileMappingPlan(signal string, table string, columns MappingConfig) (*mappingPlan, error) {
 	var errs []error
 	ref, err := parseTableRef(table)
 	if err != nil {
@@ -160,8 +160,7 @@ func compileMappingPlan(signal string, table string, columns map[string]string) 
 			errs = append(errs, fmt.Errorf("destination column %q must be an unquoted ScopeDB identifier", name))
 			valid = false
 		}
-		source := strings.TrimSpace(columns[name])
-		getter, err := compileRecordGetter(signal, source)
+		compiled, err := compileMappingRule(signal, columns[name])
 		if err != nil {
 			errs = append(errs, fmt.Errorf("column %q: %w", name, err))
 			valid = false
@@ -170,10 +169,12 @@ func compileMappingPlan(signal string, table string, columns map[string]string) 
 			continue
 		}
 		plan.columns = append(plan.columns, mappedColumn{
-			name:       name,
-			source:     source,
-			sourceType: selectorTypeFor(source),
-			get:        getter,
+			name:             name,
+			source:           compiled.description,
+			outputType:       compiled.valueType,
+			runtimeDependent: compiled.runtimeDependent,
+			resolutions:      compiled.resolutions,
+			get:              compiled.evaluate,
 		})
 	}
 	if len(errs) > 0 {
@@ -182,22 +183,27 @@ func compileMappingPlan(signal string, table string, columns map[string]string) 
 	return plan, nil
 }
 
-func (p *mappingPlan) project(record Record) map[string]any {
+func (p *mappingPlan) project(record Record) (map[string]any, error) {
 	row := make(map[string]any, len(p.columns))
 	for _, column := range p.columns {
-		if value, ok := column.get(record); ok {
-			row[column.name] = value
+		evaluation, err := column.get(record)
+		if err != nil {
+			return nil, fmt.Errorf("column %q (%s): %w", column.name, column.source, err)
+		}
+		if evaluation.present {
+			row[column.name] = evaluation.value
 		}
 	}
-	return row
+	return row, nil
 }
 
 func selectorTypeFor(source string) selectorType {
-	if attributeSourcePattern.MatchString(source) || metadataSourcePattern.MatchString(source) {
+	base, steps, err := parseSelectorPath(source)
+	if err != nil || len(steps) > 0 {
 		return selectorTypeDynamic
 	}
 
-	switch source {
+	switch base {
 	case "resource.attributes", "scope.attributes", "log.attributes", "span.attributes",
 		"metric.metadata", "datapoint.attributes", "datapoint.distribution":
 		return selectorTypeObject
@@ -277,40 +283,193 @@ func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatib
 }
 
 func compileRecordGetter(signal string, source string) (recordGetter, error) {
-	if source == "" {
+	base, steps, err := parseSelectorPath(source)
+	if err != nil {
+		return nil, err
+	}
+	if base == "" {
 		return nil, fmt.Errorf("source is required")
 	}
-	if getter := commonRecordGetter(source); getter != nil {
-		return getter, nil
-	}
-	if matches := attributeSourcePattern.FindStringSubmatch(source); matches != nil {
-		return attributeGetter(signal, matches[1], matches[2])
-	}
-	if matches := metadataSourcePattern.FindStringSubmatch(source); matches != nil {
-		if signal != signalMetrics {
-			return nil, fmt.Errorf("source %q is only valid for metrics", source)
-		}
-		return nestedMapKeyGetter([]string{"metadata"}, matches[1]), nil
-	}
 
-	var getter recordGetter
-	switch signal {
-	case signalLogs:
-		getter = logRecordGetter(source)
-	case signalTraces:
-		getter = traceRecordGetter(source)
-	case signalMetrics:
-		getter = metricRecordGetter(source)
-	default:
-		return nil, fmt.Errorf("unsupported signal %q", signal)
+	getter := commonRecordGetter(base)
+	if getter == nil {
+		switch signal {
+		case signalLogs:
+			getter = logRecordGetter(base)
+		case signalTraces:
+			getter = traceRecordGetter(base)
+		case signalMetrics:
+			getter = metricRecordGetter(base)
+		default:
+			return nil, fmt.Errorf("unsupported signal %q", signal)
+		}
 	}
 	if getter == nil {
+		if expected := selectorSignal(base); expected != "" && expected != signal {
+			return nil, fmt.Errorf("source %q is only valid for %s", source, expected)
+		}
 		if suggestion := suggestSource(signal, source); suggestion != "" {
 			return nil, fmt.Errorf("unsupported %s source %q; did you mean %q?", signal, source, suggestion)
 		}
 		return nil, fmt.Errorf("unsupported %s source %q", signal, source)
 	}
-	return getter, nil
+	if len(steps) == 0 {
+		return getter, nil
+	}
+
+	baseType := selectorTypeFor(base)
+	first := steps[0]
+	switch baseType {
+	case selectorTypeObject:
+		if first.isIndex {
+			return nil, fmt.Errorf("source %q produces an object and requires a string key", base)
+		}
+	case selectorTypeArray:
+		if !first.isIndex {
+			return nil, fmt.Errorf("source %q produces an array and requires a numeric index", base)
+		}
+	case selectorTypeDynamic:
+	default:
+		return nil, fmt.Errorf("source %q produces %s and cannot be indexed", base, baseType)
+	}
+	return selectorPathGetter(getter, steps), nil
+}
+
+func selectorSignal(source string) string {
+	switch {
+	case strings.HasPrefix(source, "log."):
+		return signalLogs
+	case strings.HasPrefix(source, "span."):
+		return signalTraces
+	case strings.HasPrefix(source, "metric."), strings.HasPrefix(source, "datapoint."):
+		return signalMetrics
+	default:
+		return ""
+	}
+}
+
+type selectorPathStep struct {
+	key     string
+	index   int
+	isIndex bool
+}
+
+func parseSelectorPath(source string) (string, []selectorPathStep, error) {
+	value := strings.TrimSpace(source)
+	if value == "" {
+		return "", nil, nil
+	}
+	start := strings.IndexByte(value, '[')
+	if start < 0 {
+		return value, nil, nil
+	}
+	base := strings.TrimSpace(value[:start])
+	if base == "" {
+		return "", nil, fmt.Errorf("invalid source %q: selector base is required", source)
+	}
+
+	steps := make([]selectorPathStep, 0, 2)
+	position := start
+	for position < len(value) {
+		if value[position] != '[' {
+			return "", nil, fmt.Errorf("invalid source %q: expected '[' at offset %d", source, position)
+		}
+		position++
+		for position < len(value) && (value[position] == ' ' || value[position] == '\t') {
+			position++
+		}
+		if position == len(value) {
+			return "", nil, fmt.Errorf("invalid source %q: unclosed '['", source)
+		}
+
+		step := selectorPathStep{}
+		if value[position] == '"' {
+			quotedStart := position
+			position++
+			escaped := false
+			for position < len(value) {
+				character := value[position]
+				position++
+				if escaped {
+					escaped = false
+					continue
+				}
+				if character == '\\' {
+					escaped = true
+					continue
+				}
+				if character == '"' {
+					break
+				}
+			}
+			if position > len(value) || value[position-1] != '"' {
+				return "", nil, fmt.Errorf("invalid source %q: unclosed string key", source)
+			}
+			key, err := strconv.Unquote(value[quotedStart:position])
+			if err != nil {
+				return "", nil, fmt.Errorf("invalid source %q: invalid string key: %w", source, err)
+			}
+			step.key = key
+		} else {
+			indexStart := position
+			for position < len(value) && value[position] >= '0' && value[position] <= '9' {
+				position++
+			}
+			if indexStart == position {
+				return "", nil, fmt.Errorf("invalid source %q: path segment must be a quoted key or non-negative index", source)
+			}
+			index, err := strconv.Atoi(value[indexStart:position])
+			if err != nil {
+				return "", nil, fmt.Errorf("invalid source %q: invalid array index: %w", source, err)
+			}
+			step.index = index
+			step.isIndex = true
+		}
+
+		for position < len(value) && (value[position] == ' ' || value[position] == '\t') {
+			position++
+		}
+		if position == len(value) || value[position] != ']' {
+			return "", nil, fmt.Errorf("invalid source %q: expected ']'", source)
+		}
+		position++
+		for position < len(value) && (value[position] == ' ' || value[position] == '\t') {
+			position++
+		}
+		steps = append(steps, step)
+	}
+	return base, steps, nil
+}
+
+func selectorPathGetter(base recordGetter, steps []selectorPathStep) recordGetter {
+	return func(record Record) (any, bool) {
+		current, ok := base(record)
+		if !ok {
+			return nil, false
+		}
+		for _, step := range steps {
+			if step.isIndex {
+				value := reflect.ValueOf(current)
+				if !value.IsValid() || (value.Kind() != reflect.Array && value.Kind() != reflect.Slice) || step.index >= value.Len() {
+					return nil, false
+				}
+				current = value.Index(step.index).Interface()
+				continue
+			}
+			switch values := current.(type) {
+			case map[string]any:
+				current, ok = values[step.key]
+			case Record:
+				current, ok = values[step.key]
+			default:
+				return nil, false
+			}
+			if !ok {
+				return nil, false
+			}
+		}
+		return presentValue(current, true)
+	}
 }
 
 func suggestSource(signal string, source string) string {
@@ -391,28 +550,6 @@ func commonRecordGetter(source string) recordGetter {
 	default:
 		return nil
 	}
-}
-
-func attributeGetter(signal string, context string, key string) (recordGetter, error) {
-	switch context {
-	case "resource":
-		return nestedMapKeyGetter([]string{"resource"}, key), nil
-	case "scope":
-		return nestedMapKeyGetter([]string{"scope", "attributes"}, key), nil
-	case "log":
-		if signal != signalLogs {
-			return nil, fmt.Errorf("log attributes are only valid for logs")
-		}
-	case "span":
-		if signal != signalTraces {
-			return nil, fmt.Errorf("span attributes are only valid for traces")
-		}
-	case "datapoint":
-		if signal != signalMetrics {
-			return nil, fmt.Errorf("datapoint attributes are only valid for metrics")
-		}
-	}
-	return nestedMapKeyGetter([]string{"attributes"}, key), nil
 }
 
 func logRecordGetter(source string) recordGetter {
@@ -584,22 +721,6 @@ func nestedPathGetter(path ...string) recordGetter {
 			}
 		}
 		return presentValue(current, true)
-	}
-}
-
-func nestedMapKeyGetter(path []string, key string) recordGetter {
-	base := nestedPathGetter(path...)
-	return func(record Record) (any, bool) {
-		value, ok := base(record)
-		if !ok {
-			return nil, false
-		}
-		values, ok := value.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		item, ok := values[key]
-		return presentValue(item, ok)
 	}
 }
 

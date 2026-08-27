@@ -39,6 +39,14 @@ signals:
     mapping:
       ts: span.start_time
       name: span.name
+      service:
+        sources:
+          - resource.attributes["service.name"]
+          - resource.attributes["service"]
+        default: unknown
+        cast: string
+      sampled:
+        value: false
 `), 0o600))
 
 	ingestion, err := LoadConfig(path)
@@ -46,7 +54,12 @@ signals:
 	traceConfig, enabled := ingestion.Signal("traces")
 	require.True(t, enabled)
 	assert.Equal(t, "app.spans", traceConfig.Table)
-	assert.Equal(t, "span.name", traceConfig.Mapping["name"])
+	assert.Equal(t, "span.name", traceConfig.Mapping["name"].Source)
+	assert.Equal(t, []string{
+		`resource.attributes["service.name"]`,
+		`resource.attributes["service"]`,
+	}, traceConfig.Mapping["service"].Sources)
+	assert.Equal(t, "unknown", traceConfig.Mapping["service"].Default)
 	assert.Equal(t, []string{"traces"}, ingestion.EnabledSignals())
 
 	uri, err := ConfigURI(ingestion)
@@ -84,7 +97,10 @@ signals:
 		assert.Empty(t, config.Tables.Logs)
 		assert.Equal(t, "app.spans", config.Tables.Traces)
 		assert.Empty(t, config.Tables.Metrics)
-		assert.Equal(t, "span.name", config.Mappings.Traces["name"])
+		assert.Equal(t, "span.name", config.Mappings.Traces["name"].Source)
+		assert.Equal(t, "string", config.Mappings.Traces["service"].Cast)
+		assert.Equal(t, "unknown", config.Mappings.Traces["service"].Default)
+		assert.Equal(t, false, config.Mappings.Traces["sampled"].Value)
 		assert.Zero(t, config.RetryOnFailure.MaxElapsedTime)
 		assert.Equal(t, "bytes", config.SendingQueue.Get().Sizer.String())
 	}

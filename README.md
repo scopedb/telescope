@@ -46,11 +46,18 @@ signals:
       timestamp: span.start_time
       trace_id: span.trace_id
       span_id: span.span_id
-      service: resource.attributes["service.name"]
+      service:
+        sources:
+          - resource.attributes["service.name"]
+          - resource.attributes["service"]
+        default: unknown
+        cast: string
       name: span.name
       duration_ns: span.duration_ns
       status_code: span.status.code
 ```
+
+A mapping value can stay as a source-selector shorthand, or use an expanded rule for ordered fallback, a missing-value default, a constant, and an explicit output cast. Object and array sources support chained access such as `log.body["request"]["id"]`. See [ScopeDB Mapping and Table Management](docs/table-management.md) for the complete contract.
 
 Validate the destination table and mapping before deployment:
 
@@ -62,15 +69,16 @@ docker run --rm \
   validate /etc/telescope/telescope.yaml
 ```
 
-For runtime-typed selectors such as attributes and `log.body`, preview a representative OTLP JSON or protobuf payload before deployment:
+For runtime-typed selectors such as attributes and `log.body`, and for casts whose input values vary at runtime, preview a representative OTLP JSON or protobuf payload before deployment:
 
 ```bash
 telescope preview --offline \
+  --strict \
   --sample traces=traces.otlp.json \
   deploy/telescope.yaml
 ```
 
-The preview shows source coverage and observed types, then prints the exact projected NDJSON without writing to ScopeDB. Omit `--offline` to include destination column types and detect sample/type mismatches.
+The preview shows destination-column coverage, observed output types, and which ordered source or default supplied each value, then prints projected NDJSON without writing to ScopeDB. Mapping failures are collected across the sample and identify the record, column, and selected source. `--strict` also fails on unobserved, partial, or default-only columns. Omit `--offline` to include destination column types and detect sample/type mismatches.
 
 Start Telescope:
 
@@ -189,7 +197,7 @@ make build
 Commands:
 
 - Setup:
-  - `telescope validate`: validate selectors and destination tables
+  - `telescope validate`: validate mapping rules and destination tables
   - `telescope preview`: project OTLP samples through a candidate mapping without appending
   - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
 - Operations:

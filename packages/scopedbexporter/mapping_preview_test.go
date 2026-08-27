@@ -85,7 +85,7 @@ func TestPreviewMappingUsesProductionMappersForEverySignal(t *testing.T) {
 		t.Run(tt.signal, func(t *testing.T) {
 			preview, err := PreviewMapping(tt.signal, SignalIngestionConfig{
 				Table:   "analytics." + tt.signal,
-				Mapping: tt.mapping,
+				Mapping: shorthandMapping(tt.mapping),
 			}, readGoldenFile(t, tt.signal+".otlp.json"))
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantRecords, preview.Records)
@@ -146,13 +146,114 @@ func TestPreviewMappingAcceptsOTLPProtobufForEverySignal(t *testing.T) {
 			sample := tt.marshal(t, readGoldenFile(t, tt.signal+".otlp.json"))
 			preview, err := PreviewMapping(tt.signal, SignalIngestionConfig{
 				Table:   "analytics." + tt.signal,
-				Mapping: map[string]string{"value": tt.source},
+				Mapping: shorthandMapping(map[string]string{"value": tt.source}),
 			}, sample)
 			require.NoError(t, err)
 			assert.NotZero(t, preview.Records)
 			assert.NotEmpty(t, preview.Rows[0]["value"])
 		})
 	}
+}
+
+func TestPreviewMappingAppliesExpandedRules(t *testing.T) {
+	preview, err := PreviewMapping(signalLogs, SignalIngestionConfig{
+		Table: "analytics.logs",
+		Mapping: MappingConfig{
+			"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
+			"environment": {
+				Source:  `resource.attributes["deployment.environment.name"]`,
+				Default: "unknown",
+			},
+			"message": {Sources: []string{
+				`log.attributes["message"]`,
+				`log.body["message"]`,
+			}},
+			"origin": {Value: "otel"},
+		},
+	}, readGoldenFile(t, "logs.otlp.json"))
+	require.NoError(t, err)
+	require.Len(t, preview.Rows, 1)
+	assert.Equal(t, int64(2), preview.Rows[0]["attempt"])
+	assert.Equal(t, "unknown", preview.Rows[0]["environment"])
+	assert.Equal(t, "order accepted", preview.Rows[0]["message"])
+	assert.Equal(t, "otel", preview.Rows[0]["origin"])
+
+	attempt := findPreviewColumn(t, preview, "attempt")
+	assert.Equal(t, []string{"int"}, attempt.ObservedTypes)
+	assert.True(t, attempt.RuntimeDependent)
+	assert.Equal(t, []MappingSelectionPreview{{Source: `log.body["attempt"]`, Count: 1}}, attempt.Selections)
+	assert.Equal(t, []MappingSelectionPreview{{Source: "default", Count: 1}}, findPreviewColumn(t, preview, "environment").Selections)
+	assert.Equal(t, []MappingSelectionPreview{{Source: `log.body["message"]`, Count: 1}}, findPreviewColumn(t, preview, "message").Selections)
+	assert.Equal(t, []MappingSelectionPreview{{Source: "value", Count: 1}}, findPreviewColumn(t, preview, "origin").Selections)
+}
+
+func TestPreviewMappingCollectsCastFailuresAndKeepsValidRows(t *testing.T) {
+	preview, err := PreviewMapping(signalLogs, SignalIngestionConfig{
+		Table: "analytics.logs",
+		Mapping: MappingConfig{
+			"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
+			"enabled": {Source: `log.body["enabled"]`, Cast: "boolean"},
+		},
+	}, []byte(`{
+  "resourceLogs": [{
+    "scopeLogs": [{
+      "logRecords": [
+        {"body":{"kvlistValue":{"values":[
+          {"key":"attempt","value":{"stringValue":"first"}},
+          {"key":"enabled","value":{"stringValue":"sometimes"}}
+        ]}}},
+        {"body":{"kvlistValue":{"values":[
+          {"key":"attempt","value":{"stringValue":"2"}},
+          {"key":"enabled","value":{"stringValue":"false"}}
+        ]}}}
+      ]
+    }]
+  }]
+}`))
+	require.NoError(t, err)
+	assert.Equal(t, 2, preview.Records)
+	assert.Equal(t, 1, preview.ValidRecords)
+	assert.Equal(t, 1, preview.InvalidRecords)
+	assert.Equal(t, 2, preview.ErrorCount)
+	require.Len(t, preview.Errors, 2)
+	assert.Equal(t, 1, preview.Errors[0].Record)
+	assert.Equal(t, "attempt", preview.Errors[0].Column)
+	assert.Equal(t, `log.body["attempt"]`, preview.Errors[0].Source)
+	assert.Equal(t, `string value "first" cannot be converted to int`, preview.Errors[0].Message)
+	assert.NotContains(t, preview.Errors[0].Message, "strconv")
+	assert.Equal(t, "enabled", preview.Errors[1].Column)
+	require.Len(t, preview.Rows, 1)
+	assert.Equal(t, int64(2), preview.Rows[0]["attempt"])
+	assert.Equal(t, false, preview.Rows[0]["enabled"])
+	attempt := findPreviewColumn(t, preview, "attempt")
+	assert.Equal(t, 1, attempt.Errors)
+	assert.Equal(t, 1, attempt.Present)
+	assert.Equal(t, []MappingSelectionPreview{{Source: `log.body["attempt"]`, Count: 2}}, attempt.Selections)
+}
+
+func TestDescribeIngestionMappingsShowsExpandedRuleAndOutputType(t *testing.T) {
+	descriptions, err := DescribeIngestionMappings(IngestionConfig{Signals: IngestionSignalsConfig{
+		Logs: SignalIngestionConfig{
+			Table: "analytics.logs",
+			Mapping: MappingConfig{
+				"service": {
+					Sources: []string{
+						`resource.attributes["service.name"]`,
+						`resource.attributes["service"]`,
+					},
+					Default: "unknown",
+					Cast:    "string",
+				},
+			},
+		},
+	}})
+	require.NoError(t, err)
+	require.Len(t, descriptions, 1)
+	require.Len(t, descriptions[0].Columns, 1)
+	column := descriptions[0].Columns[0]
+	assert.Equal(t, `resource.attributes["service.name"] -> resource.attributes["service"] -> default("unknown") | cast=string`, column.Source)
+	assert.Equal(t, "string", column.OutputType)
+	assert.True(t, column.RuntimeDependent)
 }
 
 func findPreviewColumn(t *testing.T, preview MappingPreview, name string) MappingColumnPreview {

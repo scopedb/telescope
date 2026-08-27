@@ -72,16 +72,19 @@ func TestScopeDBTelescopeIntegration(t *testing.T) {
 
 	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
 		Logs: scopedbexporter.SignalIngestionConfig{
-			Table:   tables["logs"].Name,
-			Mapping: map[string]string{"value": "log.message"},
+			Table: tables["logs"].Name,
+			Mapping: scopedbexporter.MappingConfig{"value": {
+				Sources: []string{`resource.attributes["missing"]`, "log.message"},
+				Cast:    "string",
+			}},
 		},
 		Traces: scopedbexporter.SignalIngestionConfig{
 			Table:   tables["traces"].Name,
-			Mapping: map[string]string{"value": "span.name"},
+			Mapping: scopedbexporter.MappingConfig{"value": {Source: "span.name"}},
 		},
 		Metrics: scopedbexporter.SignalIngestionConfig{
 			Table:   tables["metrics"].Name,
-			Mapping: map[string]string{"value": "metric.name"},
+			Mapping: scopedbexporter.MappingConfig{"value": {Source: "metric.name"}},
 		},
 	}}
 	require.NoError(t, scopedbexporter.CheckIngestionDestinations(ctx, requestEndpoint, requestAPIKey, ingestion))

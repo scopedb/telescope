@@ -21,6 +21,7 @@ import "errors"
 const (
 	mappingReasonUnsupportedMetricType      = "unsupported_metric_type"
 	mappingReasonUnsupportedNumberValueType = "unsupported_number_value_type"
+	mappingReasonCastFailed                 = "mapping_cast_failed"
 )
 
 type mappingError struct {

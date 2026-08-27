@@ -58,23 +58,23 @@ func TestConfigValidateMapping(t *testing.T) {
 		{
 			name: "invalid destination column",
 			mutate: func(cfg *Config) {
-				cfg.Mappings.Logs = map[string]string{"bad-column": "log.body"}
+				cfg.Mappings.Logs = shorthandMapping(map[string]string{"bad-column": "log.body"})
 			},
 			want: "must be an unquoted ScopeDB identifier",
 		},
 		{
 			name: "invalid source",
 			mutate: func(cfg *Config) {
-				cfg.Mappings.Traces = map[string]string{"trace_id": "span.unknown"}
+				cfg.Mappings.Traces = shorthandMapping(map[string]string{"trace_id": "span.unknown"})
 			},
 			want: "unsupported traces source",
 		},
 		{
 			name: "wrong signal source",
 			mutate: func(cfg *Config) {
-				cfg.Mappings.Logs = map[string]string{"value": `span.attributes["order.id"]`}
+				cfg.Mappings.Logs = shorthandMapping(map[string]string{"value": `span.attributes["order.id"]`})
 			},
-			want: "span attributes are only valid for traces",
+			want: "only valid for traces",
 		},
 	}
 
@@ -132,9 +132,37 @@ func TestConfigUnmarshalSetsOnlySpecifiedMappings(t *testing.T) {
 	})
 
 	require.NoError(t, conf.Unmarshal(cfg))
-	assert.Equal(t, map[string]string{"event": "log.body"}, cfg.Mappings.Logs)
+	assert.Equal(t, "log.body", cfg.Mappings.Logs["event"].Source)
 	assert.Empty(t, cfg.Mappings.Traces)
 	assert.Empty(t, cfg.Mappings.Metrics)
+}
+
+func TestConfigUnmarshalExpandedMappingRule(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	conf := confmap.NewFromStringMap(map[string]any{
+		"mappings": map[string]any{
+			"logs": map[string]any{
+				"service": map[string]any{
+					"sources": []any{
+						`resource.attributes["service.name"]`,
+						`resource.attributes["service"]`,
+					},
+					"default": "unknown",
+					"cast":    "string",
+				},
+			},
+		},
+	})
+
+	require.NoError(t, conf.Unmarshal(cfg))
+	rule := cfg.Mappings.Logs["service"]
+	assert.Equal(t, []string{
+		`resource.attributes["service.name"]`,
+		`resource.attributes["service"]`,
+	}, rule.Sources)
+	assert.Equal(t, "unknown", rule.Default)
+	assert.True(t, rule.hasDefault())
+	assert.Equal(t, "string", rule.Cast)
 }
 
 func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {
@@ -159,9 +187,9 @@ func validTestConfig() *Config {
 		Metrics: "test.metrics",
 	}
 	cfg.Mappings = SignalMappingConfig{
-		Logs:    map[string]string{"message": "log.message"},
-		Traces:  map[string]string{"name": "span.name"},
-		Metrics: map[string]string{"name": "metric.name"},
+		Logs:    shorthandMapping(map[string]string{"message": "log.message"}),
+		Traces:  shorthandMapping(map[string]string{"name": "span.name"}),
+		Metrics: shorthandMapping(map[string]string{"name": "metric.name"}),
 	}
 	return cfg
 }

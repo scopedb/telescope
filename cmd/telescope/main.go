@@ -344,6 +344,7 @@ Validate options:
 Preview options:
   --offline                  Skip ScopeDB destination checks
   --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
+  --strict                   Fail on unobserved, partial, or default-only columns
 
 Capture options:
   --endpoint                 Telescope operational HTTP base URL

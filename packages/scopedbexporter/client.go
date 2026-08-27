@@ -130,7 +130,7 @@ func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalD
 			})
 			continue
 		}
-		compatibility := column.sourceType.compatibilityWith(dataType)
+		compatibility := column.outputType.compatibilityWith(dataType)
 		validation.Columns = append(validation.Columns, DestinationColumnValidation{
 			MappingColumnDescription: describeMappedColumn(column),
 			TargetType:               string(dataType),
@@ -139,7 +139,7 @@ func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalD
 		if compatibility == MappingIncompatible {
 			incompatible = append(incompatible, fmt.Sprintf(
 				"%s (%s produces %s, table has %s)",
-				column.name, column.source, column.sourceType, dataType,
+				column.name, column.source, column.outputType, dataType,
 			))
 		}
 	}
@@ -209,7 +209,11 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	}
 
 	for index, record := range payload.Records {
-		line, err := json.Marshal(plan.project(record))
+		row, err := plan.project(record)
+		if err != nil {
+			return permanentAt(index, fmt.Errorf("project mapped row %d: %w", index, err))
+		}
+		line, err := json.Marshal(row)
 		if err != nil {
 			return permanentAt(index, fmt.Errorf("marshal mapped row %d: %w", index, err))
 		}

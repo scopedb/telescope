@@ -22,7 +22,12 @@ signals:
       trace_id: span.trace_id
       span_id: span.span_id
       parent_span_id: span.parent_span_id
-      service: resource.attributes["service.name"]
+      service:
+        sources:
+          - resource.attributes["service.name"]
+          - resource.attributes["service"]
+        default: unknown
+        cast: string
       span_name: span.name
       span_kind: span.kind
       status_code: span.status.code

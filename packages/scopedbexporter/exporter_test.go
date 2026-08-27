@@ -65,7 +65,7 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	statuses := NewStatusRegistry()
 	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 	}, time.Second, time.Millisecond)
 
 	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	exp, err := NewFactory().CreateLogs(
 		context.Background(),
 		exportertest.NewNopSettings(typeStr),
@@ -144,7 +144,7 @@ func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	statuses := NewStatusRegistry()
 	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
@@ -218,7 +218,7 @@ func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = map[string]string{"message": "log.message"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	exp, err := NewFactory().CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
@@ -234,7 +234,7 @@ func TestExporterClassifiesRejectedAppendAsPermanent(t *testing.T) {
 
 func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
-	cfg.Mappings.Logs = map[string]string{"body": "log.body"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 	defer client.Close()
@@ -269,7 +269,7 @@ func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 
 func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
-	cfg.Mappings.Logs = map[string]string{"body": "log.body"}
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
 	defer client.Close()
@@ -309,6 +309,35 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	assert.Equal(t, uint64(2), statuses.Snapshot().Signals[signalLogs].PermanentExportRecords)
 }
 
+func TestExporterReportsMappingCastFailure(t *testing.T) {
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = MappingConfig{
+		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
+	}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	appendCalls := 0
+	client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
+		appendCalls++
+		return scopedb.AppendRowsResult{}, nil
+	}
+	logs := plog.NewLogs()
+	record := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	record.Body().SetEmptyMap().PutStr("attempt", "second")
+	statuses := NewStatusRegistry()
+	exp := &dbExporter{cfg: cfg, client: client, statuses: statuses}
+
+	err = exp.pushLogs(context.Background(), logs)
+	require.Error(t, err)
+	assert.True(t, consumererror.IsPermanent(err))
+	assert.Zero(t, appendCalls)
+	status := statuses.Snapshot().Signals[signalLogs]
+	assert.Equal(t, uint64(1), status.PermanentFailedRecords)
+	assert.Equal(t, uint64(1), status.InvalidItemsByReason[mappingReasonCastFailed])
+}
+
 func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {
 	var mu sync.Mutex
 	var rows []map[string]any
@@ -334,7 +363,7 @@ func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {
 	defer server.Close()
 
 	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Metrics = map[string]string{"value": "metric.name"}
+	cfg.Mappings.Metrics = shorthandMapping(map[string]string{"value": "metric.name"})
 	statuses := NewStatusRegistry()
 	exp, err := NewFactoryWithStatus(statuses).CreateMetrics(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)

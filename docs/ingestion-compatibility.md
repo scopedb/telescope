@@ -32,7 +32,9 @@ The following shared context is available to every signal mapping:
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
-`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Selectors with a fixed output type are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed selector type. Individual attribute selectors, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the production mapper, reports per-column coverage and observed types, and compares them with the destination without appending rows. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
+Any object or array source can be followed by chained `["key"]` and `[index]` path segments. Mapping rules can select the first present source, apply a default when all sources are absent, emit a constant, and cast the output to `string`, `int`, `uint`, `float`, `boolean`, or `timestamp`. These operations shape only the destination row; they do not mutate the OpenTelemetry input.
+
+`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the production mapper, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
 
 ## Logs
 
@@ -86,6 +88,7 @@ Current reasons are:
 | --- | --- |
 | `unsupported_metric_type` | A metric has no supported OTLP data type. |
 | `unsupported_number_value_type` | A gauge or sum data point has no integer or double value. |
+| `mapping_cast_failed` | A present runtime value cannot be converted by the configured mapping cast. |
 
 ## Ingestion Status
 
@@ -122,7 +125,7 @@ The status and metrics endpoints read Collector's private Prometheus endpoint at
 - Byte-valued attributes and bodies are mapped as base64 strings without an explicit byte type marker.
 - OpenTelemetry resource entity references are not mapped by the current exporter.
 - Exemplar records with no value are retained without a `value` or `value_type`; they do not yet produce a reason-labelled diagnostic.
-- Telescope does not normalize semantic-convention aliases. Map the desired attribute keys directly or normalize them with an upstream OpenTelemetry processor.
+- Telescope does not normalize semantic-convention aliases globally. Use an ordered `sources` rule when aliases should feed one destination column, or normalize them upstream when other consumers also need the canonical field.
 
 These gaps require an additive source-selector extension. They must be added to the golden corpus before their behavior changes.
 

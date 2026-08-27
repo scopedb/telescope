@@ -53,7 +53,7 @@ func TestCheckIngestionDestinationsChecksOnlyEnabledSignals(t *testing.T) {
 		Signals: IngestionSignalsConfig{
 			Traces: SignalIngestionConfig{
 				Table:   "public.check_traces",
-				Mapping: map[string]string{"name": "span.name"},
+				Mapping: shorthandMapping(map[string]string{"name": "span.name"}),
 			},
 		},
 	})
@@ -67,7 +67,7 @@ func TestIngestionConfigRequiresOneCompleteSignal(t *testing.T) {
 	assert.ErrorContains(t, err, "at least one signal is required")
 
 	err = (IngestionConfig{Signals: IngestionSignalsConfig{
-		Traces: SignalIngestionConfig{Mapping: map[string]string{"name": "span.nam"}},
+		Traces: SignalIngestionConfig{Mapping: shorthandMapping(map[string]string{"name": "span.nam"})},
 	}}).Validate()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "signals.traces.table is required")

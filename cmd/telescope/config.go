@@ -48,14 +48,24 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	offline := flags.Bool("offline", false, "validate configuration without connecting to ScopeDB")
 	timeout := flags.Duration("timeout", 30*time.Second, "destination validation timeout")
 	var samples sampleFlags
+	strict := false
 	if preview {
 		flags.Var(&samples, "sample", "OTLP JSON or protobuf as signal=path; use - for stdin; repeat per signal")
+		flags.BoolVar(&strict, "strict", false, "fail when the sample leaves a column unobserved, partial, or default-only")
+	}
+	flags.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: telescope %s [options] [telescope.yaml]\n\nOptions:\n", command)
+		flags.PrintDefaults()
+		if preview {
+			fmt.Fprintln(stderr, "\nExample:")
+			fmt.Fprintln(stderr, "  telescope capture logs | telescope preview --offline --sample logs=- telescope.yaml")
+		}
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if preview && len(samples.paths) == 0 {
-		return errors.New("preview requires at least one --sample signal=path")
+		return errors.New("preview requires at least one --sample signal=path; capture live input with: telescope capture logs | telescope preview --offline --sample logs=- telescope.yaml")
 	}
 	if err := applyBootstrapFlags(bootstrap); err != nil {
 		return err
@@ -105,7 +115,7 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	}
 
 	for _, sample := range previews {
-		if err := printMappingPreview(stdout, sample, destinations); err != nil {
+		if err := printMappingPreview(stdout, sample, destinations, strict); err != nil {
 			validationErrors = append(validationErrors, err)
 		}
 	}
@@ -127,18 +137,18 @@ func printConfigPlan(w io.Writer, descriptions []scopedbexporter.SignalMappingDe
 	for _, description := range descriptions {
 		fmt.Fprintf(w, "%s -> %s\n", description.Signal, description.Table)
 		for _, column := range description.Columns {
-			selectorType := column.SelectorType
+			outputType := column.OutputType
 			if column.RuntimeDependent {
-				selectorType += ", runtime"
+				outputType += ", sample-check"
 			}
-			fmt.Fprintf(w, "  %s <- %s [%s]\n", column.Column, column.Source, selectorType)
+			fmt.Fprintf(w, "  %s <- %s [%s]\n", column.Column, column.Source, outputType)
 		}
 	}
 }
 
 func printConfigurationSummary(w io.Writer, descriptions []scopedbexporter.SignalMappingDescription) {
 	total, runtimeDependent := mappingCounts(descriptions)
-	fmt.Fprintf(w, "configuration: ok (selectors=%d, fixed=%d, runtime-dependent=%d)\n", total, total-runtimeDependent, runtimeDependent)
+	fmt.Fprintf(w, "configuration: ok (columns=%d, statically-typed=%d, sample-check=%d)\n", total, total-runtimeDependent, runtimeDependent)
 }
 
 func printDestinationSummary(w io.Writer, validations []scopedbexporter.SignalDestinationValidation) {
@@ -152,7 +162,7 @@ func printDestinationSummary(w io.Writer, validations []scopedbexporter.SignalDe
 			}
 		}
 	}
-	fmt.Fprintf(w, "destination: ok (columns=%d, catalog-compatible=%d, runtime-unchecked=%d)\n", total, total-runtimeDependent, runtimeDependent)
+	fmt.Fprintf(w, "destination: ok (columns=%d, catalog-checked=%d, sample-check=%d)\n", total, total-runtimeDependent, runtimeDependent)
 }
 
 func mappingCounts(descriptions []scopedbexporter.SignalMappingDescription) (int, int) {

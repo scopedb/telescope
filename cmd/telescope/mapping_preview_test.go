@@ -39,7 +39,7 @@ func TestLoadMappingSamplesReadsStdin(t *testing.T) {
 	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
 		Logs: scopedbexporter.SignalIngestionConfig{
 			Table:   "app.logs",
-			Mapping: map[string]string{"message": "log.message"},
+			Mapping: scopedbexporter.MappingConfig{"message": {Source: "log.message"}},
 		},
 	}}
 	sample := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"hello"}}]}]}]}`
@@ -56,11 +56,11 @@ func TestLoadMappingSamplesRejectsMultipleStdinSamples(t *testing.T) {
 	ingestion := scopedbexporter.IngestionConfig{Signals: scopedbexporter.IngestionSignalsConfig{
 		Logs: scopedbexporter.SignalIngestionConfig{
 			Table:   "app.logs",
-			Mapping: map[string]string{"message": "log.message"},
+			Mapping: scopedbexporter.MappingConfig{"message": {Source: "log.message"}},
 		},
 		Traces: scopedbexporter.SignalIngestionConfig{
 			Table:   "app.traces",
-			Mapping: map[string]string{"name": "span.name"},
+			Mapping: scopedbexporter.MappingConfig{"name": {Source: "span.name"}},
 		},
 	}}
 
@@ -74,13 +74,14 @@ func TestLoadMappingSamplesRejectsMultipleStdinSamples(t *testing.T) {
 
 func TestPrintMappingPreviewRejectsObservedTypeMismatch(t *testing.T) {
 	preview := scopedbexporter.MappingPreview{
-		Signal:  "logs",
-		Records: 1,
+		Signal:       "logs",
+		Records:      1,
+		ValidRecords: 1,
 		Columns: []scopedbexporter.MappingColumnPreview{{
 			MappingColumnDescription: scopedbexporter.MappingColumnDescription{
 				Column:           "body",
 				Source:           "log.body",
-				SelectorType:     "dynamic",
+				OutputType:       "dynamic",
 				RuntimeDependent: true,
 			},
 			Present:       1,
@@ -99,31 +100,107 @@ func TestPrintMappingPreviewRejectsObservedTypeMismatch(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	err := printMappingPreview(&output, mappingSample{path: "sample.json", preview: preview}, []scopedbexporter.SignalDestinationValidation{destination})
+	err := printMappingPreview(&output, mappingSample{path: "sample.json", preview: preview}, []scopedbexporter.SignalDestinationValidation{destination}, false)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "incompatible with destination columns: body")
-	assert.Contains(t, output.String(), "sample-mismatch")
+	assert.ErrorContains(t, err, "body (sample type)")
+	assert.Contains(t, output.String(), "ERROR sample type")
 	assert.Contains(t, output.String(), `{"body":{"message":"hello"}}`)
 }
 
 func TestPreviewColumnResultDoesNotTreatMissingSampleValuesAsValidated(t *testing.T) {
 	destination := scopedbexporter.DestinationColumnValidation{
 		MappingColumnDescription: scopedbexporter.MappingColumnDescription{
-			Column:       "trace_id",
-			SelectorType: "string",
+			Column:     "trace_id",
+			OutputType: "string",
 		},
 		TargetType:    "string",
 		Compatibility: scopedbexporter.MappingCompatible,
 	}
 
-	assert.Equal(t, "unobserved", previewColumnResult(scopedbexporter.MappingColumnPreview{
+	assert.Equal(t, "WARN unobserved", previewColumnResult(scopedbexporter.MappingColumnPreview{
 		MappingColumnDescription: destination.MappingColumnDescription,
 		Total:                    2,
 	}, destination))
-	assert.Equal(t, "partial", previewColumnResult(scopedbexporter.MappingColumnPreview{
+	assert.Equal(t, "WARN partial", previewColumnResult(scopedbexporter.MappingColumnPreview{
 		MappingColumnDescription: destination.MappingColumnDescription,
 		Present:                  1,
 		Total:                    2,
 		ObservedTypes:            []string{"string"},
 	}, destination))
+}
+
+func TestPrintMappingPreviewShowsDefaultUseAndStrictFailsWarnings(t *testing.T) {
+	preview := scopedbexporter.MappingPreview{
+		Signal:       "logs",
+		Records:      2,
+		ValidRecords: 2,
+		Columns: []scopedbexporter.MappingColumnPreview{{
+			MappingColumnDescription: scopedbexporter.MappingColumnDescription{
+				Column:     "tenant",
+				Source:     `resource.attributes["tenant"] -> default("unknown")`,
+				OutputType: "string",
+			},
+			Present:       2,
+			Total:         2,
+			ObservedTypes: []string{"string"},
+			Selections: []scopedbexporter.MappingSelectionPreview{{
+				Source: "default",
+				Count:  2,
+			}},
+		}},
+		Rows: []map[string]any{{"tenant": "unknown"}, {"tenant": "unknown"}},
+	}
+
+	var output bytes.Buffer
+	require.NoError(t, printMappingPreview(&output, mappingSample{path: "sample.json", preview: preview}, nil, false))
+	assert.Contains(t, output.String(), "SELECTED")
+	assert.NotContains(t, output.String(), "TARGET")
+	assert.Contains(t, output.String(), "default (2)")
+	assert.Contains(t, output.String(), "WARN default only")
+
+	output.Reset()
+	err := printMappingPreview(&output, mappingSample{path: "sample.json", preview: preview}, nil, true)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "warnings under --strict")
+}
+
+func TestPrintMappingPreviewReportsAllMappingErrorsWithSelectedSource(t *testing.T) {
+	preview := scopedbexporter.MappingPreview{
+		Signal:         "logs",
+		Records:        2,
+		ValidRecords:   1,
+		InvalidRecords: 1,
+		ErrorCount:     2,
+		Errors: []scopedbexporter.MappingPreviewError{
+			{Record: 1, Column: "attempt", Source: `log.body["attempt"]`, Message: `string value "first" cannot be converted to int`},
+			{Record: 1, Column: "enabled", Source: `log.body["enabled"]`, Message: `string value "sometimes" cannot be converted to boolean`},
+		},
+		Columns: []scopedbexporter.MappingColumnPreview{
+			{
+				MappingColumnDescription: scopedbexporter.MappingColumnDescription{Column: "attempt", OutputType: "int"},
+				Present:                  1,
+				Total:                    2,
+				Errors:                   1,
+				ObservedTypes:            []string{"int"},
+				Selections:               []scopedbexporter.MappingSelectionPreview{{Source: `log.body["attempt"]`, Count: 2}},
+			},
+			{
+				MappingColumnDescription: scopedbexporter.MappingColumnDescription{Column: "enabled", OutputType: "boolean"},
+				Present:                  1,
+				Total:                    2,
+				Errors:                   1,
+				ObservedTypes:            []string{"boolean"},
+				Selections:               []scopedbexporter.MappingSelectionPreview{{Source: `log.body["enabled"]`, Count: 2}},
+			},
+		},
+		Rows: []map[string]any{{"attempt": int64(2), "enabled": false}},
+	}
+
+	var output bytes.Buffer
+	err := printMappingPreview(&output, mappingSample{path: "sample.json", preview: preview}, nil, false)
+	require.Error(t, err)
+	assert.Contains(t, output.String(), "mapping errors (2)")
+	assert.Contains(t, output.String(), `record 1, column attempt <- log.body["attempt"]`)
+	assert.Contains(t, output.String(), "projected NDJSON (first 1 of 1 valid; 1 invalid)")
+	assert.Contains(t, output.String(), "sample result: errors=2, warnings=0")
 }

@@ -2,7 +2,7 @@
 
 `scopedbexporter` is an OpenTelemetry Collector exporter module named `scopedb`. It converts Collector `pdata` to user-selected ScopeDB columns and writes NDJSON with the ScopeDB Go SDK `Table.AppendNDJSON` API.
 
-The exporter does not impose a Telescope-wide storage record. Each mapping entry selects one OpenTelemetry value and names the destination column. Only mapped columns are serialized and stored.
+The exporter does not impose a Telescope-wide storage record. Each mapping entry projects one destination column from OpenTelemetry input. Only mapped columns are serialized and stored.
 
 ## Configuration
 
@@ -18,7 +18,12 @@ exporters:
     mappings:
       logs:
         ts: log.timestamp
-        service_name: resource.attributes["service.name"]
+        service_name:
+          sources:
+            - resource.attributes["service.name"]
+            - resource.attributes["service"]
+          default: unknown
+          cast: string
         level: log.severity_text
         message: log.message
         labels: log.attributes
@@ -53,9 +58,28 @@ exporters:
       num_consumers: 1
 ```
 
-`mappings.<signal>` is `destination column: OpenTelemetry source`. Destination columns must be unquoted ScopeDB identifiers. A source value that is absent or null is omitted from that NDJSON row; selected empty strings and numeric zeroes are preserved. Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
+`mappings.<signal>` is keyed by destination column. Destination columns must be unquoted ScopeDB identifiers. The value may be a source-selector shorthand or an expanded rule:
 
-The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known selector/type mismatches. Runtime-typed values such as individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `preview --sample signal=path` to expose their coverage and observed types without appending rows. Signal routes may point to the same table when their mappings target a compatible schema.
+```yaml
+mapping:
+  message: log.message
+  service:
+    sources:
+      - resource.attributes["service.name"]
+      - resource.attributes["service"]
+    default: unknown
+    cast: string
+  origin:
+    value: otel
+```
+
+An expanded rule accepts exactly one of `source`, `sources`, or `value`. `sources` is an ordered fallback list and selects the first present value. `default` applies only when every source is absent or null. `value` emits a constant and cannot be combined with a source or default. Neither `default` nor `value` may be null. Selected empty strings, `false`, and numeric zeroes are present; they do not trigger fallback. Without a default, an absent result is omitted from that NDJSON row.
+
+`cast` may be `string`, `int`, `uint`, `float`, `boolean`, or `timestamp`. Integer casts reject fractional or out-of-range values; casting a large integer to float can lose precision. A timestamp accepts RFC 3339 text or Unix nanoseconds and emits UTC RFC 3339. Known invalid constants and defaults fail configuration validation. A bad runtime value is reported as a permanent `mapping_cast_failed` rejection; use `telescope preview` with representative input before rollout.
+
+Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
+
+The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known output-type mismatches. Runtime-typed values such as uncast individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `preview --sample signal=path` to expose coverage, observed output types, and selected source/default counts without appending rows. Add `--strict` when unobserved, partial, or default-only sample coverage should fail. Signal routes may point to the same table when their mappings target a compatible schema.
 
 ## Mapping Sources
 
@@ -65,6 +89,8 @@ Sources shared by all signals:
 - `resource.schema_url`, `resource.dropped_attributes_count`
 - `scope.name`, `scope.version`, `scope.attributes`, `scope.attributes["<key>"]`
 - `scope.schema_url`, `scope.dropped_attributes_count`
+
+Object and array sources support chained bracket access. Use a JSON-quoted string for an object key and a non-negative integer for an array index, for example `log.body["request"]["id"]`, `log.body["tags"][0]`, or `span.events[0]["name"]`. A missing key, null value, container mismatch, or out-of-range index is treated as absent, so the next `sources` entry or `default` can apply.
 
 Log sources:
 
@@ -98,7 +124,7 @@ Metric sources:
 - `datapoint.number_value`, an explicit lossy projection that coerces integer points to double
 - `datapoint.distribution`, `datapoint.exemplars`
 
-Whole attribute maps, bodies, events, links, distributions, and exemplars retain their JSON structure. Map individual attributes when only a few dimensions deserve physical columns. Use upstream OpenTelemetry `resource` or `transform` processors for renaming, normalization, conditionals, or derived values; Telescope deliberately does not add another transformation language.
+Whole attribute maps, bodies, events, links, distributions, and exemplars retain their JSON structure. Map individual attributes when only a few dimensions deserve physical columns. Telescope's projection is limited to destination shaping: selection, nested access, fallback/default, constants, and casts. Use upstream OpenTelemetry processors for mutating telemetry, filtering, sampling, content-based routing, arithmetic, regex processing, or aggregation.
 
 ## Append and Retry Semantics
 

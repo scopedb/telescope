@@ -92,12 +92,12 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	cfg := testClientConfig(requestEndpoint)
 	cfg.APIKey = configopaque.String(apiKey)
 	cfg.Tables.Logs = table.Name
-	cfg.Mappings.Logs = map[string]string{
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{
 		"event_time": "log.timestamp",
 		"service":    `resource.attributes["service.name"]`,
 		"message":    "log.message",
 		"trace_id":   "log.trace_id",
-	}
+	})
 	require.NoError(t, CheckIngestionDestinations(ctx, requestEndpoint, apiKey, IngestionConfig{
 		Signals: IngestionSignalsConfig{
 			Logs: SignalIngestionConfig{

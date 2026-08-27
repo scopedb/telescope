@@ -71,7 +71,7 @@ func ConfigURI(config scopedbexporter.IngestionConfig) (string, error) {
 	}
 	signals := config.EnabledSignals()
 	tables := make(map[string]string, len(signals))
-	mappings := make(map[string]map[string]string, len(signals))
+	mappings := make(map[string]scopedbexporter.MappingConfig, len(signals))
 	for _, signal := range signals {
 		signalConfig, _ := config.Signal(signal)
 		tables[signal] = signalConfig.Table

@@ -6,9 +6,9 @@ The ownership boundary is:
 
 | Concern | Owner |
 | --- | --- |
-| Signal-to-table routing and OTel source-to-column mapping | Telescope exporter config |
+| Signal-to-table routing and destination projection (selection, fallback/default, constants, casts) | Telescope exporter config |
 | Column types, nullability/defaults, partitioning, clustering, retention, and indexes | User-managed ScopeDB DDL |
-| Renaming, normalization, derived values, filtering, and sampling | Upstream OpenTelemetry processors |
+| Telemetry mutation, filtering, sampling, content-based routing, arithmetic, regex, and aggregation | Upstream OpenTelemetry processors |
 | Persistent queue and retry schedule | OpenTelemetry Collector `exporterhelper` |
 | One append request and its `committed`/`rejected`/`unknown` result | ScopeDB Go SDK `AppendNDJSON` |
 
@@ -18,7 +18,7 @@ Telescope's boundary ends at the append result. It does not query or interpret t
 
 ## Mapping Model
 
-Each mapping is `destination column: OpenTelemetry source`:
+Each mapping is keyed by destination column. A direct selector is the common shorthand:
 
 ```yaml
 signals:
@@ -55,7 +55,37 @@ signals:
 
 Only those destination columns appear in the NDJSON row. There is no implicit `record`, `env`, `schema_version`, or copy of every OpenTelemetry attribute. Map a whole attribute object only when the target table actually has an object column for it; otherwise select individual keys.
 
-Missing and null source values are omitted. Selected empty strings and numeric zeroes are preserved. Any mapped source that can be absent therefore needs a compatible nullable column or table default.
+Missing and null source values are omitted. Selected empty strings, `false`, and numeric zeroes are preserved. Without a mapping default, a source that can be absent therefore needs a compatible nullable destination column or table default.
+
+Use an expanded rule when a destination column needs fallback, a Telescope-side default, a constant, or a fixed output type:
+
+```yaml
+signals:
+  logs:
+    table: telemetry_prod.otel.events
+    mapping:
+      event_time: log.timestamp
+      service:
+        sources:
+          - resource.attributes["service.name"]
+          - resource.attributes["service"]
+        default: unknown
+        cast: string
+      request_id:
+        source: log.body["request"]["id"]
+        cast: string
+      origin:
+        value: otel
+```
+
+The rule contract is deliberately small:
+
+- Use exactly one of `source`, ordered `sources`, or constant `value`.
+- `default` is used only when every source is absent or null. Empty strings, `false`, and numeric zeroes are present values; `default` and `value` themselves cannot be null.
+- `cast` fixes the output type to `string`, `int`, `uint`, `float`, `boolean`, or `timestamp`.
+- Object keys and array indexes can be chained with `["key"]` and `[index]`. Missing or mismatched path segments are absent and participate in fallback.
+
+This projection runs only while building the ScopeDB row. It does not mutate the OpenTelemetry record seen by other pipelines, and it is not an event-processing language. Filtering, sampling, arbitrary expressions, regex, arithmetic, aggregation, and content-based routing remain upstream concerns.
 
 The full source selector reference is in the [ScopeDB exporter README](../packages/scopedbexporter/README.md#mapping-sources).
 
@@ -88,18 +118,19 @@ telescope run \
   ./telescope.yaml
 ```
 
-The check command prints `signal -> table -> destination column -> OTel source`, then describes every configured destination. It reports all invalid selectors in one run, suggests close selector names, and reports missing columns or statically known type mismatches. Attribute-key selectors, `log.body`, and `datapoint.value` are runtime-dependent, so catalog validation checks their columns without guessing a type.
+The validate command prints `signal -> table -> destination column -> mapping rule`, then describes every configured destination. It reports all invalid selectors and rules in one run, suggests close selector names, and reports missing columns or statically known output-type mismatches. An explicit cast supplies the output type for catalog validation. A cast from runtime data is still marked runtime-dependent when sample values determine whether conversion succeeds. Uncast attribute values, nested paths, `log.body`, and `datapoint.value` also remain runtime-dependent because their output type is unknown.
 
 Use representative OTLP JSON or protobuf to inspect those values before deployment:
 
 ```bash
 telescope preview \
+  --strict \
   --sample logs=logs.otlp.json \
   --sample metrics=metrics.otlp.pb \
   ./telescope.yaml
 ```
 
-Each sample is decoded and passed through the production mapper. Telescope reports coverage and observed types for every mapped column, compares them with the live destination type, and prints the first three projected NDJSON rows. It does not append the sample. `--offline` keeps the projection and omits the destination comparison. A sample only describes the records it contains; an unobserved selector is reported as such rather than treated as compatible.
+Each sample is decoded and passed through the production mapper, including fallback, defaults, constants, and casts. Telescope reports coverage, observed output types, and source/default selection counts for every mapped column, compares them with the live destination type, and prints the first three valid projected NDJSON rows. It does not append the sample. `--offline` keeps the projection and omits the destination comparison. Mapping failures are collected across the sample and identify the 1-based record, destination column, and selected source. `--strict` also returns a failure for unobserved, partial, or default-only columns, which makes representative-sample checks usable in CI.
 
 `telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
 

@@ -27,7 +27,10 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
-const mappingPreviewRowLimit = 3
+const (
+	mappingPreviewRowLimit   = 3
+	mappingPreviewErrorLimit = 20
+)
 
 type MappingCompatibility string
 
@@ -41,7 +44,7 @@ const (
 type MappingColumnDescription struct {
 	Column           string
 	Source           string
-	SelectorType     string
+	OutputType       string
 	RuntimeDependent bool
 }
 
@@ -66,14 +69,32 @@ type MappingColumnPreview struct {
 	MappingColumnDescription
 	Present       int
 	Total         int
+	Errors        int
 	ObservedTypes []string
+	Selections    []MappingSelectionPreview
+}
+
+type MappingSelectionPreview struct {
+	Source string
+	Count  int
+}
+
+type MappingPreviewError struct {
+	Record  int
+	Column  string
+	Source  string
+	Message string
 }
 
 type MappingPreview struct {
-	Signal  string
-	Records int
-	Columns []MappingColumnPreview
-	Rows    []map[string]any
+	Signal         string
+	Records        int
+	ValidRecords   int
+	InvalidRecords int
+	ErrorCount     int
+	Errors         []MappingPreviewError
+	Columns        []MappingColumnPreview
+	Rows           []map[string]any
 }
 
 func DescribeIngestionMappings(ingestion IngestionConfig) ([]SignalMappingDescription, error) {
@@ -108,25 +129,54 @@ func PreviewMapping(signal string, config SignalIngestionConfig, sample []byte) 
 	preview := MappingPreview{
 		Signal:  signal,
 		Records: len(payload.Records),
+		Errors:  make([]MappingPreviewError, 0),
 		Columns: make([]MappingColumnPreview, 0, len(plan.columns)),
 		Rows:    make([]map[string]any, 0, min(mappingPreviewRowLimit, len(payload.Records))),
 	}
 	observed := make([]map[string]struct{}, len(plan.columns))
 	present := make([]int, len(plan.columns))
+	columnErrors := make([]int, len(plan.columns))
+	resolutionCounts := make([][]int, len(plan.columns))
 	for index := range observed {
 		observed[index] = make(map[string]struct{})
+		resolutionCounts[index] = make([]int, len(plan.columns[index].resolutions))
 	}
 	for recordIndex, record := range payload.Records {
-		if recordIndex < mappingPreviewRowLimit {
-			preview.Rows = append(preview.Rows, plan.project(record))
-		}
+		row := make(map[string]any, len(plan.columns))
+		valid := true
 		for columnIndex, column := range plan.columns {
-			value, ok := column.get(record)
-			if !ok {
+			evaluation, err := column.get(record)
+			if evaluation.resolution >= 0 && evaluation.resolution < len(column.resolutions) {
+				resolutionCounts[columnIndex][evaluation.resolution]++
+			}
+			if err != nil {
+				valid = false
+				preview.ErrorCount++
+				columnErrors[columnIndex]++
+				if len(preview.Errors) < mappingPreviewErrorLimit {
+					preview.Errors = append(preview.Errors, MappingPreviewError{
+						Record:  recordIndex + 1,
+						Column:  column.name,
+						Source:  mappingResolutionSource(column, evaluation.resolution),
+						Message: err.Error(),
+					})
+				}
 				continue
 			}
+			if !evaluation.present {
+				continue
+			}
+			row[column.name] = evaluation.value
 			present[columnIndex]++
-			observed[columnIndex][observedType(column.sourceType, value)] = struct{}{}
+			observed[columnIndex][observedType(column.outputType, evaluation.value)] = struct{}{}
+		}
+		if valid {
+			preview.ValidRecords++
+			if len(preview.Rows) < mappingPreviewRowLimit {
+				preview.Rows = append(preview.Rows, row)
+			}
+		} else {
+			preview.InvalidRecords++
 		}
 	}
 	for index, column := range plan.columns {
@@ -135,14 +185,33 @@ func PreviewMapping(signal string, config SignalIngestionConfig, sample []byte) 
 			types = append(types, valueType)
 		}
 		sort.Strings(types)
+		selections := make([]MappingSelectionPreview, 0, len(column.resolutions))
+		for resolutionIndex, count := range resolutionCounts[index] {
+			if count == 0 {
+				continue
+			}
+			selections = append(selections, MappingSelectionPreview{
+				Source: column.resolutions[resolutionIndex],
+				Count:  count,
+			})
+		}
 		preview.Columns = append(preview.Columns, MappingColumnPreview{
 			MappingColumnDescription: describeMappedColumn(column),
 			Present:                  present[index],
 			Total:                    len(payload.Records),
+			Errors:                   columnErrors[index],
 			ObservedTypes:            types,
+			Selections:               selections,
 		})
 	}
 	return preview, nil
+}
+
+func mappingResolutionSource(column mappedColumn, resolution int) string {
+	if resolution < 0 || resolution >= len(column.resolutions) {
+		return "-"
+	}
+	return column.resolutions[resolution]
 }
 
 func describeMappingPlan(plan *mappingPlan) SignalMappingDescription {
@@ -161,8 +230,8 @@ func describeMappedColumn(column mappedColumn) MappingColumnDescription {
 	return MappingColumnDescription{
 		Column:           column.name,
 		Source:           column.source,
-		SelectorType:     string(column.sourceType),
-		RuntimeDependent: column.sourceType.runtimeDependent(),
+		OutputType:       string(column.outputType),
+		RuntimeDependent: column.runtimeDependent,
 	}
 }
 

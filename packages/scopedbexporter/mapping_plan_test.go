@@ -25,15 +25,15 @@ import (
 )
 
 func TestMappingPlanProjectsOnlySelectedColumns(t *testing.T) {
-	plan, err := compileMappingPlan(signalTraces, "analytics.spans", map[string]string{
+	plan, err := compileMappingPlan(signalTraces, "analytics.spans", shorthandMapping(map[string]string{
 		"ts":       "span.start_time",
 		"trace_id": "span.trace_id",
 		"service":  `resource.attributes["service.name"]`,
 		"order_id": `span.attributes["order.id"]`,
-	})
+	}))
 	require.NoError(t, err)
 
-	row := plan.project(Record{
+	row, err := plan.project(Record{
 		"trace_id":             "010203",
 		"span_id":              "not-selected",
 		"start_time_unix_nano": "1713835425123456789",
@@ -46,6 +46,7 @@ func TestMappingPlanProjectsOnlySelectedColumns(t *testing.T) {
 			"user.id":  "not-selected",
 		},
 	})
+	require.NoError(t, err)
 
 	assert.Equal(t, map[string]any{
 		"ts":       "2024-04-23T01:23:45.123456789Z",
@@ -58,55 +59,208 @@ func TestMappingPlanProjectsOnlySelectedColumns(t *testing.T) {
 }
 
 func TestMappingPlanCanExplicitlyKeepAttributeObjects(t *testing.T) {
-	plan, err := compileMappingPlan(signalLogs, "logs", map[string]string{
+	plan, err := compileMappingPlan(signalLogs, "logs", shorthandMapping(map[string]string{
 		"attributes":          "log.attributes",
 		"resource_attributes": "resource.attributes",
-	})
+	}))
 	require.NoError(t, err)
 
-	row := plan.project(Record{
+	row, err := plan.project(Record{
 		"attributes": map[string]any{"order.id": "42"},
 		"resource":   map[string]any{"service.name": "checkout"},
 	})
+	require.NoError(t, err)
 
 	assert.Equal(t, map[string]any{"order.id": "42"}, row["attributes"])
 	assert.Equal(t, map[string]any{"service.name": "checkout"}, row["resource_attributes"])
 }
 
 func TestMappingPlanOmitsMissingSources(t *testing.T) {
-	plan, err := compileMappingPlan(signalMetrics, "metrics", map[string]string{
+	plan, err := compileMappingPlan(signalMetrics, "metrics", shorthandMapping(map[string]string{
 		"value":   "datapoint.number_value",
 		"missing": `datapoint.attributes["missing"]`,
-	})
+	}))
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string]any{"value": 0.0}, plan.project(Record{"number_value": 0.0}))
+	row, err := plan.project(Record{"number_value": 0.0})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"value": 0.0}, row)
 }
 
 func TestMappingPlanKeepsMetricNumberTypesSeparate(t *testing.T) {
-	plan, err := compileMappingPlan(signalMetrics, "metrics", map[string]string{
+	plan, err := compileMappingPlan(signalMetrics, "metrics", shorthandMapping(map[string]string{
 		"int_value":    "datapoint.int_value",
 		"double_value": "datapoint.double_value",
-	})
+	}))
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string]any{"int_value": int64(9_007_199_254_740_993)}, plan.project(Record{
+	row, err := plan.project(Record{
 		"int_value": int64(9_007_199_254_740_993),
-	}))
-	assert.Equal(t, map[string]any{"double_value": 0.75}, plan.project(Record{
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"int_value": int64(9_007_199_254_740_993)}, row)
+	row, err = plan.project(Record{
 		"double_value": 0.75,
-	}))
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"double_value": 0.75}, row)
 }
 
 func TestMappingPlanPreservesSelectedEmptyString(t *testing.T) {
-	plan, err := compileMappingPlan(signalLogs, "logs", map[string]string{
+	plan, err := compileMappingPlan(signalLogs, "logs", shorthandMapping(map[string]string{
 		"tenant": `resource.attributes["tenant"]`,
+	}))
+	require.NoError(t, err)
+
+	row, err := plan.project(Record{
+		"resource": map[string]any{"tenant": ""},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"tenant": ""}, row)
+}
+
+func TestMappingPlanProjectsNestedFallbackCastDefaultAndValue(t *testing.T) {
+	plan, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+		"attempt": {
+			Source: `log.body["attempt"]`,
+			Cast:   "int",
+		},
+		"environment": {
+			Source:  `resource.attributes["deployment.environment.name"]`,
+			Default: "unknown",
+		},
+		"first_tag": {
+			Source: `log.body["tags"][0]`,
+		},
+		"origin": {
+			Value: "otel",
+		},
+		"sampled": {
+			Value: false,
+		},
+		"shard": {
+			Value: "42",
+			Cast:  "int",
+		},
+		"request_id": {
+			Source: `log.body["request"]["id"]`,
+		},
+		"service": {
+			Sources: []string{
+				`resource.attributes["service.name"]`,
+				`resource.attributes["service"]`,
+			},
+		},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string]any{"tenant": ""}, plan.project(Record{
-		"resource": map[string]any{"tenant": ""},
-	}))
+	row, err := plan.project(Record{
+		"body": map[string]any{
+			"attempt": "2",
+			"request": map[string]any{"id": "request-42"},
+			"tags":    []any{"checkout", "production"},
+		},
+		"resource": map[string]any{"service": "checkout"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"attempt":     int64(2),
+		"environment": "unknown",
+		"first_tag":   "checkout",
+		"origin":      "otel",
+		"request_id":  "request-42",
+		"sampled":     false,
+		"service":     "checkout",
+		"shard":       int64(42),
+	}, row)
+}
+
+func TestMappingPlanTreatsNestedPathMismatchAsAbsent(t *testing.T) {
+	plan, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+		"request_id": {
+			Sources: []string{
+				`log.body["request"]["id"]`,
+				`log.attributes["request.id"]`,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	row, err := plan.project(Record{
+		"body":       map[string]any{"request": "not-an-object"},
+		"attributes": map[string]any{"request.id": "request-42"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"request_id": "request-42"}, row)
+}
+
+func TestMappingPlanAllowsWhitespaceInNestedSelectors(t *testing.T) {
+	plan, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+		"request_id": {Source: `log.body[ "request" ][ "id" ]`},
+	})
+	require.NoError(t, err)
+
+	row, err := plan.project(Record{
+		"body": map[string]any{
+			"request": map[string]any{"id": "request-42"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"request_id": "request-42"}, row)
+}
+
+func TestMappingPlanCoalesceUsesFirstPresentValue(t *testing.T) {
+	plan, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+		"tenant": {
+			Sources: []string{
+				`resource.attributes["tenant.primary"]`,
+				`resource.attributes["tenant.fallback"]`,
+			},
+			Default: "default",
+		},
+	})
+	require.NoError(t, err)
+
+	row, err := plan.project(Record{"resource": map[string]any{
+		"tenant.primary":  "",
+		"tenant.fallback": "fallback",
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"tenant": ""}, row)
+}
+
+func TestMappingPlanReportsCastFailure(t *testing.T) {
+	plan, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+		"attempt": {Source: `log.attributes["attempt"]`, Cast: "int"},
+	})
+	require.NoError(t, err)
+
+	_, err = plan.project(Record{"attributes": map[string]any{"attempt": "second"}})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `column "attempt"`)
+	reason, ok := mappingErrorReason(err)
+	assert.True(t, ok)
+	assert.Equal(t, mappingReasonCastFailed, reason)
+}
+
+func TestMappingPlanRejectsInvalidNestedSelectors(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{source: `log.message["key"]`, want: "produces string and cannot be indexed"},
+		{source: `log.attributes[0]`, want: "produces an object and requires a string key"},
+		{source: `log.body[-1]`, want: "non-negative index"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			_, err := compileMappingPlan(signalLogs, "logs", MappingConfig{
+				"value": {Source: tt.source},
+			})
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestSelectorTypeCompatibility(t *testing.T) {
@@ -122,11 +276,11 @@ func TestSelectorTypeCompatibility(t *testing.T) {
 }
 
 func TestMappingPlanReportsAllSelectorErrorsWithSuggestion(t *testing.T) {
-	_, err := compileMappingPlan(signalTraces, "analytics.spans", map[string]string{
+	_, err := compileMappingPlan(signalTraces, "analytics.spans", shorthandMapping(map[string]string{
 		"bad-name": "span.start_tim",
 		"service":  `resource.attribute["service.name"]`,
 		"status":   "span.status.mesage",
-	})
+	}))
 	require.Error(t, err)
 
 	assert.ErrorContains(t, err, `destination column "bad-name" must be an unquoted ScopeDB identifier`)

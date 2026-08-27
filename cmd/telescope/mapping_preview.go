@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -122,47 +123,91 @@ func printMappingPreview(
 	w io.Writer,
 	sample mappingSample,
 	destinations []scopedbexporter.SignalDestinationValidation,
+	strict bool,
 ) error {
 	preview := sample.preview
 	fmt.Fprintf(w, "sample %s <- %s (%d records)\n", preview.Signal, sample.path, preview.Records)
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "COLUMN\tSOURCE\tTARGET\tOBSERVED\tCOVERAGE\tRESULT")
-	var mismatched []string
+	hasDestination := hasDestinationValidation(destinations, preview.Signal)
+	if hasDestination {
+		fmt.Fprintln(table, "COLUMN\tTARGET\tOBSERVED\tCOVERAGE\tSELECTED\tRESULT")
+	} else {
+		fmt.Fprintln(table, "COLUMN\tOBSERVED\tCOVERAGE\tSELECTED\tRESULT")
+	}
+	var failures []string
+	var warnings []string
+	errorCount := preview.ErrorCount
 	for _, column := range preview.Columns {
-		target := findDestinationColumn(destinations, preview.Signal, column.Column)
-		targetType := "-"
-		result := "observed"
-		if column.Present == 0 {
-			result = "unobserved"
-		} else if column.Present < column.Total {
-			result = "partial"
-		}
-		if target != nil {
-			targetType = target.TargetType
-			result = previewColumnResult(column, *target)
-			if result == "sample-mismatch" {
-				mismatched = append(mismatched, column.Column)
+		result := previewColumnResultWithoutDestination(column)
+		targetType := ""
+		if hasDestination {
+			targetType = "-"
+			target := findDestinationColumn(destinations, preview.Signal, column.Column)
+			if target == nil {
+				result = "ERROR missing column"
+			} else {
+				targetType = target.TargetType
+				if targetType == "" {
+					targetType = "-"
+				}
+				result = previewColumnResult(column, *target)
 			}
+		}
+		if strings.HasPrefix(result, "ERROR") {
+			failures = append(failures, fmt.Sprintf("%s (%s)", column.Column, strings.TrimPrefix(result, "ERROR ")))
+			if !strings.HasPrefix(result, "ERROR mapping") {
+				errorCount++
+			}
+		}
+		if strings.HasPrefix(result, "WARN") {
+			warnings = append(warnings, fmt.Sprintf("%s (%s)", column.Column, strings.TrimPrefix(result, "WARN ")))
 		}
 		observed := "-"
 		if len(column.ObservedTypes) > 0 {
 			observed = strings.Join(column.ObservedTypes, "|")
 		}
-		fmt.Fprintf(
-			table,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
-			column.Column,
-			column.Source,
-			targetType,
-			observed,
-			formatCoverage(column.Present, column.Total),
-			result,
-		)
+		if hasDestination {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				column.Column,
+				targetType,
+				observed,
+				formatCoverage(column.Present, column.Total),
+				formatSelections(column.Selections),
+				result,
+			)
+		} else {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",
+				column.Column,
+				observed,
+				formatCoverage(column.Present, column.Total),
+				formatSelections(column.Selections),
+				result,
+			)
+		}
 	}
 	if err := table.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "projected NDJSON (first %d of %d):\n", len(preview.Rows), preview.Records)
+	if preview.ErrorCount > 0 {
+		fmt.Fprintf(w, "mapping errors (%d):\n", preview.ErrorCount)
+		for _, issue := range preview.Errors {
+			if issue.Source == "-" {
+				fmt.Fprintf(w, "  record %d, column %s: %s\n", issue.Record, issue.Column, issue.Message)
+			} else {
+				fmt.Fprintf(w, "  record %d, column %s <- %s: %s\n", issue.Record, issue.Column, issue.Source, issue.Message)
+			}
+		}
+		if omitted := preview.ErrorCount - len(preview.Errors); omitted > 0 {
+			fmt.Fprintf(w, "  ... %d more\n", omitted)
+		}
+	}
+	if preview.ValidRecords == 0 {
+		fmt.Fprintln(w, "projected NDJSON: no valid records")
+	} else if preview.InvalidRecords > 0 {
+		fmt.Fprintf(w, "projected NDJSON (first %d of %d valid; %d invalid):\n", len(preview.Rows), preview.ValidRecords, preview.InvalidRecords)
+	} else {
+		fmt.Fprintf(w, "projected NDJSON (first %d of %d):\n", len(preview.Rows), preview.ValidRecords)
+	}
 	for _, row := range preview.Rows {
 		line, err := json.Marshal(row)
 		if err != nil {
@@ -170,10 +215,24 @@ func printMappingPreview(
 		}
 		fmt.Fprintln(w, string(line))
 	}
-	if len(mismatched) > 0 {
-		return fmt.Errorf("%s sample has values incompatible with destination columns: %s", preview.Signal, strings.Join(mismatched, ", "))
+	fmt.Fprintf(w, "sample result: errors=%d, warnings=%d\n", errorCount, len(warnings))
+	var resultErrors []error
+	if len(failures) > 0 {
+		resultErrors = append(resultErrors, fmt.Errorf("%s sample failed: %s", preview.Signal, strings.Join(failures, ", ")))
 	}
-	return nil
+	if strict && len(warnings) > 0 {
+		resultErrors = append(resultErrors, fmt.Errorf("%s sample has warnings under --strict: %s", preview.Signal, strings.Join(warnings, ", ")))
+	}
+	return errors.Join(resultErrors...)
+}
+
+func hasDestinationValidation(validations []scopedbexporter.SignalDestinationValidation, signal string) bool {
+	for _, validation := range validations {
+		if validation.Signal == signal {
+			return true
+		}
+	}
+	return false
 }
 
 func findDestinationColumn(
@@ -199,43 +258,76 @@ func previewColumnResult(
 	destination scopedbexporter.DestinationColumnValidation,
 ) string {
 	if destination.Compatibility == scopedbexporter.MappingMissing {
-		return "missing-column"
+		return "ERROR missing column"
 	}
 	if destination.Compatibility == scopedbexporter.MappingIncompatible {
-		return "static-mismatch"
+		return "ERROR type mismatch"
+	}
+	if preview.Errors > 0 {
+		return fmt.Sprintf("ERROR mapping (%d)", preview.Errors)
 	}
 	if preview.Present == 0 {
-		return "unobserved"
+		return "WARN unobserved"
 	}
 	if destination.Compatibility == scopedbexporter.MappingCompatible && !destination.RuntimeDependent {
-		if preview.Present < preview.Total {
-			return "partial"
-		}
-		return "static-ok"
+		return previewCoverageResult(preview)
 	}
-	if destination.TargetType == "any" {
-		if preview.Present < preview.Total {
-			return "partial"
+	if destination.TargetType != "any" {
+		uncertain := false
+		for _, observed := range preview.ObservedTypes {
+			compatible, conclusive := observedTypeCompatibility(observed, destination.TargetType)
+			if conclusive && !compatible {
+				return "ERROR sample type"
+			}
+			if !conclusive {
+				uncertain = true
+			}
 		}
-		return "target-any"
-	}
-	uncertain := false
-	for _, observed := range preview.ObservedTypes {
-		compatible, conclusive := observedTypeCompatibility(observed, destination.TargetType)
-		if conclusive && !compatible {
-			return "sample-mismatch"
-		}
-		if !conclusive {
-			uncertain = true
+		if uncertain {
+			return "WARN review type"
 		}
 	}
-	if uncertain {
-		return "review"
+	return previewCoverageResult(preview)
+}
+
+func previewColumnResultWithoutDestination(preview scopedbexporter.MappingColumnPreview) string {
+	if preview.Errors > 0 {
+		return fmt.Sprintf("ERROR mapping (%d)", preview.Errors)
+	}
+	if preview.Present == 0 {
+		return "WARN unobserved"
+	}
+	return previewCoverageResult(preview)
+}
+
+func previewCoverageResult(preview scopedbexporter.MappingColumnPreview) string {
+	if selectionCount(preview.Selections, "default") == preview.Total && preview.Total > 0 {
+		return "WARN default only"
 	}
 	if preview.Present < preview.Total {
-		return "partial"
+		return "WARN partial"
 	}
-	return "sample-ok"
+	return "OK"
+}
+
+func selectionCount(selections []scopedbexporter.MappingSelectionPreview, source string) int {
+	for _, selection := range selections {
+		if selection.Source == source {
+			return selection.Count
+		}
+	}
+	return 0
+}
+
+func formatSelections(selections []scopedbexporter.MappingSelectionPreview) string {
+	if len(selections) == 0 {
+		return "-"
+	}
+	formatted := make([]string, 0, len(selections))
+	for _, selection := range selections {
+		formatted = append(formatted, fmt.Sprintf("%s (%d)", selection.Source, selection.Count))
+	}
+	return strings.Join(formatted, ", ")
 }
 
 func observedTypeCompatibility(observed string, target string) (bool, bool) {
