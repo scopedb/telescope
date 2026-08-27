@@ -245,19 +245,19 @@ func mapOTLPSample(signal string, sample []byte) (*IngestPayload, error) {
 	switch signal {
 	case signalLogs:
 		request := plogotlp.NewExportRequest()
-		if err := unmarshalLogRequest(request, sample, isJSON); err != nil {
+		if err := unmarshalOTLPRequest(signal, request, sample, isJSON); err != nil {
 			return nil, err
 		}
 		return mapLogs(request.Logs())
 	case signalTraces:
 		request := ptraceotlp.NewExportRequest()
-		if err := unmarshalTraceRequest(request, sample, isJSON); err != nil {
+		if err := unmarshalOTLPRequest(signal, request, sample, isJSON); err != nil {
 			return nil, err
 		}
 		return mapTraces(request.Traces())
 	case signalMetrics:
 		request := pmetricotlp.NewExportRequest()
-		if err := unmarshalMetricRequest(request, sample, isJSON); err != nil {
+		if err := unmarshalOTLPRequest(signal, request, sample, isJSON); err != nil {
 			return nil, err
 		}
 		return mapMetrics(request.Metrics())
@@ -266,41 +266,22 @@ func mapOTLPSample(signal string, sample []byte) (*IngestPayload, error) {
 	}
 }
 
-func unmarshalLogRequest(request plogotlp.ExportRequest, sample []byte, jsonEncoding bool) error {
-	if jsonEncoding {
-		if err := request.UnmarshalJSON(sample); err != nil {
-			return fmt.Errorf("decode logs OTLP JSON sample: %w", err)
-		}
-		return nil
-	}
-	if err := request.UnmarshalProto(sample); err != nil {
-		return fmt.Errorf("decode logs OTLP protobuf sample: %w", err)
-	}
-	return nil
+type otlpRequest interface {
+	UnmarshalJSON([]byte) error
+	UnmarshalProto([]byte) error
 }
 
-func unmarshalTraceRequest(request ptraceotlp.ExportRequest, sample []byte, jsonEncoding bool) error {
+func unmarshalOTLPRequest(signal string, request otlpRequest, sample []byte, jsonEncoding bool) error {
+	encoding := "protobuf"
+	var err error
 	if jsonEncoding {
-		if err := request.UnmarshalJSON(sample); err != nil {
-			return fmt.Errorf("decode traces OTLP JSON sample: %w", err)
-		}
-		return nil
+		encoding = "JSON"
+		err = request.UnmarshalJSON(sample)
+	} else {
+		err = request.UnmarshalProto(sample)
 	}
-	if err := request.UnmarshalProto(sample); err != nil {
-		return fmt.Errorf("decode traces OTLP protobuf sample: %w", err)
-	}
-	return nil
-}
-
-func unmarshalMetricRequest(request pmetricotlp.ExportRequest, sample []byte, jsonEncoding bool) error {
-	if jsonEncoding {
-		if err := request.UnmarshalJSON(sample); err != nil {
-			return fmt.Errorf("decode metrics OTLP JSON sample: %w", err)
-		}
-		return nil
-	}
-	if err := request.UnmarshalProto(sample); err != nil {
-		return fmt.Errorf("decode metrics OTLP protobuf sample: %w", err)
+	if err != nil {
+		return fmt.Errorf("decode %s OTLP %s sample: %w", signal, encoding, err)
 	}
 	return nil
 }

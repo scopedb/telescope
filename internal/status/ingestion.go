@@ -134,36 +134,24 @@ type signalMetricsNames struct {
 }
 
 func signalMetricNames(signal string) signalMetricsNames {
+	var unit string
 	switch signal {
 	case "logs":
-		return signalMetricsNames{
-			received:        "otelcol_receiver_accepted_log_records",
-			receiverFailed:  "otelcol_receiver_failed_log_records",
-			receiverRefused: "otelcol_receiver_refused_log_records",
-			written:         "otelcol_exporter_sent_log_records",
-			exportFailed:    "otelcol_exporter_send_failed_log_records",
-			enqueueFailed:   "otelcol_exporter_enqueue_failed_log_records",
-		}
+		unit = "log_records"
 	case "traces":
-		return signalMetricsNames{
-			received:        "otelcol_receiver_accepted_spans",
-			receiverFailed:  "otelcol_receiver_failed_spans",
-			receiverRefused: "otelcol_receiver_refused_spans",
-			written:         "otelcol_exporter_sent_spans",
-			exportFailed:    "otelcol_exporter_send_failed_spans",
-			enqueueFailed:   "otelcol_exporter_enqueue_failed_spans",
-		}
+		unit = "spans"
 	case "metrics":
-		return signalMetricsNames{
-			received:        "otelcol_receiver_accepted_metric_points",
-			receiverFailed:  "otelcol_receiver_failed_metric_points",
-			receiverRefused: "otelcol_receiver_refused_metric_points",
-			written:         "otelcol_exporter_sent_metric_points",
-			exportFailed:    "otelcol_exporter_send_failed_metric_points",
-			enqueueFailed:   "otelcol_exporter_enqueue_failed_metric_points",
-		}
+		unit = "metric_points"
 	default:
 		return signalMetricsNames{}
+	}
+	return signalMetricsNames{
+		received:        "otelcol_receiver_accepted_" + unit,
+		receiverFailed:  "otelcol_receiver_failed_" + unit,
+		receiverRefused: "otelcol_receiver_refused_" + unit,
+		written:         "otelcol_exporter_sent_" + unit,
+		exportFailed:    "otelcol_exporter_send_failed_" + unit,
+		enqueueFailed:   "otelcol_exporter_enqueue_failed_" + unit,
 	}
 }
 

@@ -51,7 +51,7 @@ func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) er
 		return errors.New("capture requires exactly one signal: logs, traces, or metrics")
 	}
 	signal := strings.TrimSpace(flags.Arg(0))
-	if signal != "logs" && signal != "traces" && signal != "metrics" {
+	if !supportedSignal(signal) {
 		return fmt.Errorf("unsupported capture signal %q; choose logs, traces, or metrics", signal)
 	}
 	if *limit <= 0 {

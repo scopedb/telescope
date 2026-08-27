@@ -103,7 +103,7 @@ func verifySignals(requested []string, status statusapi.IngestionStatusResponse)
 	signals := make([]string, 0, len(requested))
 	for _, raw := range requested {
 		signal := strings.TrimSpace(raw)
-		if signal != "logs" && signal != "traces" && signal != "metrics" {
+		if !supportedSignal(signal) {
 			return nil, fmt.Errorf("unsupported signal %q; choose logs, traces, or metrics", raw)
 		}
 		if !seen[signal] {

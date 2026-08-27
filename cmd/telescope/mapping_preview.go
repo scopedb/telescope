@@ -57,7 +57,7 @@ func (samples *sampleFlags) Set(value string) error {
 	if !ok || signal == "" || path == "" {
 		return fmt.Errorf("sample must be signal=path")
 	}
-	if signal != "logs" && signal != "traces" && signal != "metrics" {
+	if !supportedSignal(signal) {
 		return fmt.Errorf("unsupported sample signal %q; choose logs, traces, or metrics", signal)
 	}
 	if samples.paths == nil {

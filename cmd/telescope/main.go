@@ -279,6 +279,10 @@ func scopeDBCredentials() (string, string) {
 	return endpoint, apiKey
 }
 
+func supportedSignal(signal string) bool {
+	return signal == "logs" || signal == "traces" || signal == "metrics"
+}
+
 func loadEnvFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
