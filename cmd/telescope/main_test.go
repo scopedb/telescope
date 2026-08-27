@@ -34,6 +34,7 @@ func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
 		"Setup:",
 		"Operations:",
 		"Diagnostics:",
+		"Discover mapping selectors in an OTLP sample",
 		"Capture OTLP samples for mapping preview",
 		"Preview sample projection without appending",
 		"Plan additive ScopeDB table DDL",

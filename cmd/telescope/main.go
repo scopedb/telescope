@@ -76,6 +76,8 @@ func run(args []string) error {
 		return runValidate(args[1:])
 	case "preview":
 		return runPreview(args[1:])
+	case "inspect":
+		return runInspect(args[1:])
 	case "plan":
 		return runPlan(args[1:])
 	case "capture":
@@ -350,6 +352,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   Setup:
+    telescope inspect [options] <signal>           Discover mapping selectors in an OTLP sample
     telescope preview [options] [telescope.yaml]   Preview sample projection without appending
     telescope plan [options] [telescope.yaml]      Plan additive ScopeDB table DDL
     telescope validate [options] [telescope.yaml]  Validate config and destination tables
@@ -377,6 +380,10 @@ Preview options:
   --offline                  Skip ScopeDB destination checks
   --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
   --strict                   Fail on unobserved, partial, or default-only columns
+
+Inspect options:
+  --sample path              Read one OTLP JSON or protobuf sample; use - for stdin
+  --format                   Output human or json, default human
 
 Plan options:
   --sample signal=path       Add representative mapping evidence; repeat per signal

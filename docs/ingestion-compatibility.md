@@ -98,6 +98,8 @@ Current reasons are:
 
 `telescope capture --listen-http <address> <signal>` starts a temporary standalone OTLP/HTTP endpoint for cold-start sampling. It accepts JSON or protobuf, supports identity and gzip content encoding, limits each request to 20 MiB, and emits a bounded standard OTLP JSON sample. It does not load a mapping, contact ScopeDB, persist, queue, retry, or forward input.
 
+`telescope inspect <signal> --sample <path>` decodes OTLP JSON or protobuf through the production mapper and reports exact mapping selectors, observed types, and the records where each selector has a populated value. Empty protocol defaults are omitted. Nested objects are expanded; arrays remain whole values. It neither displays sample values nor generates or persists a mapping.
+
 `GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture at exporter input, after Collector batch processing and before the exporter sending queue, and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer. The default 45-second timeout exceeds the bundled 30-second batch timeout so low-volume input can reach the capture.
 
 `GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:

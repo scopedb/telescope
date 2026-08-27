@@ -8,7 +8,7 @@ It provides:
 - user-owned signal-to-table mappings
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
-- mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
+- sample field inspection, mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
 - operational health, readiness, and ingestion status endpoints
 
 Telescope never executes DDL. You choose the signals, destination tables, and fields to append. `telescope plan` can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain user-owned. At runtime Telescope's responsibility ends when ScopeDB reports the append result, and it does not query or interpret stored data.
@@ -171,6 +171,22 @@ Point an application or a temporary second exporter in an existing Collector at 
 
 This mode starts only the selected OTLP/HTTP endpoint. It does not load `telescope.yaml`, connect to ScopeDB, map, persist, queue, retry, or forward telemetry. Only the bounded sample is retained, so use a second exporter when the original telemetry must continue to its existing destination. A single request is limited to 20 MiB.
 
+Inspect the sample before writing a mapping:
+
+```bash
+telescope inspect traces --sample traces.otlp.json
+```
+
+`inspect` uses the production mapper to list exact source selectors, observed output types, and the records where each selector is populated, grouped by the OTLP resource, scope, and signal layers. It omits empty protocol defaults, marks partial and mixed-type selectors, expands nested objects into copyable selectors, and keeps arrays as whole values rather than suggesting brittle numeric indexes. It does not require a Telescope configuration or ScopeDB connection and never prints sample values. Use `--format json` for structured output.
+
+Capture, retain, and inspect the first sample in one pipeline:
+
+```bash
+telescope capture --listen-http 127.0.0.1:14318 traces |
+  tee traces.otlp.json |
+  telescope inspect traces --sample -
+```
+
 With Docker, publish a temporary host port and keep stdout redirected to the host:
 
 ```bash
@@ -267,6 +283,7 @@ The local Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fall
 Commands:
 
 - Setup:
+  - `telescope inspect`: discover mapping selectors and observed types in an OTLP sample
   - `telescope preview`: project OTLP samples through a candidate mapping without appending
   - `telescope plan`: compare mappings with live tables and render additive ScopeQL
   - `telescope validate`: validate mapping rules and destination tables
@@ -278,7 +295,7 @@ Commands:
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
 - `telescope version`: print the build version
 
-`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --out tables.scopeql` keeps the actionable human plan on stdout and atomically writes the executable DDL without a second catalog read; a blocked plan leaves any existing output file untouched. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` remains available for stdout pipelines. `capture`, `status`, and `verify` operate on a running instance. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --out tables.scopeql` keeps the actionable human plan on stdout and atomically writes the executable DDL without a second catalog read; a blocked plan leaves any existing output file untouched. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` remains available for stdout pipelines. `inspect` and standalone `capture` need no configuration or ScopeDB connection. Running-instance `capture`, `status`, and `verify` use Telescope's operational endpoint. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 

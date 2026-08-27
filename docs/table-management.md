@@ -117,6 +117,14 @@ telescope capture \
 
 This standalone mode requires neither `telescope.yaml` nor ScopeDB. It accepts the selected OTLP/HTTP signal, retains only the bounded sample, and does not forward telemetry; configure it as a temporary second exporter if the original stream must continue elsewhere. Use the repository sample below for initial exploration, or replace its path with the captured file for the real mapping.
 
+Discover the selectors that the production mapper can read from that sample:
+
+```bash
+telescope inspect traces --sample traces.otlp.json
+```
+
+The human output groups exact selectors by resource, scope, and signal layer and reports observed types and the records where each selector is populated. Empty protocol defaults are omitted. Nested objects are expanded into copyable paths; arrays remain whole selectors. Partial and mixed-type fields are highlighted, while sample values are never printed. `--format json` emits the same versioned evidence for tooling. Inspection does not choose destination columns, generate a mapping, or save inferred state.
+
 ```bash
 telescope preview \
   --offline \
