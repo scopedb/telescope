@@ -73,12 +73,7 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 		set,
 		cfg,
 		exp.pushLogs,
-		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
-		exporterhelper.WithStart(exp.start),
-		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithTimeout(baseCfg.Timeout),
-		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
-		exporterhelper.WithQueue(baseCfg.SendingQueue),
+		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
 		return nil, err
@@ -98,12 +93,7 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 		set,
 		cfg,
 		exp.pushTraces,
-		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
-		exporterhelper.WithStart(exp.start),
-		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithTimeout(baseCfg.Timeout),
-		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
-		exporterhelper.WithQueue(baseCfg.SendingQueue),
+		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
 		return nil, err
@@ -123,12 +113,7 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		set,
 		cfg,
 		exp.pushMetrics,
-		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
-		exporterhelper.WithStart(exp.start),
-		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithTimeout(baseCfg.Timeout),
-		exporterhelper.WithRetry(baseCfg.RetryOnFailure),
-		exporterhelper.WithQueue(baseCfg.SendingQueue),
+		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
 		return nil, err
@@ -139,6 +124,17 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		captures: captures,
 		logger:   set.Logger.Named("scopedbexporter"),
 	}, nil
+}
+
+func exporterOptions(cfg *Config, exp *dbExporter) []exporterhelper.Option {
+	return []exporterhelper.Option{
+		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
+		exporterhelper.WithStart(exp.start),
+		exporterhelper.WithShutdown(exp.shutdown),
+		exporterhelper.WithTimeout(cfg.Timeout),
+		exporterhelper.WithRetry(cfg.RetryOnFailure),
+		exporterhelper.WithQueue(cfg.SendingQueue),
+	}
 }
 
 type capturingLogsExporter struct {

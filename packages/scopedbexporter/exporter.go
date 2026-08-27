@@ -89,76 +89,51 @@ func (e *dbExporter) shutdown(_ context.Context) error {
 }
 
 func (e *dbExporter) pushLogs(ctx context.Context, logs plog.Logs) error {
-	started := time.Now().UTC()
-	records := logs.LogRecordCount()
-	payload, err := mapLogs(logs)
-	if err != nil {
-		permanentErr := consumererror.NewPermanent(err)
-		e.statuses.recordWrite(signalLogs, records, started, permanentErr, true)
-		return permanentErr
-	}
-	err = e.client.Send(ctx, signalLogs, payload)
-	affectedRecords := records
-	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
-		affectedRecords = records - uncommittedFrom
-		err = consumererror.NewLogs(err, logsFromRecord(logs, uncommittedFrom))
-	}
-	e.statuses.recordWrite(signalLogs, affectedRecords, started, err, consumererror.IsPermanent(err))
-	if consumererror.IsPermanent(err) {
-		e.statuses.recordPermanentExport(signalLogs, records)
-	}
-	if err == nil {
-		e.statuses.recordProbeSuccess(signalLogs, probeIDsFromPayload(payload))
-	}
-	return err
+	return pushSignal(e, ctx, signalLogs, logs, logs.LogRecordCount(), mapLogs, func(err error, from int) error {
+		return consumererror.NewLogs(err, logsFromRecord(logs, from))
+	})
 }
 
 func (e *dbExporter) pushTraces(ctx context.Context, traces ptrace.Traces) error {
-	started := time.Now().UTC()
-	records := traces.SpanCount()
-	payload, err := mapTraces(traces)
-	if err != nil {
-		permanentErr := consumererror.NewPermanent(err)
-		e.statuses.recordWrite(signalTraces, records, started, permanentErr, true)
-		return permanentErr
-	}
-	err = e.client.Send(ctx, signalTraces, payload)
-	affectedRecords := records
-	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
-		affectedRecords = records - uncommittedFrom
-		err = consumererror.NewTraces(err, tracesFromRecord(traces, uncommittedFrom))
-	}
-	e.statuses.recordWrite(signalTraces, affectedRecords, started, err, consumererror.IsPermanent(err))
-	if consumererror.IsPermanent(err) {
-		e.statuses.recordPermanentExport(signalTraces, records)
-	}
-	if err == nil {
-		e.statuses.recordProbeSuccess(signalTraces, probeIDsFromPayload(payload))
-	}
-	return err
+	return pushSignal(e, ctx, signalTraces, traces, traces.SpanCount(), mapTraces, func(err error, from int) error {
+		return consumererror.NewTraces(err, tracesFromRecord(traces, from))
+	})
 }
 
 func (e *dbExporter) pushMetrics(ctx context.Context, metrics pmetric.Metrics) error {
+	return pushSignal(e, ctx, signalMetrics, metrics, metrics.DataPointCount(), mapMetrics, func(err error, from int) error {
+		return consumererror.NewMetrics(err, metricsFromRecord(metrics, from))
+	})
+}
+
+func pushSignal[T any](
+	exporter *dbExporter,
+	ctx context.Context,
+	signal string,
+	data T,
+	records int,
+	mapData func(T) (*IngestPayload, error),
+	wrapSuffix func(error, int) error,
+) error {
 	started := time.Now().UTC()
-	records := metrics.DataPointCount()
-	payload, err := mapMetrics(metrics)
+	payload, err := mapData(data)
 	if err != nil {
 		permanentErr := consumererror.NewPermanent(err)
-		e.statuses.recordWrite(signalMetrics, records, started, permanentErr, true)
+		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
 		return permanentErr
 	}
-	err = e.client.Send(ctx, signalMetrics, payload)
+	err = exporter.client.Send(ctx, signal, payload)
 	affectedRecords := records
 	if uncommittedFrom, ok := uncommittedFromRecord(err); ok && uncommittedFrom > 0 {
 		affectedRecords = records - uncommittedFrom
-		err = consumererror.NewMetrics(err, metricsFromRecord(metrics, uncommittedFrom))
+		err = wrapSuffix(err, uncommittedFrom)
 	}
-	e.statuses.recordWrite(signalMetrics, affectedRecords, started, err, consumererror.IsPermanent(err))
+	exporter.statuses.recordWrite(signal, affectedRecords, started, err, consumererror.IsPermanent(err))
 	if consumererror.IsPermanent(err) {
-		e.statuses.recordPermanentExport(signalMetrics, records)
+		exporter.statuses.recordPermanentExport(signal, records)
 	}
 	if err == nil {
-		e.statuses.recordProbeSuccess(signalMetrics, probeIDsFromPayload(payload))
+		exporter.statuses.recordProbeSuccess(signal, probeIDsFromPayload(payload))
 	}
 	return err
 }
