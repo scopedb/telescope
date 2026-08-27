@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestInspectSampleReportsNestedTypesAndCoverage(t *testing.T) {
@@ -110,43 +109,12 @@ func TestInspectSampleKeepsMeaningfulZeroValues(t *testing.T) {
 
 func TestInspectSampleUsesProductionMappersForEverySignalAndEncoding(t *testing.T) {
 	tests := []struct {
-		signal       string
-		selector     string
-		marshalProto func(t *testing.T, sample []byte) []byte
+		signal   string
+		selector string
 	}{
-		{
-			signal:   signalLogs,
-			selector: "log.message",
-			marshalProto: func(t *testing.T, sample []byte) []byte {
-				request := plogotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
-		{
-			signal:   signalTraces,
-			selector: "span.start_time",
-			marshalProto: func(t *testing.T, sample []byte) []byte {
-				request := ptraceotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
-		{
-			signal:   signalMetrics,
-			selector: "datapoint.value",
-			marshalProto: func(t *testing.T, sample []byte) []byte {
-				request := pmetricotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
+		{signal: signalLogs, selector: "log.message"},
+		{signal: signalTraces, selector: "span.start_time"},
+		{signal: signalMetrics, selector: "datapoint.value"},
 	}
 
 	for _, tt := range tests {
@@ -154,7 +122,7 @@ func TestInspectSampleUsesProductionMappersForEverySignalAndEncoding(t *testing.
 			t.Run(tt.signal+"_"+encoding, func(t *testing.T) {
 				sample := readGoldenFile(t, tt.signal+".otlp.json")
 				if encoding == "protobuf" {
-					sample = tt.marshalProto(t, sample)
+					sample = goldenOTLPProtobuf(t, tt.signal, sample)
 				}
 				inspection, err := InspectSample(tt.signal, sample)
 				require.NoError(t, err)

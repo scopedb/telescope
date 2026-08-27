@@ -112,7 +112,7 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 		captured <- captureResult{sample: sample, err: err}
 	}()
 	require.Eventually(t, func() bool {
-		return captureActive(captures, signalLogs)
+		return captures.HasActiveCapture(signalLogs)
 	}, time.Second, time.Millisecond)
 
 	cfg := testExporterConfig(server.URL)

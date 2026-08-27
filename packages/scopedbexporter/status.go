@@ -71,8 +71,9 @@ func (r *StatusRegistry) configure(signal string, cfg *Config) {
 
 	r.mu.Lock()
 	status := r.signals[signal]
+	signalConfig, _ := cfg.signal(signal)
 	status.Signal = signal
-	status.Table = cfg.tableForSignal(signal)
+	status.Table = signalConfig.Table
 	status.QueueEnabled = cfg.SendingQueue.HasValue()
 	status.QueueCapacity = 0
 	status.QueueUnit = ""

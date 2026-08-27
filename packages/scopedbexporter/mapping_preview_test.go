@@ -21,9 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
-	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestPreviewMappingUsesProductionMappersForEverySignal(t *testing.T) {
@@ -102,48 +99,17 @@ func TestPreviewMappingUsesProductionMappersForEverySignal(t *testing.T) {
 
 func TestPreviewMappingAcceptsOTLPProtobufForEverySignal(t *testing.T) {
 	tests := []struct {
-		signal  string
-		source  string
-		marshal func(t *testing.T, sample []byte) []byte
+		signal string
+		source string
 	}{
-		{
-			signal: signalLogs,
-			source: "log.message",
-			marshal: func(t *testing.T, sample []byte) []byte {
-				request := plogotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
-		{
-			signal: signalTraces,
-			source: "span.name",
-			marshal: func(t *testing.T, sample []byte) []byte {
-				request := ptraceotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
-		{
-			signal: signalMetrics,
-			source: "metric.name",
-			marshal: func(t *testing.T, sample []byte) []byte {
-				request := pmetricotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(sample))
-				encoded, err := request.MarshalProto()
-				require.NoError(t, err)
-				return encoded
-			},
-		},
+		{signal: signalLogs, source: "log.message"},
+		{signal: signalTraces, source: "span.name"},
+		{signal: signalMetrics, source: "metric.name"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.signal, func(t *testing.T) {
-			sample := tt.marshal(t, readGoldenFile(t, tt.signal+".otlp.json"))
+			sample := goldenOTLPProtobuf(t, tt.signal, readGoldenFile(t, tt.signal+".otlp.json"))
 			preview, err := PreviewMapping(tt.signal, SignalIngestionConfig{
 				Table:   "analytics." + tt.signal,
 				Mapping: shorthandMapping(map[string]string{"value": tt.source}),
@@ -153,6 +119,11 @@ func TestPreviewMappingAcceptsOTLPProtobufForEverySignal(t *testing.T) {
 			assert.NotEmpty(t, preview.Rows[0]["value"])
 		})
 	}
+}
+
+func TestObservedTypeUsesMappingValueTypes(t *testing.T) {
+	assert.Equal(t, "array", observedType(selectorTypeDynamic, []uint64{1, 2}))
+	assert.Equal(t, "binary", observedType(selectorTypeDynamic, []byte{1, 2}))
 }
 
 func TestPreviewMappingAppliesExpandedRules(t *testing.T) {

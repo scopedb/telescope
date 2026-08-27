@@ -97,7 +97,7 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 				result <- captureResult{sample: sample, err: err}
 			}()
 			require.Eventually(t, func() bool {
-				return captureActive(registry, tt.signal)
+				return registry.HasActiveCapture(tt.signal)
 			}, time.Second, time.Millisecond)
 
 			inputRecords := tt.observe(registry)
@@ -119,7 +119,7 @@ func TestCaptureRegistryReturnsPartialSampleAtTimeout(t *testing.T) {
 		result <- captureResult{sample: sample, err: err}
 	}()
 	require.Eventually(t, func() bool {
-		return captureActive(registry, signalLogs)
+		return registry.HasActiveCapture(signalLogs)
 	}, time.Second, time.Millisecond)
 
 	request := plogotlp.NewExportRequest()
@@ -141,7 +141,7 @@ func TestCaptureRegistryRejectsConcurrentCaptureForSameSignal(t *testing.T) {
 		result <- err
 	}()
 	require.Eventually(t, func() bool {
-		return captureActive(registry, signalTraces)
+		return registry.HasActiveCapture(signalTraces)
 	}, time.Second, time.Millisecond)
 
 	_, err := registry.Capture(context.Background(), signalTraces, 1, time.Second)
@@ -159,15 +159,6 @@ func TestCaptureRegistryReportsTimeoutWithoutData(t *testing.T) {
 type captureResult struct {
 	sample CapturedSample
 	err    error
-}
-
-func captureActive(registry *CaptureRegistry, signal string) bool {
-	if registry == nil || !registry.active.Load() {
-		return false
-	}
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	return registry.sessions[signal] != nil
 }
 
 func TestCaptureRegistryRejectsInvalidRequest(t *testing.T) {

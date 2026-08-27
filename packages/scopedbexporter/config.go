@@ -99,7 +99,7 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("api_key is required"))
 	}
 
-	if err := ingestionConfigFromExporter(cfg.Tables, cfg.Mappings).Validate(); err != nil {
+	if err := cfg.ingestionConfig().Validate(); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -126,12 +126,25 @@ func (cfg *Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-func (cfg *Config) enabledSignals() []string {
-	return ingestionConfigFromExporter(cfg.Tables, cfg.Mappings).EnabledSignals()
+func (cfg *Config) ingestionConfig() IngestionConfig {
+	return IngestionConfig{Signals: IngestionSignalsConfig{
+		Logs: SignalIngestionConfig{
+			Table:   cfg.Tables.Logs,
+			Mapping: cfg.Mappings.Logs,
+		},
+		Traces: SignalIngestionConfig{
+			Table:   cfg.Tables.Traces,
+			Mapping: cfg.Mappings.Traces,
+		},
+		Metrics: SignalIngestionConfig{
+			Table:   cfg.Tables.Metrics,
+			Mapping: cfg.Mappings.Metrics,
+		},
+	}}
 }
 
-func (cfg *Config) signalEnabled(signal string) bool {
-	return strings.TrimSpace(cfg.tableForSignal(signal)) != "" || cfg.mappingForSignal(signal) != nil
+func (cfg *Config) signal(signal string) (SignalIngestionConfig, bool) {
+	return cfg.ingestionConfig().Signal(signal)
 }
 
 func (cfg *Config) compressionMode() string {
@@ -140,30 +153,4 @@ func (cfg *Config) compressionMode() string {
 		return defaultCompression
 	}
 	return mode
-}
-
-func (cfg *Config) tableForSignal(signal string) string {
-	switch signal {
-	case signalLogs:
-		return cfg.Tables.Logs
-	case signalTraces:
-		return cfg.Tables.Traces
-	case signalMetrics:
-		return cfg.Tables.Metrics
-	}
-
-	return ""
-}
-
-func (cfg *Config) mappingForSignal(signal string) MappingConfig {
-	switch signal {
-	case signalLogs:
-		return cfg.Mappings.Logs
-	case signalTraces:
-		return cfg.Mappings.Traces
-	case signalMetrics:
-		return cfg.Mappings.Metrics
-	default:
-		return nil
-	}
 }

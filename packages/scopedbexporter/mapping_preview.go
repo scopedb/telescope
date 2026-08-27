@@ -290,24 +290,11 @@ func observedType(sourceType selectorType, value any) string {
 	if sourceType == selectorTypeTimestamp {
 		return string(selectorTypeTimestamp)
 	}
-	switch value.(type) {
-	case string:
-		return "string"
-	case []byte:
+	if _, ok := value.([]byte); ok {
 		return "binary"
-	case bool:
-		return "boolean"
-	case int, int8, int16, int32, int64:
-		return "int"
-	case uint, uint8, uint16, uint32, uint64:
-		return "uint"
-	case float32, float64:
-		return "float"
-	case map[string]any, Record:
-		return "object"
-	case []any, []map[string]any:
-		return "array"
-	default:
-		return fmt.Sprintf("%T", value)
 	}
+	if valueType := selectorTypeForValue(value); valueType != selectorTypeDynamic {
+		return string(valueType)
+	}
+	return fmt.Sprintf("%T", value)
 }

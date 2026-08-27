@@ -99,13 +99,7 @@ func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.Inges
 		if !ok {
 			continue
 		}
-		var contents []byte
-		var err error
-		if path == "-" {
-			contents, err = io.ReadAll(stdin)
-		} else {
-			contents, err = os.ReadFile(path)
-		}
+		contents, err := readSample(path, stdin)
 		if err != nil {
 			return nil, fmt.Errorf("read %s sample %s: %w", signal, path, err)
 		}
@@ -117,6 +111,13 @@ func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.Inges
 		previews = append(previews, mappingSample{path: path, preview: preview})
 	}
 	return previews, nil
+}
+
+func readSample(path string, stdin io.Reader) ([]byte, error) {
+	if path == "-" {
+		return io.ReadAll(stdin)
+	}
+	return os.ReadFile(path)
 }
 
 func printMappingPreview(

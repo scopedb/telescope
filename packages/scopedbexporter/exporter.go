@@ -39,7 +39,7 @@ type dbExporter struct {
 }
 
 func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *StatusRegistry) (*dbExporter, error) {
-	if !cfg.signalEnabled(signal) {
+	if _, enabled := cfg.signal(signal); !enabled {
 		return nil, fmt.Errorf("%s signal is not configured for the scopedb exporter", signal)
 	}
 	client, err := NewClient(cfg, set)
@@ -58,11 +58,12 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 }
 
 func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
+	signalConfig, _ := e.cfg.signal(e.signal)
 	e.logger.Info(
 		"Starting scopedb exporter",
 		zap.String("endpoint", e.cfg.Endpoint),
 		zap.String("signal", e.signal),
-		zap.String("table", e.cfg.tableForSignal(e.signal)),
+		zap.String("table", signalConfig.Table),
 		zap.String("compression", e.cfg.compressionMode()),
 	)
 

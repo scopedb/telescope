@@ -137,43 +137,21 @@ func InspectIngestionDestinations(
 }
 
 func newIngestionClient(endpoint string, apiKey string, ingestion IngestionConfig) (*Client, error) {
-	tables, mappings := ingestion.exporterConfig()
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String(apiKey)
-	cfg.Tables = tables
-	cfg.Mappings = mappings
+	cfg.Tables = TableRoutingConfig{
+		Logs:    ingestion.Signals.Logs.Table,
+		Traces:  ingestion.Signals.Traces.Table,
+		Metrics: ingestion.Signals.Metrics.Table,
+	}
+	cfg.Mappings = SignalMappingConfig{
+		Logs:    ingestion.Signals.Logs.Mapping,
+		Traces:  ingestion.Signals.Traces.Mapping,
+		Metrics: ingestion.Signals.Metrics.Mapping,
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return newClient(cfg, zap.NewNop())
-}
-
-func (cfg IngestionConfig) exporterConfig() (TableRoutingConfig, SignalMappingConfig) {
-	return TableRoutingConfig{
-			Logs:    cfg.Signals.Logs.Table,
-			Traces:  cfg.Signals.Traces.Table,
-			Metrics: cfg.Signals.Metrics.Table,
-		}, SignalMappingConfig{
-			Logs:    cfg.Signals.Logs.Mapping,
-			Traces:  cfg.Signals.Traces.Mapping,
-			Metrics: cfg.Signals.Metrics.Mapping,
-		}
-}
-
-func ingestionConfigFromExporter(tables TableRoutingConfig, mappings SignalMappingConfig) IngestionConfig {
-	return IngestionConfig{Signals: IngestionSignalsConfig{
-		Logs: SignalIngestionConfig{
-			Table:   tables.Logs,
-			Mapping: mappings.Logs,
-		},
-		Traces: SignalIngestionConfig{
-			Table:   tables.Traces,
-			Mapping: mappings.Traces,
-		},
-		Metrics: SignalIngestionConfig{
-			Table:   tables.Metrics,
-			Mapping: mappings.Metrics,
-		},
-	}}
 }

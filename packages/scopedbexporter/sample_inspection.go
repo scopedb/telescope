@@ -42,7 +42,6 @@ type SampleFieldInspection struct {
 }
 
 type sampleFieldObservation struct {
-	group     string
 	types     map[string]struct{}
 	populated int
 }
@@ -93,8 +92,9 @@ func InspectSample(signal string, sample []byte) (SampleInspection, error) {
 			types = append(types, valueType)
 		}
 		sort.Strings(types)
+		group, _, _ := strings.Cut(selector, ".")
 		fields = append(fields, SampleFieldInspection{
-			Group:         observation.group,
+			Group:         group,
 			Selector:      selector,
 			ObservedTypes: types,
 			Populated:     observation.populated,
@@ -122,13 +122,12 @@ func observeSampleField(observed map[string]*sampleFieldObservation, selector st
 	observation := observed[selector]
 	if observation == nil {
 		observation = &sampleFieldObservation{
-			group: sampleFieldGroup(selector),
 			types: make(map[string]struct{}),
 		}
 		observed[selector] = observation
 	}
 	observation.populated++
-	observation.types[sampleFieldType(selector, value)] = struct{}{}
+	observation.types[observedType(selectorTypeFor(selector), value)] = struct{}{}
 }
 
 func expandSampleObject(observed map[string]*sampleFieldObservation, selector string, value any) {
@@ -140,13 +139,7 @@ func expandSampleObject(observed map[string]*sampleFieldObservation, selector st
 			return
 		}
 	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		child := values[key]
+	for key, child := range values {
 		childSelector := selector + "[" + strconv.Quote(key) + "]"
 		if !sampleFieldPopulated(childSelector, child) {
 			continue
@@ -189,39 +182,6 @@ func sampleFieldDefaultZero(selector string) bool {
 	default:
 		return false
 	}
-}
-
-func sampleFieldType(selector string, value any) string {
-	if selectorTypeFor(selector) == selectorTypeTimestamp {
-		return string(selectorTypeTimestamp)
-	}
-	if value == nil {
-		return "null"
-	}
-	valueType := reflect.TypeOf(value)
-	switch valueType.Kind() {
-	case reflect.String:
-		return "string"
-	case reflect.Bool:
-		return "boolean"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return "int"
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "uint"
-	case reflect.Float32, reflect.Float64:
-		return "float"
-	case reflect.Map, reflect.Struct:
-		return "object"
-	case reflect.Array, reflect.Slice:
-		return "array"
-	default:
-		return valueType.String()
-	}
-}
-
-func sampleFieldGroup(selector string) string {
-	prefix, _, _ := strings.Cut(selector, ".")
-	return prefix
 }
 
 func sampleFieldGroupRank(group string) int {

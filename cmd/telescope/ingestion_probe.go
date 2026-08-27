@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -179,7 +180,7 @@ func verifySignal(
 				return fmt.Errorf("signal was disabled while waiting for probe %s", probeID)
 			}
 			lastStatus = current
-			if containsString(current.LastProbeIDs, probeID) {
+			if slices.Contains(current.LastProbeIDs, probeID) {
 				fmt.Fprintf(os.Stdout, "%s: ScopeDB append committed synthetic probe (%s)\n", signal, probeID)
 				return nil
 			}
@@ -325,15 +326,6 @@ func findSignalStatus(status statusapi.IngestionStatusResponse, signal string) (
 		}
 	}
 	return statusapi.IngestionSignalStatus{}, false
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func appendEndpointPath(base string, path string) (string, error) {

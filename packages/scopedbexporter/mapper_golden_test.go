@@ -25,8 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestGoldenMappingContractV1(t *testing.T) {
@@ -82,4 +85,28 @@ func readGoldenFile(t *testing.T, name string) []byte {
 	contents, err := os.ReadFile(filepath.Join("testdata", "golden", "v1", name))
 	require.NoError(t, err)
 	return contents
+}
+
+func goldenOTLPProtobuf(t *testing.T, signal string, sample []byte) []byte {
+	t.Helper()
+	var encoded []byte
+	var err error
+	switch signal {
+	case signalLogs:
+		request := plogotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalJSON(sample))
+		encoded, err = request.MarshalProto()
+	case signalTraces:
+		request := ptraceotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalJSON(sample))
+		encoded, err = request.MarshalProto()
+	case signalMetrics:
+		request := pmetricotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalJSON(sample))
+		encoded, err = request.MarshalProto()
+	default:
+		t.Fatalf("unsupported signal %q", signal)
+	}
+	require.NoError(t, err)
+	return encoded
 }

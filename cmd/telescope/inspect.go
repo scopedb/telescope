@@ -77,13 +77,7 @@ func runInspectCommand(args []string, stdin io.Reader, stdout io.Writer, stderr 
 		return fmt.Errorf("unsupported inspect format %q; choose human or json", *format)
 	}
 
-	var sample []byte
-	var err error
-	if path == "-" {
-		sample, err = io.ReadAll(stdin)
-	} else {
-		sample, err = os.ReadFile(path)
-	}
+	sample, err := readSample(path, stdin)
 	if err != nil {
 		return fmt.Errorf("read %s sample %s: %w", positionalSignal, path, err)
 	}
