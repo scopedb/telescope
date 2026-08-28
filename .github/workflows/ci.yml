@@ -38,7 +38,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - uses: korandoru/hawkeye@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: hawkeye@7.0.0
+      - run: make license-check
       - run: make ci-go
 
   tests:
