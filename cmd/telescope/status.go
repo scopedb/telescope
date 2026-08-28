@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -31,13 +30,13 @@ import (
 	statusapi "github.com/scopedb/telescope/internal/status"
 )
 
-func runStatus(args []string) error {
+func runStatusCommand(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
+	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: telescope status [options]")
-		fmt.Fprintln(os.Stderr, "\nReport local receiver, batch, queue, and ScopeDB delivery state.")
-		fmt.Fprintln(os.Stderr, "\nOptions:")
+		fmt.Fprintln(stderr, "Usage: telescope status [options]")
+		fmt.Fprintln(stderr, "\nReport local receiver, batch, queue, and ScopeDB delivery state.")
+		fmt.Fprintln(stderr, "\nOptions:")
 		flags.PrintDefaults()
 	}
 	endpoint := flags.String("endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
@@ -52,13 +51,13 @@ func runStatus(args []string) error {
 		return fmt.Errorf("--timeout must be greater than zero")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	requestCtx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
-	status, err := readIngestionStatus(ctx, &http.Client{}, *endpoint)
+	status, err := readIngestionStatus(requestCtx, &http.Client{}, *endpoint)
 	if err != nil {
 		return err
 	}
-	writeStatus(os.Stdout, status)
+	writeStatus(stdout, status)
 	return nil
 }
 

@@ -45,6 +45,27 @@ func TestReadIngestionStatusAcceptsBaseURL(t *testing.T) {
 	assert.Equal(t, "ready", status.State)
 }
 
+func TestRunStatusCommandUsesProvidedOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(statusapi.IngestionStatusResponse{State: "ready"})
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := runStatusCommand(
+		context.Background(),
+		[]string{"--endpoint", server.URL},
+		&stdout,
+		&stderr,
+	)
+	if err != nil {
+		t.Fatalf("runStatusCommand() error = %v", err)
+	}
+	assert.Contains(t, stdout.String(), "state: ready")
+	assert.Empty(t, stderr.String())
+}
+
 func TestWriteStatus(t *testing.T) {
 	var output bytes.Buffer
 	writeStatus(&output, statusapi.IngestionStatusResponse{

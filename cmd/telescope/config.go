@@ -22,7 +22,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -32,15 +31,14 @@ import (
 
 const defaultTelescopeConfigPath = "telescope.yaml"
 
-func runValidate(args []string) error {
-	return runConfigCommand("validate", args, os.Stdin, os.Stdout, os.Stderr)
-}
-
-func runPreview(args []string) error {
-	return runConfigCommand("preview", args, os.Stdin, os.Stdout, os.Stderr)
-}
-
-func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func runConfigCommand(
+	ctx context.Context,
+	command string,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	preview := command == "preview"
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -63,6 +61,9 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *timeout <= 0 {
+		return errors.New("--timeout must be greater than zero")
 	}
 	if preview && len(samples.paths) == 0 {
 		return errors.New("preview requires at least one --sample signal=path; capture live input with: telescope capture logs | telescope preview --offline --sample logs=- telescope.yaml")
@@ -91,11 +92,11 @@ func runConfigCommand(command string, args []string, stdin io.Reader, stdout io.
 	if *offline {
 		fmt.Fprintln(stdout, "destination: skipped (--offline)")
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		validationCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
 		endpoint, apiKey := scopeDBCredentials()
 		destinations, err = scopedbexporter.InspectIngestionDestinations(
-			ctx,
+			validationCtx,
 			endpoint,
 			apiKey,
 			ingestion,

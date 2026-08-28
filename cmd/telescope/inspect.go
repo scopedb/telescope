@@ -22,16 +22,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
-
-func runInspect(args []string) error {
-	return runInspectCommand(args, os.Stdin, os.Stdout, os.Stderr)
-}
 
 func runInspectCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	flags := flag.NewFlagSet("inspect", flag.ContinueOnError)

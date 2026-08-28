@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -80,12 +81,12 @@ func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := runVerify([]string{
+	err := runVerifyCommand(context.Background(), []string{
 		"--otlp-endpoint", server.URL,
 		"--status-endpoint", server.URL + "/status",
 		"--timeout", "2s",
 		"traces",
-	})
+	}, io.Discard, io.Discard)
 	require.NoError(t, err)
 	mu.RLock()
 	defer mu.RUnlock()

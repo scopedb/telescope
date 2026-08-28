@@ -29,7 +29,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -50,13 +49,13 @@ const (
 	defaultStatusEndpoint = "http://127.0.0.1:8080/v1/ingestion/status"
 )
 
-func runVerify(args []string) error {
+func runVerifyCommand(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
+	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: telescope verify [options] [signals...]")
-		fmt.Fprintln(os.Stderr, "\nSend synthetic OTLP and wait for confirmed ScopeDB append acknowledgements.")
-		fmt.Fprintln(os.Stderr, "\nOptions:")
+		fmt.Fprintln(stderr, "Usage: telescope verify [options] [signals...]")
+		fmt.Fprintln(stderr, "\nSend synthetic OTLP and wait for confirmed ScopeDB append acknowledgements.")
+		fmt.Fprintln(stderr, "\nOptions:")
 		flags.PrintDefaults()
 	}
 	otlpEndpoint := flags.String("otlp-endpoint", defaultOTLPEndpoint, "OTLP HTTP base endpoint")
@@ -69,10 +68,10 @@ func runVerify(args []string) error {
 		return errors.New("--timeout must be greater than zero")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
+	baselineCtx, cancelBaseline := context.WithTimeout(ctx, *timeout)
 	client := &http.Client{}
-	baseline, err := readIngestionStatus(ctx, client, *statusEndpoint)
+	baseline, err := readIngestionStatus(baselineCtx, client, *statusEndpoint)
+	cancelBaseline()
 	if err != nil {
 		return fmt.Errorf("read ingestion status before probe: %w", err)
 	}
@@ -84,8 +83,8 @@ func runVerify(args []string) error {
 	var errs []error
 	for _, signal := range signals {
 		baselineSignal, _ := findSignalStatus(baseline, signal)
-		probeCtx, probeCancel := context.WithTimeout(context.Background(), *timeout)
-		err := verifySignal(probeCtx, client, signal, baselineSignal, *otlpEndpoint, *statusEndpoint)
+		probeCtx, probeCancel := context.WithTimeout(ctx, *timeout)
+		err := verifySignal(probeCtx, client, stdout, signal, baselineSignal, *otlpEndpoint, *statusEndpoint)
 		probeCancel()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", signal, err))
@@ -124,6 +123,7 @@ func verifySignals(requested []string, status statusapi.IngestionStatusResponse)
 func verifySignal(
 	ctx context.Context,
 	client *http.Client,
+	stdout io.Writer,
 	signal string,
 	baseline statusapi.IngestionSignalStatus,
 	otlpEndpoint string,
@@ -151,7 +151,7 @@ func verifySignal(
 	if err := sendIngestionProbe(ctx, client, probeURL, signal, payload); err != nil {
 		return fmt.Errorf("OTLP rejected probe %s: %w", probeID, err)
 	}
-	fmt.Fprintf(os.Stdout, "%s: OTLP accepted synthetic probe (%s)\n", signal, probeID)
+	fmt.Fprintf(stdout, "%s: OTLP accepted synthetic probe (%s)\n", signal, probeID)
 
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -181,7 +181,7 @@ func verifySignal(
 			}
 			lastStatus = current
 			if slices.Contains(current.LastProbeIDs, probeID) {
-				fmt.Fprintf(os.Stdout, "%s: ScopeDB append committed synthetic probe (%s)\n", signal, probeID)
+				fmt.Fprintf(stdout, "%s: ScopeDB append committed synthetic probe (%s)\n", signal, probeID)
 				return nil
 			}
 		}

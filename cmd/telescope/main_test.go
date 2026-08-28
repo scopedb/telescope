@@ -26,6 +26,38 @@ import (
 	"time"
 )
 
+func TestRunCommandWritesVersionToStdout(t *testing.T) {
+	originalVersion := version
+	version = "v-test"
+	t.Cleanup(func() { version = originalVersion })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runCommand(context.Background(), []string{"version"}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatalf("runCommand() error = %v", err)
+	}
+	if got := stdout.String(); got != "v-test\n" {
+		t.Fatalf("runCommand() stdout = %q, want %q", got, "v-test\\n")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("runCommand() stderr = %q, want none", stderr.String())
+	}
+}
+
+func TestRunCommandWritesUsageToStderr(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runCommand(context.Background(), nil, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatalf("runCommand() error = %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("runCommand() stdout = %q, want none", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage:") {
+		t.Fatalf("runCommand() stderr = %q, want usage", stderr.String())
+	}
+}
+
 func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
 	var output bytes.Buffer
 	printUsage(&output)

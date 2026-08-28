@@ -25,10 +25,8 @@ import (
 	"io"
 	"math"
 	"os"
-	osSignal "os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -36,12 +34,6 @@ import (
 )
 
 const defaultQueryTimeout = 30 * time.Second
-
-func runQuery(args []string) error {
-	ctx, stop := osSignal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return runQueryCommand(ctx, args, os.Stdin, os.Stdout, os.Stderr)
-}
 
 func runQueryCommand(
 	ctx context.Context,

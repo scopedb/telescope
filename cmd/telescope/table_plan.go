@@ -32,11 +32,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func runPlan(args []string) error {
-	return runPlanCommand(args, os.Stdin, os.Stdout, os.Stderr)
-}
-
-func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func runPlanCommand(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	flags := flag.NewFlagSet("plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	bootstrap := addBootstrapFlags(flags)
@@ -57,6 +59,9 @@ func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *timeout <= 0 {
+		return fmt.Errorf("--timeout must be greater than zero")
 	}
 	outputFormat := strings.ToLower(strings.TrimSpace(*format))
 	if outputFormat != "human" && outputFormat != "json" && outputFormat != "scopeql" {
@@ -81,11 +86,11 @@ func runPlanCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.
 		previewValues = append(previewValues, sample.preview)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	catalogCtx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 	endpoint, apiKey := scopeDBCredentials()
 	plan, err := scopedbexporter.PlanIngestionTables(
-		ctx,
+		catalogCtx,
 		endpoint,
 		apiKey,
 		ingestion,

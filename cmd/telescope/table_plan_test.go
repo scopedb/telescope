@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"net/http"
@@ -45,7 +46,7 @@ signals:
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--format", "scopeql",
@@ -73,7 +74,7 @@ signals:
 `)
 	var stdout bytes.Buffer
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--format", "human",
@@ -121,7 +122,7 @@ signals:
 	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
 	var stdout bytes.Buffer
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--out", outputPath,
@@ -161,7 +162,7 @@ signals:
 		t.Fatalf("write existing output: %v", err)
 	}
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--out", outputPath,
@@ -181,6 +182,7 @@ signals:
 
 func TestPlanCommandRejectsOutWithMachineFormat(t *testing.T) {
 	err := runPlanCommand(
+		context.Background(),
 		[]string{"--format", "scopeql", "--out", "tables.scopeql"},
 		strings.NewReader(""),
 		&bytes.Buffer{},
@@ -204,7 +206,7 @@ signals:
 `)
 	var stdout bytes.Buffer
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--format", "json",
@@ -241,7 +243,7 @@ signals:
 	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
 	var stdout bytes.Buffer
 
-	err := runPlanCommand([]string{
+	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
 		"--scopedb-api-key", "test-key",
 		"--out", outputPath,
@@ -270,6 +272,7 @@ signals:
 
 func TestPlanCommandRejectsUnsupportedFormat(t *testing.T) {
 	err := runPlanCommand(
+		context.Background(),
 		[]string{"--format", "yaml"},
 		strings.NewReader(""),
 		&bytes.Buffer{},
@@ -280,9 +283,23 @@ func TestPlanCommandRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestPlanCommandRejectsNonPositiveTimeout(t *testing.T) {
+	err := runPlanCommand(
+		context.Background(),
+		[]string{"--timeout", "0s"},
+		strings.NewReader(""),
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPlanHelpShowsContractAndScopeQLFormats(t *testing.T) {
 	var stderr bytes.Buffer
 	err := runPlanCommand(
+		context.Background(),
 		[]string{"--help"},
 		strings.NewReader(""),
 		&bytes.Buffer{},

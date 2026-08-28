@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"path/filepath"
@@ -92,6 +93,7 @@ signals:
 	var stderr bytes.Buffer
 
 	err := runConfigCommand(
+		context.Background(),
 		"preview",
 		[]string{"--offline", "--sample", "logs=-", configPath},
 		strings.NewReader(sample),
@@ -111,6 +113,7 @@ signals:
 
 func TestValidateRejectsSampleFlag(t *testing.T) {
 	err := runConfigCommand(
+		context.Background(),
 		"validate",
 		[]string{"--sample", "logs=sample.json"},
 		strings.NewReader(""),
@@ -122,8 +125,23 @@ func TestValidateRejectsSampleFlag(t *testing.T) {
 	}
 }
 
+func TestConfigCommandRejectsNonPositiveTimeout(t *testing.T) {
+	err := runConfigCommand(
+		context.Background(),
+		"validate",
+		[]string{"--offline", "--timeout", "0s"},
+		strings.NewReader(""),
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPreviewRequiresSample(t *testing.T) {
 	err := runConfigCommand(
+		context.Background(),
 		"preview",
 		[]string{"--offline"},
 		strings.NewReader(""),
@@ -154,6 +172,7 @@ signals:
 	var stdout bytes.Buffer
 
 	err := runConfigCommand(
+		context.Background(),
 		"preview",
 		[]string{"--offline", "--strict", "--sample", "logs=-", configPath},
 		strings.NewReader(sample),
@@ -174,6 +193,7 @@ signals:
 func TestPreviewHelpShowsPositionalConfigAndCapturePipeline(t *testing.T) {
 	var stderr bytes.Buffer
 	err := runConfigCommand(
+		context.Background(),
 		"preview",
 		[]string{"--help"},
 		strings.NewReader(""),

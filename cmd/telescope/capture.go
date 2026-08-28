@@ -24,11 +24,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	osSignal "os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	statusapi "github.com/scopedb/telescope/internal/status"
@@ -37,17 +34,7 @@ import (
 
 const defaultCaptureEndpoint = "http://127.0.0.1:8080"
 
-func runCapture(args []string) error {
-	ctx, stop := osSignal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return runCaptureWithContextAndWriters(ctx, args, os.Stdout, os.Stderr)
-}
-
-func runCaptureWithWriters(args []string, stdout io.Writer, stderr io.Writer) error {
-	return runCaptureWithContextAndWriters(context.Background(), args, stdout, stderr)
-}
-
-func runCaptureWithContextAndWriters(
+func runCaptureCommand(
 	ctx context.Context,
 	args []string,
 	stdout io.Writer,
@@ -93,14 +80,14 @@ func runCaptureWithContextAndWriters(
 		return errors.New("--listen-http and --endpoint cannot be used together")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, *timeout+5*time.Second)
+	captureCtx, cancel := context.WithTimeout(ctx, *timeout+5*time.Second)
 	defer cancel()
 	var payload []byte
 	var records int
 	var err error
 	if address := strings.TrimSpace(*listenHTTP); address != "" {
 		var sample scopedbexporter.CapturedSample
-		sample, err = captureStandaloneHTTP(ctx, address, signal, *limit, *timeout, func(endpoint string) {
+		sample, err = captureStandaloneHTTP(captureCtx, address, signal, *limit, *timeout, func(endpoint string) {
 			fmt.Fprintf(
 				stderr,
 				"listening for %s OTLP/HTTP at %s/v1/%s (limit=%d, timeout=%s)\n",
@@ -121,7 +108,7 @@ func runCaptureWithContextAndWriters(
 			*limit,
 			*timeout,
 		)
-		payload, records, err = requestCapture(ctx, &http.Client{}, *endpoint, signal, *limit, *timeout)
+		payload, records, err = requestCapture(captureCtx, &http.Client{}, *endpoint, signal, *limit, *timeout)
 	}
 	if err != nil {
 		return err
