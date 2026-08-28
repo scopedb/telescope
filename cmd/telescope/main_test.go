@@ -19,12 +19,23 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+var errTestWrite = errors.New("test write failed")
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errTestWrite
+}
 
 func TestRunCommandWritesVersionToStdout(t *testing.T) {
 	originalVersion := version
@@ -55,6 +66,35 @@ func TestRunCommandWritesUsageToStderr(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Fatalf("runCommand() stderr = %q, want usage", stderr.String())
+	}
+}
+
+func TestRunCommandReportsOutputFailure(t *testing.T) {
+	err := runCommand(
+		context.Background(),
+		[]string{"version"},
+		strings.NewReader(""),
+		failingWriter{},
+		io.Discard,
+	)
+	if !errors.Is(err, errTestWrite) {
+		t.Fatalf("runCommand() error = %v, want output failure", err)
+	}
+}
+
+func TestRunCommandDoesNotHideHelpOutputFailure(t *testing.T) {
+	err := runCommand(
+		context.Background(),
+		[]string{"status", "--help"},
+		strings.NewReader(""),
+		io.Discard,
+		failingWriter{},
+	)
+	if !errors.Is(err, errTestWrite) {
+		t.Fatalf("runCommand() error = %v, want help output failure", err)
+	}
+	if errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("runCommand() error = %v hides the output failure as help", err)
 	}
 }
 

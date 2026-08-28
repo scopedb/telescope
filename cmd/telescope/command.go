@@ -18,11 +18,46 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 )
 
 func runCommand(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
+	checkedStdout := &checkedWriter{name: "stdout", target: stdout}
+	checkedStderr := &checkedWriter{name: "stderr", target: stderr}
+	commandErr := dispatchCommand(ctx, args, stdin, checkedStdout, checkedStderr)
+
+	var writeErrs []error
+	for _, writer := range []*checkedWriter{checkedStdout, checkedStderr} {
+		if err := writer.Err(); err != nil && !errors.Is(commandErr, err) {
+			writeErrs = append(writeErrs, err)
+		}
+	}
+	writeErr := errors.Join(writeErrs...)
+	if errors.Is(commandErr, flag.ErrHelp) {
+		if writeErr != nil {
+			return writeErr
+		}
+		return commandErr
+	}
+	if commandErr == nil {
+		return writeErr
+	}
+	if writeErr == nil {
+		return commandErr
+	}
+	return errors.Join(commandErr, writeErr)
+}
+
+func dispatchCommand(
 	ctx context.Context,
 	args []string,
 	stdin io.Reader,
@@ -64,6 +99,31 @@ func runCommand(
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+type checkedWriter struct {
+	name   string
+	target io.Writer
+	err    error
+}
+
+func (w *checkedWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.target.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = fmt.Errorf("write %s: %w", w.name, err)
+		return n, w.err
+	}
+	return n, nil
+}
+
+func (w *checkedWriter) Err() error {
+	return w.err
 }
 
 func supportedSignal(signal string) bool {

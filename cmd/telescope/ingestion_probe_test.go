@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -92,6 +93,87 @@ func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 	defer mu.RUnlock()
 	require.NotEmpty(t, lastProbeIDs)
 	assert.True(t, strings.HasPrefix(lastProbeIDs[0], "probe-"))
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (write writerFunc) Write(payload []byte) (int, error) {
+	return write(payload)
+}
+
+func TestVerifySignalPreservesCancellationAfterOTLPAcceptance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			response, err := plogotlp.NewExportResponse().MarshalProto()
+			require.NoError(t, err)
+			_, _ = w.Write(response)
+		case http.MethodGet:
+			require.NoError(t, json.NewEncoder(w).Encode(statusapi.IngestionStatusResponse{
+				Signals: []statusapi.IngestionSignalStatus{{
+					Signal: "logs",
+					Ready:  true,
+				}},
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := verifySignal(
+		ctx,
+		server.Client(),
+		writerFunc(func(payload []byte) (int, error) {
+			cancel()
+			return len(payload), nil
+		}),
+		"logs",
+		statusapi.IngestionSignalStatus{Signal: "logs", Ready: true},
+		server.URL,
+		server.URL,
+	)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.ErrorContains(t, err, "was accepted by OTLP")
+}
+
+func TestRunVerifyStopsAfterParentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	posts := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			require.NoError(t, json.NewEncoder(w).Encode(statusapi.IngestionStatusResponse{
+				Signals: []statusapi.IngestionSignalStatus{
+					{Signal: "logs", Ready: true},
+					{Signal: "traces", Ready: true},
+				},
+			}))
+		case http.MethodPost:
+			posts <- r.URL.Path
+			cancel()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := runVerifyCommand(ctx, []string{
+		"--otlp-endpoint", server.URL,
+		"--status-endpoint", server.URL,
+		"--timeout", "2s",
+		"logs", "traces",
+	}, io.Discard, io.Discard)
+	assert.True(t, errors.Is(err, context.Canceled), "error = %v", err)
+	assert.Equal(t, "/v1/logs", <-posts)
+	select {
+	case path := <-posts:
+		t.Fatalf("unexpected probe after cancellation: %s", path)
+	default:
+	}
 }
 
 func TestVerifySignalsDefaultsToEnabledSignals(t *testing.T) {

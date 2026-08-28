@@ -82,12 +82,19 @@ func runVerifyCommand(ctx context.Context, args []string, stdout io.Writer, stde
 
 	var errs []error
 	for _, signal := range signals {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		baselineSignal, _ := findSignalStatus(baseline, signal)
 		probeCtx, probeCancel := context.WithTimeout(ctx, *timeout)
 		err := verifySignal(probeCtx, client, stdout, signal, baselineSignal, *otlpEndpoint, *statusEndpoint)
 		probeCancel()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", signal, err))
+			if ctx.Err() != nil {
+				break
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -167,7 +174,12 @@ func verifySignal(
 			if lastReadErr != nil {
 				detail += " status_error=" + lastReadErr.Error()
 			}
-			return fmt.Errorf("probe %s was accepted by OTLP but its ScopeDB append was not confirmed: %s", probeID, detail)
+			return fmt.Errorf(
+				"probe %s was accepted by OTLP but its ScopeDB append was not confirmed: %s: %w",
+				probeID,
+				detail,
+				ctx.Err(),
+			)
 		case <-ticker.C:
 			status, err := readIngestionStatus(ctx, client, statusEndpoint)
 			if err != nil {
