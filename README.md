@@ -262,6 +262,12 @@ traces: OTLP accepted synthetic probe (probe-...)
 traces: ScopeDB append committed synthetic probe (probe-...)
 ```
 
+### Upgrade or Change a Mapping
+
+`telescope status` reports the running version and a normalized config digest. A binary-only upgrade may reuse the persistent queue when that digest is unchanged; Telescope's test suite verifies that the current binary can drain the frozen `v1` queue format for logs, traces, and metrics.
+
+The queue retains OTLP before destination mapping. Do not start a changed table or mapping contract against a non-empty queue: older telemetry would be projected by the new mapping. Remove the old instance from its OTLP upstream, then wait until every queue is empty and `telescope status` reports no accepted items without a final outcome before changing the config. For a zero-downtime change, send new traffic to a separate deployment and queue volume while the old deployment drains with its original config.
+
 ## Local Binary
 
 Build and run the embedded Collector:

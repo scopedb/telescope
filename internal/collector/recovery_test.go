@@ -18,6 +18,7 @@ package collector
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -54,6 +55,53 @@ func TestPersistentQueueRecoversAfterCollectorRestart(t *testing.T) {
 		t.Run(signal, func(t *testing.T) {
 			testPersistentQueueRecoversAfterCollectorRestart(t, signal)
 		})
+	}
+}
+
+func TestPersistentQueueV1FixtureRemainsReadable(t *testing.T) {
+	queueDir := restoreQueueFixture(t, filepath.Join("testdata", "queue", "v1"))
+	committed := make(chan map[string]any, 1)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeRecoveryTableDescription(t, w, r)
+			return
+		}
+		body, err := decodeRecoveryAppendBody(r)
+		require.NoError(t, err)
+		var row map[string]any
+		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		committed <- row
+		writeRecoveryAppendCommitted(t, w)
+	}))
+	defer backend.Close()
+
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		runtime := startRecoveryCollector(t, recoveryCollectorConfig(
+			backend.URL,
+			freeTCPAddress(t),
+			queueDir,
+			signal,
+		))
+		select {
+		case row := <-committed:
+			assert.Equal(t, map[string]any{"value": "queue-v1-" + signal}, row)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s v1 queue fixture was not appended", signal)
+		}
+		runtime.stop(t)
+
+		restarted := startRecoveryCollector(t, recoveryCollectorConfig(
+			backend.URL,
+			freeTCPAddress(t),
+			queueDir,
+			signal,
+		))
+		select {
+		case row := <-committed:
+			t.Fatalf("%s v1 queue fixture was appended twice: %#v", signal, row)
+		case <-time.After(200 * time.Millisecond):
+		}
+		restarted.stop(t)
 	}
 }
 
@@ -535,4 +583,29 @@ func directoryHasFiles(t *testing.T, directory string) bool {
 		return nil
 	}))
 	return found
+}
+
+func restoreQueueFixture(t *testing.T, sourceDir string) string {
+	t.Helper()
+	destinationDir := t.TempDir()
+	entries, err := os.ReadDir(sourceDir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gz") {
+			continue
+		}
+		compressed, err := os.ReadFile(filepath.Join(sourceDir, entry.Name()))
+		require.NoError(t, err)
+		reader, err := gzip.NewReader(bytes.NewReader(compressed))
+		require.NoError(t, err)
+		data, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		require.NoError(t, os.WriteFile(
+			filepath.Join(destinationDir, strings.TrimSuffix(entry.Name(), ".gz")),
+			data,
+			0o600,
+		))
+	}
+	return destinationDir
 }

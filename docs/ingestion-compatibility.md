@@ -145,6 +145,7 @@ Any OpenTelemetry Collector dependency update must pass:
 
 ```bash
 go test ./packages/scopedbexporter -run TestGoldenMappingContractV1
+go test ./internal/collector -run TestPersistentQueueV1FixtureRemainsReadable
 ```
 
-A changed golden result is a source-mapping contract change. Update it only after deciding whether existing selectors keep their meaning and documenting any required mapping change.
+A changed golden result is a source-mapping contract change. Update it only after deciding whether existing selectors keep their meaning and documenting any required mapping change. Do not replace the queue fixture: it is the compatibility input that a candidate Collector version must continue to drain.

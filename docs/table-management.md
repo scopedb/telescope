@@ -214,7 +214,10 @@ Treat a mapping change like an application-to-database contract change:
 
 1. Update the candidate mapping and preview representative input.
 2. Run `telescope plan`, review the generated additive ScopeQL, and apply it explicitly.
-3. Run `telescope validate`, then restart or roll out Telescope.
+3. Stop routing new OTLP to the old instance and wait for its queue and accepted-without-final-outcome count to reach zero.
+4. Run `telescope validate`, then restart or roll out Telescope.
+
+The persistent queue stores OTLP before destination mapping. Reusing a non-empty queue with a different config digest would project older telemetry through the new mapping. A binary-only upgrade can reuse the queue when the digest printed by `telescope status` is unchanged. For a mapping change without an ingestion pause, use a separate deployment and queue volume, route new traffic to it, and let the old deployment drain under its original config.
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.
 
