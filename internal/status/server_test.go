@@ -27,6 +27,19 @@ import (
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
 
+func TestNewWithRegistriesUsesProvidedRuntime(t *testing.T) {
+	statuses := scopedbexporter.NewStatusRegistry()
+	captures := scopedbexporter.NewCaptureRegistry()
+	server := NewWithRegistries("test", "sha256:test", statuses, captures)
+
+	if server.service.ingestionRuntime != statuses {
+		t.Fatal("status server did not use the provided status registry")
+	}
+	if server.service.ingestionCapture != captures {
+		t.Fatal("status server did not use the provided capture registry")
+	}
+}
+
 func TestGetHealth(t *testing.T) {
 	server := New("test", "sha256:test")
 	recorder := httptest.NewRecorder()

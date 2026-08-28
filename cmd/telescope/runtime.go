@@ -32,6 +32,7 @@ import (
 
 	"github.com/scopedb/telescope/internal/collector"
 	statusapi "github.com/scopedb/telescope/internal/status"
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
 
 func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer) error {
@@ -62,11 +63,13 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	}
 	listenAddr := resolveHTTPListenAddr(*httpAddr)
 
-	otelCollector, err := collector.New(collectorConfigURI, version)
+	statuses := scopedbexporter.NewStatusRegistry()
+	captures := scopedbexporter.NewCaptureRegistry()
+	otelCollector, err := collector.NewWithRegistries(collectorConfigURI, version, statuses, captures)
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
 	}
-	operationalServer := statusapi.New(version, configDigest)
+	operationalServer := statusapi.NewWithRegistries(version, configDigest, statuses, captures)
 	httpServer := &http.Server{
 		Addr:    listenAddr,
 		Handler: operationalServer,

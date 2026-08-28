@@ -42,7 +42,21 @@ type Server struct {
 }
 
 func New(version string, configDigest string) *Server {
-	service := newService(version)
+	return NewWithRegistries(
+		version,
+		configDigest,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	)
+}
+
+func NewWithRegistries(
+	version string,
+	configDigest string,
+	statuses *scopedbexporter.StatusRegistry,
+	captures *scopedbexporter.CaptureRegistry,
+) *Server {
+	service := newServiceWithRuntime(version, statuses, captures)
 	service.configDigest = strings.TrimSpace(configDigest)
 	return newServer(service)
 }

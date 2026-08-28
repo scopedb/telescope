@@ -87,7 +87,7 @@ signals:
 	provider, err := otelcol.NewConfigProvider(settings.ConfigProviderSettings)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
-	factories, err := factories()
+	factories, err := factories(scopedbexporter.NewStatusRegistry(), scopedbexporter.NewCaptureRegistry())
 	require.NoError(t, err)
 	resolved, err := provider.Get(context.Background(), factories)
 	require.NoError(t, err)

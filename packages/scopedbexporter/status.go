@@ -21,9 +21,9 @@ import (
 	"time"
 )
 
-// DefaultStatusRegistry is shared by the embedded Collector and Telescope's
-// ingestion status endpoint. Standalone exporter users can provide an isolated
-// registry through NewFactoryWithStatus.
+// DefaultStatusRegistry is used by NewFactory. Callers that need isolated or
+// observable runtime state should use NewFactoryWithStatus or
+// NewFactoryWithRegistries.
 var DefaultStatusRegistry = NewStatusRegistry()
 
 type StatusRegistry struct {

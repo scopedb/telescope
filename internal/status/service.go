@@ -45,11 +45,19 @@ type service struct {
 }
 
 func newService(version string) *service {
+	return newServiceWithRuntime(
+		version,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	)
+}
+
+func newServiceWithRuntime(version string, runtime exporterStatusReader, captures captureReader) *service {
 	return &service{
 		version:          strings.TrimSpace(version),
 		now:              func() time.Time { return time.Now().UTC() },
-		ingestionRuntime: scopedbexporter.DefaultStatusRegistry,
-		ingestionCapture: scopedbexporter.DefaultCaptureRegistry,
+		ingestionRuntime: runtime,
+		ingestionCapture: captures,
 		ingestionMetrics: newPrometheusCollectorMetricsReader(),
 		queueStorage:     newDirectoryQueueStorageReader(),
 	}

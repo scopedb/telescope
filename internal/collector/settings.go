@@ -19,6 +19,7 @@ package collector
 import (
 	"strings"
 
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/provider/envprovider"
@@ -30,10 +31,22 @@ import (
 )
 
 func Settings(configURI string, version string) otelcol.CollectorSettings {
-	return settings(configURI, version, false)
+	return newSettings(
+		configURI,
+		version,
+		false,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	)
 }
 
-func settings(configURI string, version string, disableGracefulShutdown bool) otelcol.CollectorSettings {
+func newSettings(
+	configURI string,
+	version string,
+	disableGracefulShutdown bool,
+	statuses *scopedbexporter.StatusRegistry,
+	captures *scopedbexporter.CaptureRegistry,
+) otelcol.CollectorSettings {
 	applyDefaultEnv()
 
 	configURI = strings.TrimSpace(configURI)
@@ -45,36 +58,59 @@ func settings(configURI string, version string, disableGracefulShutdown bool) ot
 		configURIs = []string{configURI}
 	}
 
+	envFactory := envprovider.NewFactory()
+	fileFactory := fileprovider.NewFactory()
+	httpFactory := httpprovider.NewFactory()
+	httpsFactory := httpsprovider.NewFactory()
+	yamlFactory := yamlprovider.NewFactory()
+
 	return otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
 			Command:     "telescope",
 			Description: "Telescope telemetry runtime",
 			Version:     version,
 		},
-		Factories:               factories,
+		Factories: func() (otelcol.Factories, error) {
+			return factories(statuses, captures)
+		},
 		DisableGracefulShutdown: disableGracefulShutdown,
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
 			ResolverSettings: confmap.ResolverSettings{
 				URIs: configURIs,
 				ProviderFactories: []confmap.ProviderFactory{
-					envprovider.NewFactory(),
-					fileprovider.NewFactory(),
-					httpprovider.NewFactory(),
-					httpsprovider.NewFactory(),
-					yamlprovider.NewFactory(),
+					envFactory,
+					fileFactory,
+					httpFactory,
+					httpsFactory,
+					yamlFactory,
 				},
 			},
 		},
 		ProviderModules: map[string]string{
-			envprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme():   "go.opentelemetry.io/collector/confmap/provider/envprovider v1.56.0",
-			fileprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/fileprovider v1.56.0",
-			httpprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/httpprovider v1.56.0",
-			httpsprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme(): "go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.56.0",
-			yamlprovider.NewFactory().Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.56.0",
+			envFactory.Create(confmap.ProviderSettings{}).Scheme():   "go.opentelemetry.io/collector/confmap/provider/envprovider v1.56.0",
+			fileFactory.Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/fileprovider v1.56.0",
+			httpFactory.Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/httpprovider v1.56.0",
+			httpsFactory.Create(confmap.ProviderSettings{}).Scheme(): "go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.56.0",
+			yamlFactory.Create(confmap.ProviderSettings{}).Scheme():  "go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.56.0",
 		},
 	}
 }
 
 func New(configURI string, version string) (*otelcol.Collector, error) {
-	return otelcol.NewCollector(settings(configURI, version, true))
+	return otelcol.NewCollector(newSettings(
+		configURI,
+		version,
+		true,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	))
+}
+
+func NewWithRegistries(
+	configURI string,
+	version string,
+	statuses *scopedbexporter.StatusRegistry,
+	captures *scopedbexporter.CaptureRegistry,
+) (*otelcol.Collector, error) {
+	return otelcol.NewCollector(newSettings(configURI, version, true, statuses, captures))
 }

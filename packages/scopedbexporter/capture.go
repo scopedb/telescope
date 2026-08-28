@@ -37,8 +37,8 @@ var (
 	ErrNoCapturedData    = errors.New("capture completed without data")
 )
 
-// DefaultCaptureRegistry joins Telescope's embedded exporter with its
-// operational capture endpoint.
+// DefaultCaptureRegistry is used by NewFactory. Callers that expose captured
+// samples should provide an explicit registry through NewFactoryWithRegistries.
 var DefaultCaptureRegistry = NewCaptureRegistry()
 
 type CapturedSample struct {

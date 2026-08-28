@@ -20,6 +20,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/scopedb/telescope/packages/scopedbexporter"
 )
 
 func TestSettingsConfigURI(t *testing.T) {
@@ -74,7 +76,13 @@ func TestSettingsGracefulShutdownMode(t *testing.T) {
 		t.Fatal("standalone collector settings should preserve graceful shutdown")
 	}
 
-	embedded := settings("", "test", true)
+	embedded := newSettings(
+		"",
+		"test",
+		true,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	)
 	if !embedded.DisableGracefulShutdown {
 		t.Fatal("embedded collector settings should let Telescope own shutdown")
 	}

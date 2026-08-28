@@ -36,7 +36,13 @@ func NewFactory() exporter.Factory {
 }
 
 func NewFactoryWithStatus(statuses *StatusRegistry) exporter.Factory {
-	return newFactory(statuses, NewCaptureRegistry())
+	return NewFactoryWithRegistries(statuses, NewCaptureRegistry())
+}
+
+// NewFactoryWithRegistries creates an exporter factory whose runtime status and
+// bounded capture data are visible through the supplied registries.
+func NewFactoryWithRegistries(statuses *StatusRegistry, captures *CaptureRegistry) exporter.Factory {
+	return newFactory(statuses, captures)
 }
 
 func newFactory(statuses *StatusRegistry, captures *CaptureRegistry) exporter.Factory {

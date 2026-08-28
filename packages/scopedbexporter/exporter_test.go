@@ -98,14 +98,7 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 	defer server.Close()
 
 	captures := NewCaptureRegistry()
-	previousStatuses := DefaultStatusRegistry
-	previousCaptures := DefaultCaptureRegistry
-	DefaultStatusRegistry = NewStatusRegistry()
-	DefaultCaptureRegistry = captures
-	t.Cleanup(func() {
-		DefaultStatusRegistry = previousStatuses
-		DefaultCaptureRegistry = previousCaptures
-	})
+	statuses := NewStatusRegistry()
 	captured := make(chan captureResult, 1)
 	go func() {
 		sample, err := captures.Capture(context.Background(), signalLogs, 1, time.Second)
@@ -117,7 +110,7 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	exp, err := NewFactory().CreateLogs(
+	exp, err := NewFactoryWithRegistries(statuses, captures).CreateLogs(
 		context.Background(),
 		exportertest.NewNopSettings(typeStr),
 		cfg,
