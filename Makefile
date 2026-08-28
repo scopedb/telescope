@@ -17,7 +17,8 @@ HAWKEYE ?= hawkeye
 DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 TELESCOPE ?= ./bin/telescope
-LD_FLAGS ?= -s -w
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || printf 'development')
+LD_FLAGS ?= -s -w -X main.version=$(VERSION)
 
 .PHONY: license-check
 license-check:
@@ -92,11 +93,12 @@ validate: build
 
 .PHONY: docker-build
 docker-build:
-	docker build -f Dockerfile -t scopedb-telescope:ci .
+	docker build --build-arg VERSION=$(VERSION) -f Dockerfile -t scopedb-telescope:ci .
 
 .PHONY: docker-smoke
 docker-smoke: docker-build
 	@set -eu; \
+	test "$$(docker run --rm scopedb-telescope:ci version)" = "$(VERSION)"; \
 	cid="$$(docker run -d \
 		-p 127.0.0.1::8080 \
 		-v "$(abspath deploy/telescope.example.yaml):/etc/telescope/telescope.yaml:ro" \

@@ -46,6 +46,9 @@ const (
 )
 
 func init() {
+	if version != "(unknown)" {
+		return
+	}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if info.Main.Version != "" {
 			version = info.Main.Version

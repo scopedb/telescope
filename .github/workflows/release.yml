@@ -55,6 +55,8 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           labels: ${{ steps.meta.outputs.labels }}
