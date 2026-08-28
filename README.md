@@ -316,6 +316,18 @@ This is intentionally not a second ScopeQL CLI: it has no REPL, connection profi
 
 The queue retains OTLP before destination mapping. Do not start a changed table or mapping contract against a non-empty queue: older telemetry would be projected by the new mapping. Remove the old instance from its OTLP upstream, then wait until every queue is empty and `telescope status` reports no accepted items without a final outcome before changing the config. For a zero-downtime change, send new traffic to a separate deployment and queue volume while the old deployment drains with its original config.
 
+#### Migrate from v0.2 to v0.3
+
+`v0.3.0` is a breaking ingestion-contract release, not a binary-only upgrade. Use this rollout sequence:
+
+1. Stop routing new OTLP traffic to the v0.2 instance and let its persistent queue drain under the v0.2 configuration.
+2. Create an explicit v0.3 `signals.<signal>.table` and `signals.<signal>.mapping` contract from representative samples.
+3. Run `telescope preview --offline --strict`, generate and review DDL with `telescope plan`, apply it with ScopeQL, and run `telescope validate`.
+4. Deploy v0.3 with a new persistent queue volume, verify delivery, and then route OTLP traffic to it.
+5. Retire the v0.2 instance only after its queue is empty. An in-place binary replacement is safe only when the old queue is already empty.
+
+The old `path`, `schema_version`, and `create_tables_if_not_exist` exporter fields are no longer supported. Tables and mappings are explicit, and Telescope never applies DDL. The `daemon` command is now `run`; the raw Collector escape hatch moved from `collector` to `advanced collector`. The semantic HTTP API and MCP server were removed; the operational health, status, capture, and query surfaces described above remain. Code importing the pre-v1 `packages/scopedbexporter` API must update to the v0.3 configuration types.
+
 ## Local Binary
 
 Build and run the embedded Collector:
