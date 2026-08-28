@@ -1,0 +1,157 @@
+# Copyright 2026 ScopeDB, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: telescope
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telescope-headless
+  labels:
+    app.kubernetes.io/name: telescope
+    app.kubernetes.io/instance: telescope
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: telescope
+    app.kubernetes.io/instance: telescope
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telescope
+  labels:
+    app.kubernetes.io/name: telescope
+    app.kubernetes.io/instance: telescope
+spec:
+  selector:
+    app.kubernetes.io/name: telescope
+    app.kubernetes.io/instance: telescope
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: telescope
+  labels:
+    app.kubernetes.io/name: telescope
+    app.kubernetes.io/instance: telescope
+spec:
+  serviceName: telescope-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telescope
+      app.kubernetes.io/instance: telescope
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: telescope
+        app.kubernetes.io/instance: telescope
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: telescope
+          image: ghcr.io/scopedb/telescope:latest
+          imagePullPolicy: IfNotPresent
+          args: ["run", "/etc/telescope/telescope.yaml"]
+          env:
+            - name: TELESCOPE_SCOPEDB_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: telescope-scopedb
+                  key: endpoint
+            - name: TELESCOPE_SCOPEDB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: telescope-scopedb
+                  key: api-key
+            - name: TELESCOPE_OTLP_GRPC_ADDR
+              value: 0.0.0.0:4317
+            - name: TELESCOPE_OTLP_HTTP_ADDR
+              value: 0.0.0.0:4318
+            - name: TELESCOPE_HTTP_ADDR
+              value: 0.0.0.0:8080
+            - name: TELESCOPE_QUEUE_DIR
+              value: /var/lib/telescope/queue
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: operations
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: operations
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: operations
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: operations
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 640Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/telescope
+              readOnly: true
+            - name: queue
+              mountPath: /var/lib/telescope/queue
+      volumes:
+        - name: config
+          configMap:
+            name: telescope-config
+            items:
+              - key: telescope.yaml
+                path: telescope.yaml
+  volumeClaimTemplates:
+    - metadata:
+        name: queue
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

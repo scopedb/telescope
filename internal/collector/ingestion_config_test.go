@@ -123,10 +123,13 @@ func TestLoadConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 	assert.ErrorContains(t, err, "field unknown not found")
 }
 
-func TestDeploymentConfigExampleIsValid(t *testing.T) {
-	path := filepath.Join("..", "..", "deploy", "telescope.example.yaml")
-
-	config, err := LoadConfig(path)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"traces"}, config.EnabledSignals())
+func TestDeploymentConfigExamplesAreValid(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join("..", "..", "deploy", "telescope.example.yaml"),
+		filepath.Join("..", "..", "deploy", "kubernetes", "example", "telescope.yaml"),
+	} {
+		config, err := LoadConfig(path)
+		require.NoError(t, err, path)
+		assert.Equal(t, []string{"traces"}, config.EnabledSignals(), path)
+	}
 }

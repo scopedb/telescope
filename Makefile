@@ -14,6 +14,7 @@
 
 GOTOOLCHAIN ?= go1.25.3
 HAWKEYE ?= hawkeye
+KUBECTL ?= kubectl
 DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 TELESCOPE ?= ./bin/telescope
@@ -134,8 +135,19 @@ docker-smoke: docker-build
 	curl --fail --silent --show-error "http://$$address/metrics" \
 		| grep --quiet '^telescope_ingestion_queue_capacity_bytes'
 
+.PHONY: kubernetes-validate
+kubernetes-validate:
+	@set -eu; \
+	rendered="$$(mktemp)"; \
+	trap 'rm -f "$$rendered"' EXIT; \
+	$(KUBECTL) kustomize deploy/kubernetes/example > "$$rendered"; \
+	config_name="$$(sed -n '/^kind: ConfigMap$$/,/^---$$/s/^  name: //p' "$$rendered")"; \
+	test -n "$$config_name"; \
+	sed -n '/^kind: ConfigMap$$/,/^---$$/p' "$$rendered" | grep --quiet '^  namespace: telescope$$'; \
+	test "$$(grep -c "name: $$config_name$$" "$$rendered")" -eq 2
+
 .PHONY: ci-runtime
-ci-runtime: validate docker-smoke artifacts
+ci-runtime: validate kubernetes-validate docker-smoke artifacts
 
 .PHONY: demo
 demo:

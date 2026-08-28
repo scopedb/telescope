@@ -118,6 +118,31 @@ docker compose --env-file deploy/.env \
 
 For a source build, run `make docker-build` and set `IMAGE=scopedb-telescope:ci` when invoking Docker Compose.
 
+### Kubernetes
+
+The Kubernetes baseline uses a StatefulSet so each replica keeps a stable, independent persistent queue. Copy the example overlay, edit its mapping and image tag, then create the ScopeDB connection and apply it:
+
+```bash
+cp -R deploy/kubernetes/example deploy/kubernetes/local
+# Edit deploy/kubernetes/local/telescope.yaml and pin newTag in kustomization.yaml.
+
+kubectl create namespace telescope --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n telescope create secret generic telescope-scopedb \
+  --from-literal=endpoint=https://<region>.scopedb.cloud \
+  --from-literal=api-key=sk_... \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -k deploy/kubernetes/local
+```
+
+Applications inside the cluster can export to `telescope.telescope.svc.cluster.local:4317` or `http://telescope.telescope.svc.cluster.local:4318`. Inspect the first replica and verify its end-to-end delivery directly:
+
+```bash
+kubectl -n telescope exec telescope-0 -- telescope status
+kubectl -n telescope exec telescope-0 -- telescope verify
+```
+
+The baseline starts one replica with a 2 GiB queue volume. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
+
 ## Send Telemetry
 
 The default listeners are:
