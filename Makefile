@@ -29,10 +29,16 @@ license-check:
 license-format:
 	$(HAWKEYE) format --config licenserc.toml --fail-if-updated=false
 
+.PHONY: fmt
+fmt:
+	@git ls-files --cached --others --exclude-standard -- '*.go' | while IFS= read -r file; do \
+		gofmt -w "$$file"; \
+	done
+
 .PHONY: fmt-check
 fmt-check:
 	@tmp="$$(mktemp)"; \
-	git ls-files '*.go' | while IFS= read -r file; do \
+	git ls-files --cached --others --exclude-standard -- '*.go' | while IFS= read -r file; do \
 		gofmt -l "$$file"; \
 	done > "$$tmp"; \
 	if [ -s "$$tmp" ]; then \
@@ -45,15 +51,26 @@ fmt-check:
 
 .PHONY: tidy-check
 tidy-check:
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go mod tidy
-	git diff --exit-code -- go.mod go.sum
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go mod tidy -diff
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go mod verify
+
+.PHONY: vet
+vet:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go vet ./...
 
 .PHONY: test
 test:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
 
+.PHONY: test-race
+test-race:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
+
+.PHONY: check
+check: fmt-check tidy-check vet test
+
 .PHONY: ci-go
-ci-go: fmt-check tidy-check test
+ci-go: fmt-check tidy-check vet test-race
 
 .PHONY: build
 build:

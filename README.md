@@ -358,9 +358,12 @@ For the mapping contract and table ownership model, see [Mapping and Table Manag
 ## Development
 
 ```bash
-make test
+make fmt
+make check
 make build
 ```
+
+`make check` verifies formatting and module integrity, runs `go vet`, and executes the unit tests. `make test-race` adds the race detector; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
 
 Project layout:
 

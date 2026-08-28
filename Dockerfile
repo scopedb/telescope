@@ -19,8 +19,10 @@ ARG TARGETARCH
 ARG VERSION=development
 
 WORKDIR /src
-COPY . .
+COPY go.mod go.sum ./
+RUN GOTOOLCHAIN=go1.25.3 go mod download
 
+COPY . .
 RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.3 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/telescope ./cmd/telescope
 
 FROM alpine:3.21
