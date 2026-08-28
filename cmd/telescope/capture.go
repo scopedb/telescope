@@ -58,6 +58,7 @@ func runCaptureWithContextAndWriters(
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: telescope capture [options] <signal>")
 		fmt.Fprintln(stderr, "\nCapture a bounded live OTLP sample from logs, traces, or metrics.")
+		fmt.Fprintln(stderr, "Running-instance capture observes new exporter input after Collector batching; past telemetry is not replayed.")
 		fmt.Fprintln(stderr, "\nOptions:")
 		flags.PrintDefaults()
 		fmt.Fprintln(stderr, "\nExamples:")
@@ -113,6 +114,13 @@ func runCaptureWithContextAndWriters(
 		payload = sample.Payload
 		records = sample.Records
 	} else {
+		fmt.Fprintf(
+			stderr,
+			"waiting for new %s after Collector batching; generate traffic now (limit=%d, timeout=%s)\n",
+			signal,
+			*limit,
+			*timeout,
+		)
 		payload, records, err = requestCapture(ctx, &http.Client{}, *endpoint, signal, *limit, *timeout)
 	}
 	if err != nil {
@@ -167,6 +175,13 @@ func requestCapture(
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		if response.StatusCode == http.StatusRequestTimeout {
+			return nil, 0, fmt.Errorf(
+				"capture %s: no new exporter input observed within %s; start capture before generating traffic and allow for Collector batch delay",
+				signal,
+				timeout,
+			)
+		}
 		return nil, 0, fmt.Errorf("capture %s: %s: %s", signal, response.Status, strings.TrimSpace(string(body)))
 	}
 	payload, err := io.ReadAll(response.Body)

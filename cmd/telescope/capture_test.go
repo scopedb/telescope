@@ -59,7 +59,9 @@ func TestRunCaptureWritesOnlyOTLPPayloadToStdout(t *testing.T) {
 	if got := stdout.String(); got != "{\"resourceSpans\":[]}\n" {
 		t.Fatalf("unexpected stdout: %q", got)
 	}
-	if got := stderr.String(); got != "captured traces: 2 records\n" {
+	wantStderr := "waiting for new traces after Collector batching; generate traffic now (limit=2, timeout=3s)\n" +
+		"captured traces: 2 records\n"
+	if got := stderr.String(); got != wantStderr {
 		t.Fatalf("unexpected stderr: %q", got)
 	}
 }
@@ -91,6 +93,7 @@ func TestCaptureHelpShowsUsageAndPreviewPipeline(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Usage: telescope capture [options] <signal>",
+		"past telemetry is not replayed",
 		"--listen-http",
 		"telescope preview --offline",
 	} {
@@ -135,5 +138,10 @@ func TestRunCaptureReportsEndpointError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+	for _, expected := range []string{"no new exporter input observed within 1ms", "start capture before generating traffic", "batch delay"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("capture error missing %q: %v", expected, err)
+		}
 	}
 }
