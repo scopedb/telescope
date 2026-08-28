@@ -58,19 +58,27 @@ tidy-check:
 vet:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go vet ./...
 
+.PHONY: lint
+lint:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go tool staticcheck ./...
+
 .PHONY: test
 test:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
+
+.PHONY: test-integration
+test-integration:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -tags=integration ./...
 
 .PHONY: test-race
 test-race:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
 
 .PHONY: check
-check: fmt-check tidy-check vet test
+check: fmt-check tidy-check vet lint test
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check vet test-race
+ci-go: fmt-check tidy-check vet lint test-race
 
 .PHONY: build
 build:

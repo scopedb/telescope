@@ -152,7 +152,7 @@ func (s *Server) getMetrics(w http.ResponseWriter, request *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", string(expfmt.FmtText))
+	w.Header().Set("Content-Type", string(expfmt.NewFormat(expfmt.TypeTextPlain)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body.Bytes())
 }

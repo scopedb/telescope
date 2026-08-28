@@ -72,7 +72,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	newServer(service).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	assert.Equal(t, string(expfmt.FmtText), recorder.Header().Get("Content-Type"))
+	assert.Equal(t, string(expfmt.NewFormat(expfmt.TypeTextPlain)), recorder.Header().Get("Content-Type"))
 	assert.Equal(t, `# HELP telescope_ingestion_received_total Telemetry items accepted by Telescope, in each signal's native unit.
 # TYPE telescope_ingestion_received_total counter
 telescope_ingestion_received_total{signal="logs",table="scopedb.otel.logs"} 10
