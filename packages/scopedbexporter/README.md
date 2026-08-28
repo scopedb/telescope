@@ -128,7 +128,7 @@ Whole attribute maps, bodies, events, links, distributions, and exemplars retain
 
 ## Append and Retry Semantics
 
-The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk. It limits each request to the SDK's current maximum of 8 MiB of uncompressed NDJSON and 200,000 rows.
+The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk. Each request is capped at 8 MiB of uncompressed NDJSON and 200,000 rows.
 
 A chunk succeeds only when ScopeDB reports `committed` and the inserted row count matches. Projection, JSON encoding, and row-size failures are isolated to the offending records. When ScopeDB returns a non-retryable `rejected` result with a complete, non-truncated row-error list, Telescope removes those rows and makes one append attempt for the remainder. It never bisects or repeatedly probes a rejected chunk. Rejections without a complete row list remain permanent for the whole uncommitted chunk. Retryable rejection, throttling, transport errors, and `unknown` outcomes are returned as retryable. When a later chunk fails, Collector retries only uncommitted records, not an already confirmed prefix or an isolated bad record.
 

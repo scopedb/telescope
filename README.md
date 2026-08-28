@@ -9,21 +9,21 @@ It provides:
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
 - sample field inspection, mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
-- a narrow ScopeQL query bridge for inspecting stored results
+- single-statement ScopeQL diagnostics for inspecting stored results
 - operational health, readiness, and ingestion status endpoints
 
-`telescope plan` never applies its generated DDL. You choose the signals, destination tables, and fields to append. The command can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain explicit and user-owned. At runtime Telescope's data-plane responsibility ends when ScopeDB reports the append result. The operator-invoked `telescope query` command is a narrow bridge for inspecting stored data while the standalone ScopeQL CLI is under development; it is not part of ingestion.
+`telescope plan` never applies its generated DDL. You choose the signals, destination tables, and fields to append. The command can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain explicit and user-owned. At runtime Telescope's data-plane responsibility ends when ScopeDB reports the append result. The operator-invoked `telescope query` command provides single-statement diagnostics for stored data; it is not part of ingestion.
 
 ## Requirements
 
-- Docker with Docker Compose for the recommended deployment path
+- Docker with Docker Compose for container-based deployment
 - a reachable ScopeDB endpoint and API key
 - pre-existing destination tables, or the ScopeQL CLI with a configured connection to apply a generated table plan
 - OpenTelemetry clients, SDKs, or Collectors that can export OTLP
 
 ## Quick Start
 
-Create the local configuration files:
+Create the configuration files:
 
 ```bash
 cp deploy/.env.example deploy/.env
@@ -75,7 +75,7 @@ docker run --rm \
 
 The preview shows destination-column coverage, observed output types, and which ordered source or default supplied each value, then prints projected NDJSON without writing to ScopeDB. Mapping failures are collected across the sample and identify the record, column, and selected source. `--strict` also fails on unobserved, partial, or default-only columns. Omit `--offline` to include destination column types and detect sample/type mismatches.
 
-The repository includes minimal OTLP payloads for all three signals under `deploy/samples/`; replace them with captured application traffic before finalizing a production mapping. Telescope can collect that first sample without a configuration file or ScopeDB destination, as described under [Capture Before Configuration](#capture-before-configuration).
+The repository includes minimal OTLP payloads for all three signals under `deploy/samples/`; replace them with captured application traffic before finalizing a deployment mapping. Telescope can collect that first sample without a configuration file or ScopeDB destination, as described under [Capture Before Configuration](#capture-before-configuration).
 
 Plan missing tables or columns, review the generated ScopeQL, and apply it explicitly:
 
@@ -90,8 +90,8 @@ docker run --rm \
 ScopeQL owns its connection and authentication configuration independently of Telescope. Before the first DDL apply on a host, configure and select the intended connection, then verify it before running the generated script:
 
 ```bash
-scopeql config set-connection production
-scopeql config use-connection production
+scopeql config set-connection telescope-target
+scopeql config use-connection telescope-target
 scopeql config get-connections
 scopeql run -f tables.scopeql
 ```
@@ -127,19 +127,22 @@ The Kubernetes baseline uses a StatefulSet so each replica keeps a stable, indep
 cp -R deploy/kubernetes/example deploy/kubernetes/local
 # Edit deploy/kubernetes/local/telescope.yaml and pin newTag in kustomization.yaml.
 
-kubectl create namespace telescope --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n telescope create secret generic telescope-scopedb \
+export KUBE_CONTEXT=my-kubernetes-context
+kubectl --context "$KUBE_CONTEXT" cluster-info
+kubectl --context "$KUBE_CONTEXT" create namespace telescope --dry-run=client -o yaml | \
+  kubectl --context "$KUBE_CONTEXT" apply -f -
+kubectl --context "$KUBE_CONTEXT" -n telescope create secret generic telescope-scopedb \
   --from-literal=endpoint=https://<region>.scopedb.cloud \
   --from-literal=api-key=sk_... \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k deploy/kubernetes/local
+  --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+kubectl --context "$KUBE_CONTEXT" apply -k deploy/kubernetes/local
 ```
 
-Applications inside the cluster can export to `telescope.telescope.svc.cluster.local:4317` or `http://telescope.telescope.svc.cluster.local:4318`. Inspect the first replica and verify its end-to-end delivery directly:
+Applications inside the cluster can export to `telescope.telescope:4317` or `http://telescope.telescope:4318`. Inspect the first replica and verify its end-to-end delivery directly:
 
 ```bash
-kubectl -n telescope exec telescope-0 -- telescope status
-kubectl -n telescope exec telescope-0 -- telescope verify
+kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope status
+kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope verify
 ```
 
 The baseline starts one replica with a 2 GiB queue volume. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
@@ -203,7 +206,7 @@ Inspect the sample before writing a mapping:
 telescope inspect traces --sample traces.otlp.json
 ```
 
-`inspect` uses the production mapper to list exact source selectors, observed output types, and the records where each selector is populated, grouped by the OTLP resource, scope, and signal layers. It omits empty protocol defaults, marks partial and mixed-type selectors, expands nested objects into copyable selectors, and keeps arrays as whole values rather than suggesting brittle numeric indexes. It does not require a Telescope configuration or ScopeDB connection and never prints sample values. Use `--format json` for structured output.
+`inspect` uses the same mapper as `run` to list exact source selectors, observed output types, and the records where each selector is populated, grouped by the OTLP resource, scope, and signal layers. It omits empty protocol defaults, marks partial and mixed-type selectors, expands nested objects into copyable selectors, and keeps arrays as whole values rather than suggesting brittle numeric indexes. It does not require a Telescope configuration or ScopeDB connection and never prints sample values. Use `--format json` for structured output.
 
 Capture, retain, and inspect the first sample in one pipeline:
 
@@ -246,7 +249,7 @@ telescope capture \
     deploy/telescope.yaml
 ```
 
-`capture` waits until it collects the requested number of log records, spans, or metric points, or until the timeout returns a partial sample. It retains nothing when no capture is active. Capture observes exporter input after Collector batch processing and before the sending queue. The 45-second default exceeds the bundled 30-second batch timeout, while retries cannot duplicate the sample. `preview` uses the production mapper and does not append the sample. Redirect `capture` to a file when the same input should be replayed later.
+`capture` waits until it collects the requested number of log records, spans, or metric points, or until the timeout returns a partial sample. It retains nothing when no capture is active. Capture observes exporter input after Collector batch processing and before the sending queue. The 45-second default exceeds the bundled 30-second batch timeout, while retries cannot duplicate the sample. `preview` uses the same mapper as `run` and does not append the sample. Redirect `capture` to a file when the same input should be replayed later.
 
 ### Inspect Delivery Status
 
@@ -259,7 +262,7 @@ curl -sS http://127.0.0.1:8080/v1/ingestion/status
 curl -sS http://127.0.0.1:8080/metrics
 ```
 
-The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These are local data-plane facts; Telescope does not query destination tables. The exporter queue does not include telemetry still waiting in the Collector batch processor or an in-flight export; human-readable `telescope status` calls out accepted items that do not yet have a final outcome when the queue is empty. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. A locally identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
+The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These facts are observed by the running Telescope process; Telescope does not query destination tables. The exporter queue does not include telemetry still waiting in the Collector batch processor or an in-flight export; human-readable `telescope status` calls out accepted items that do not yet have a final outcome when the queue is empty. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. An identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
 
 `/metrics` is the stable Prometheus surface for Telescope delivery and queue alerts. The bundled [Prometheus rules](deploy/prometheus-rules.yaml) cover queue saturation, final drops, stalled delivery, and unverified destinations, and record the queue directory's 24-hour disk high-water mark. Prometheus should also alert on its standard `up` metric: `/metrics` returns `503` instead of publishing false zeroes when Collector's internal telemetry is unavailable.
 
@@ -290,7 +293,7 @@ traces: ScopeDB append committed synthetic probe (probe-...)
 
 ### Query Stored Results
 
-Use the temporary query bridge to inspect the rows produced by a mapping with the same ScopeDB connection already available to Telescope:
+Use the diagnostic query command to inspect rows produced by a mapping with the same ScopeDB connection already available to Telescope:
 
 ```bash
 telescope query \
@@ -308,7 +311,7 @@ It submits exactly one ScopeQL statement read from the argument, stdin, or `--fi
 
 Use a selective trace ID or time predicate when inspecting telemetry. `LIMIT` bounds returned rows, but it should not be treated as a scan budget.
 
-This is intentionally not a second ScopeQL CLI: it has no REPL, connection profiles, history, or client-side multi-statement script handling. Those concerns belong to the standalone CLI.
+The command executes one statement and does not provide a REPL, connection profiles, history, or client-side multi-statement script handling.
 
 ### Upgrade or Change a Mapping
 
@@ -326,9 +329,9 @@ The queue retains OTLP before destination mapping. Do not start a changed table 
 4. Deploy v0.3 with a new persistent queue volume, verify delivery, and then route OTLP traffic to it.
 5. Retire the v0.2 instance only after its queue is empty. An in-place binary replacement is safe only when the old queue is already empty.
 
-The old `path`, `schema_version`, and `create_tables_if_not_exist` exporter fields are no longer supported. Tables and mappings are explicit, and Telescope never applies DDL. The `daemon` command is now `run`; the raw Collector escape hatch moved from `collector` to `advanced collector`. The semantic HTTP API and MCP server were removed; the operational health, status, capture, and query surfaces described above remain. Code importing the pre-v1 `packages/scopedbexporter` API must update to the v0.3 configuration types.
+The old `path`, `schema_version`, and `create_tables_if_not_exist` exporter fields are no longer supported. Tables and mappings are explicit, and Telescope never applies DDL. The `daemon` command is now `run`; the raw Collector escape hatch moved from `collector` to `advanced collector`. The previous application-layer server is not included in v0.3; the operational health, status, capture, and query surfaces described above remain. Code importing the pre-v1 `packages/scopedbexporter` API must update to the v0.3 configuration types.
 
-## Local Binary
+## Build from Source
 
 Build and run the embedded Collector:
 
@@ -345,7 +348,7 @@ export SCOPEDB_API_KEY=sk_...
 ./bin/telescope run deploy/telescope.yaml
 ```
 
-The local Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fallbacks. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over those fallback variables. ScopeQL uses its own selected connection; Telescope environment files do not configure it. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
+The Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fallbacks. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over those fallback variables. ScopeQL uses its own selected connection; Telescope environment files do not configure it. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
 
 Commands:
 
@@ -356,7 +359,7 @@ Commands:
   - `telescope validate`: validate mapping rules and destination tables
   - `telescope run`: run the OTLP-to-ScopeDB data plane from the same configuration
 - Operations:
-  - `telescope status`: report local receiver, queue, and ScopeDB delivery state
+  - `telescope status`: report receiver, queue, and ScopeDB delivery state
 - Diagnostics:
   - `telescope capture`: capture bounded OTLP from a temporary listener or a running instance
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends

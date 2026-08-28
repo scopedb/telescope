@@ -1,6 +1,6 @@
 # Telescope Ingestion Compatibility
 
-Status: current `v1` source-mapping contract
+Contract: `v1` source mapping
 
 This document defines what Telescope accepts through OTLP and makes available to user mappings. The executable source contract is the versioned corpus under `packages/scopedbexporter/testdata/golden/v1`.
 
@@ -34,7 +34,7 @@ Selected attribute strings, integers, doubles, booleans, arrays, and nested key-
 
 Any object or array source can be followed by chained `["key"]` and `[index]` path segments. Mapping rules can select the first present source, apply a default when all sources are absent, emit a constant, and cast the output to `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Structured casts validate the runtime shape, and `any` is never selected implicitly. These operations shape only the destination row; they do not mutate the OpenTelemetry input.
 
-`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the production mapper, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
+`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the same mapper as `run`, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
 
 ## Logs
 
@@ -84,7 +84,7 @@ Telescope removes an invalid metric before the exporter queue and continues with
 
 After dequeue, destination projection treats each log record, span, or metric point independently. A cast, JSON encoding, or row-size failure drops only that item and does not prevent valid items in the same batch from being appended. If ScopeDB rejects a chunk and reports a complete, non-truncated set of row errors, Telescope removes those rows and attempts the remaining rows once. It does not bisect a chunk or repeat this isolation pass; incomplete rejection details fail the whole uncommitted chunk.
 
-Current reasons are:
+Reported reasons are:
 
 | Reason | Trigger |
 | --- | --- |
@@ -98,7 +98,7 @@ Current reasons are:
 
 `telescope capture --listen-http <address> <signal>` starts a temporary standalone OTLP/HTTP endpoint for cold-start sampling. It accepts JSON or protobuf, supports identity and gzip content encoding, limits each request to 20 MiB, and emits a bounded standard OTLP JSON sample. It does not load a mapping, contact ScopeDB, persist, queue, retry, or forward input.
 
-`telescope inspect <signal> --sample <path>` decodes OTLP JSON or protobuf through the production mapper and reports exact mapping selectors, observed types, and the records where each selector has a populated value. Empty protocol defaults are omitted. Nested objects are expanded; arrays remain whole values. It neither displays sample values nor generates or persists a mapping.
+`telescope inspect <signal> --sample <path>` decodes OTLP JSON or protobuf through the same mapper as `run` and reports exact mapping selectors, observed types, and the records where each selector has a populated value. Empty protocol defaults are omitted. Nested objects are expanded; arrays remain whole values. It neither displays sample values nor generates or persists a mapping.
 
 `GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture at exporter input, after Collector batch processing and before the exporter sending queue, and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer. The default 45-second timeout exceeds the bundled 30-second batch timeout so low-volume input can reach the capture.
 
@@ -133,7 +133,7 @@ The status and metrics endpoints read Collector's private Prometheus endpoint at
 ## Known `v1` Gaps
 
 - Byte-valued attributes and bodies are mapped as base64 strings without an explicit byte type marker.
-- OpenTelemetry resource entity references are not mapped by the current exporter.
+- OpenTelemetry resource entity references are not mapped by the `v1` exporter contract.
 - Exemplar records with no value are retained without a `value` or `value_type`; they do not yet produce a reason-labelled diagnostic.
 - Telescope does not normalize semantic-convention aliases globally. Use an ordered `sources` rule when aliases should feed one destination column, or normalize them upstream when other consumers also need the canonical field.
 

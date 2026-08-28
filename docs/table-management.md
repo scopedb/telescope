@@ -117,7 +117,7 @@ telescope capture \
 
 This standalone mode requires neither `telescope.yaml` nor ScopeDB. It accepts the selected OTLP/HTTP signal, retains only the bounded sample, and does not forward telemetry; configure it as a temporary second exporter if the original stream must continue elsewhere. Use the repository sample below for initial exploration, or replace its path with the captured file for the real mapping.
 
-Discover the selectors that the production mapper can read from that sample:
+Discover the selectors that the runtime mapper can read from that sample:
 
 ```bash
 telescope inspect traces --sample traces.otlp.json
@@ -148,8 +148,8 @@ telescope plan \
 ScopeQL owns its connection configuration. If the intended connection is not already present and selected, initialize it before applying Telescope's generated DDL:
 
 ```bash
-scopeql config set-connection production
-scopeql config use-connection production
+scopeql config set-connection telescope-target
+scopeql config use-connection telescope-target
 scopeql config get-connections
 ```
 
