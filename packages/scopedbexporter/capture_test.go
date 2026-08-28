@@ -92,13 +92,12 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 		t.Run(tt.signal, func(t *testing.T) {
 			registry := NewCaptureRegistry()
 			result := make(chan captureResult, 1)
+			ready := make(chan struct{})
 			go func() {
-				sample, err := registry.Capture(context.Background(), tt.signal, 2, time.Second)
+				sample, err := registry.CaptureWithReady(context.Background(), tt.signal, 2, time.Second, ready)
 				result <- captureResult{sample: sample, err: err}
 			}()
-			require.Eventually(t, func() bool {
-				return registry.HasActiveCapture(tt.signal)
-			}, time.Second, time.Millisecond)
+			waitCaptureReady(t, ready)
 
 			inputRecords := tt.observe(registry)
 			captured := <-result
@@ -114,13 +113,12 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 func TestCaptureRegistryReturnsPartialSampleAtTimeout(t *testing.T) {
 	registry := NewCaptureRegistry()
 	result := make(chan captureResult, 1)
+	ready := make(chan struct{})
 	go func() {
-		sample, err := registry.Capture(context.Background(), signalLogs, 2, 50*time.Millisecond)
+		sample, err := registry.CaptureWithReady(context.Background(), signalLogs, 2, 50*time.Millisecond, ready)
 		result <- captureResult{sample: sample, err: err}
 	}()
-	require.Eventually(t, func() bool {
-		return registry.HasActiveCapture(signalLogs)
-	}, time.Second, time.Millisecond)
+	waitCaptureReady(t, ready)
 
 	request := plogotlp.NewExportRequest()
 	require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "logs.otlp.json")))
@@ -136,13 +134,12 @@ func TestCaptureRegistryRejectsConcurrentCaptureForSameSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	result := make(chan error, 1)
+	ready := make(chan struct{})
 	go func() {
-		_, err := registry.Capture(ctx, signalTraces, 1, time.Second)
+		_, err := registry.CaptureWithReady(ctx, signalTraces, 1, time.Second, ready)
 		result <- err
 	}()
-	require.Eventually(t, func() bool {
-		return registry.HasActiveCapture(signalTraces)
-	}, time.Second, time.Millisecond)
+	waitCaptureReady(t, ready)
 
 	_, err := registry.Capture(context.Background(), signalTraces, 1, time.Second)
 	assert.ErrorIs(t, err, ErrCaptureInProgress)
@@ -159,6 +156,15 @@ func TestCaptureRegistryReportsTimeoutWithoutData(t *testing.T) {
 type captureResult struct {
 	sample CapturedSample
 	err    error
+}
+
+func waitCaptureReady(t *testing.T, ready <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not become ready")
+	}
 }
 
 func TestCaptureRegistryRejectsInvalidRequest(t *testing.T) {

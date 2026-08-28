@@ -100,13 +100,12 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 	captures := NewCaptureRegistry()
 	statuses := NewStatusRegistry()
 	captured := make(chan captureResult, 1)
+	ready := make(chan struct{})
 	go func() {
-		sample, err := captures.Capture(context.Background(), signalLogs, 1, time.Second)
+		sample, err := captures.CaptureWithReady(context.Background(), signalLogs, 1, time.Second, ready)
 		captured <- captureResult{sample: sample, err: err}
 	}()
-	require.Eventually(t, func() bool {
-		return captures.HasActiveCapture(signalLogs)
-	}, time.Second, time.Millisecond)
+	waitCaptureReady(t, ready)
 
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})

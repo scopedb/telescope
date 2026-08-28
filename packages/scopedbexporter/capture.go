@@ -85,6 +85,28 @@ func (r *CaptureRegistry) Capture(
 	limit int,
 	timeout time.Duration,
 ) (CapturedSample, error) {
+	return r.capture(ctx, signal, limit, timeout, nil)
+}
+
+// CaptureWithReady behaves like Capture and closes ready after the capture
+// session has been registered. If the capture cannot start, ready remains open.
+func (r *CaptureRegistry) CaptureWithReady(
+	ctx context.Context,
+	signal string,
+	limit int,
+	timeout time.Duration,
+	ready chan<- struct{},
+) (CapturedSample, error) {
+	return r.capture(ctx, signal, limit, timeout, ready)
+}
+
+func (r *CaptureRegistry) capture(
+	ctx context.Context,
+	signal string,
+	limit int,
+	timeout time.Duration,
+	ready chan<- struct{},
+) (CapturedSample, error) {
 	if signal != signalLogs && signal != signalTraces && signal != signalMetrics {
 		return CapturedSample{}, fmt.Errorf("unsupported capture signal %q", signal)
 	}
@@ -107,6 +129,9 @@ func (r *CaptureRegistry) Capture(
 	r.sessions[signal] = session
 	r.active.Store(true)
 	r.mu.Unlock()
+	if ready != nil {
+		close(ready)
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()

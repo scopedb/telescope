@@ -75,19 +75,16 @@ func captureStandaloneHTTP(
 	captureCtx, cancelCapture := context.WithCancel(ctx)
 	defer cancelCapture()
 	resultCh := make(chan standaloneCaptureResult, 1)
+	ready := make(chan struct{})
 	go func() {
-		sample, captureErr := registry.Capture(captureCtx, signal, limit, timeout)
+		sample, captureErr := registry.CaptureWithReady(captureCtx, signal, limit, timeout, ready)
 		resultCh <- standaloneCaptureResult{sample: sample, err: captureErr}
 	}()
 
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-	for !registry.HasActiveCapture(signal) {
-		select {
-		case result := <-resultCh:
-			return result.sample, result.err
-		case <-ticker.C:
-		}
+	select {
+	case <-ready:
+	case result := <-resultCh:
+		return result.sample, result.err
 	}
 
 	mux := http.NewServeMux()
