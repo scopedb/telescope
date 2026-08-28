@@ -9,9 +9,10 @@ It provides:
 - a ScopeDB exporter built on the Go SDK append API
 - batching, retry, memory limiting, and a persistent sending queue
 - sample field inspection, mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
+- a narrow ScopeQL query bridge for inspecting stored results
 - operational health, readiness, and ingestion status endpoints
 
-Telescope never executes DDL. You choose the signals, destination tables, and fields to append. `telescope plan` can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain user-owned. At runtime Telescope's responsibility ends when ScopeDB reports the append result, and it does not query or interpret stored data.
+`telescope plan` never applies its generated DDL. You choose the signals, destination tables, and fields to append. The command can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain explicit and user-owned. At runtime Telescope's data-plane responsibility ends when ScopeDB reports the append result. The operator-invoked `telescope query` command is a narrow bridge for inspecting stored data while the standalone ScopeQL CLI is under development; it is not part of ingestion.
 
 ## Requirements
 
@@ -287,6 +288,28 @@ traces: OTLP accepted synthetic probe (probe-...)
 traces: ScopeDB append committed synthetic probe (probe-...)
 ```
 
+### Query Stored Results
+
+Use the temporary query bridge to inspect the rows produced by a mapping with the same ScopeDB connection already available to Telescope:
+
+```bash
+telescope query \
+  "FROM scopedb.otel.traces WHERE trace_id = '<trace-id>' SELECT start_timestamp, trace_id, service LIMIT 1"
+
+telescope query --format json \
+  "FROM scopedb.otel.traces WHERE trace_id = '<trace-id>' LIMIT 1"
+
+kubectl -n telescope exec telescope-0 -- \
+  telescope query --format jsonl \
+  "FROM scopedb.otel.traces WHERE trace_id = '<trace-id>' LIMIT 1"
+```
+
+It submits exactly one ScopeQL statement read from the argument, stdin, or `--file`, and supports human-readable `table` plus scriptable `json` and `jsonl` output. It reuses the normal `--scopedb-endpoint`, `--scopedb-api-key`, `--env-file`, and ScopeDB environment precedence. `--timeout` sets the server execution limit; interrupting the command also requests cancellation of the submitted statement.
+
+Use a selective trace ID or time predicate when inspecting telemetry. `LIMIT` bounds returned rows, but it should not be treated as a scan budget.
+
+This is intentionally not a second ScopeQL CLI: it has no REPL, connection profiles, history, or client-side multi-statement script handling. Those concerns belong to the standalone CLI.
+
 ### Upgrade or Change a Mapping
 
 `telescope status` reports the running version and a normalized config digest. A binary-only upgrade may reuse the persistent queue when that digest is unchanged; Telescope's test suite verifies that the current binary can drain the frozen `v1` queue format for logs, traces, and metrics.
@@ -306,6 +329,7 @@ export SCOPEDB_API_KEY=sk_...
 ./bin/telescope preview --offline --sample traces=deploy/samples/traces.otlp.json deploy/telescope.yaml
 ./bin/telescope plan --out tables.scopeql deploy/telescope.yaml
 ./bin/telescope validate deploy/telescope.yaml
+./bin/telescope query "FROM scopedb.otel.traces WHERE trace_id = '<trace-id>' LIMIT 1"
 ./bin/telescope run deploy/telescope.yaml
 ```
 
@@ -324,9 +348,10 @@ Commands:
 - Diagnostics:
   - `telescope capture`: capture bounded OTLP from a temporary listener or a running instance
   - `telescope verify`: send synthetic OTLP and wait for confirmed ScopeDB appends
+  - `telescope query`: execute one ScopeQL statement and render its result
 - `telescope version`: print the build version
 
-`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --out tables.scopeql` keeps the actionable human plan on stdout and atomically writes the executable DDL without a second catalog read; a blocked plan leaves any existing output file untouched. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` remains available for stdout pipelines. `inspect` and standalone `capture` need no configuration or ScopeDB connection. Running-instance `capture`, `status`, and `verify` use Telescope's operational endpoint. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
+`preview`, `plan`, `validate`, and `run` use the same `telescope.yaml` contract. `plan --out tables.scopeql` keeps the actionable human plan on stdout and atomically writes the executable DDL without a second catalog read; a blocked plan leaves any existing output file untouched. `plan --format json` exposes the versioned generated plan for tooling, while `plan --format scopeql` remains available for stdout pipelines. `inspect` and standalone `capture` need no configuration or ScopeDB connection. Running-instance `capture`, `status`, and `verify` use Telescope's operational endpoint. `query` uses the ScopeDB connection directly and does not load `telescope.yaml`. `preview --offline` projects a file or stdin sample without connecting to ScopeDB. `verify` uses a minimal synthetic record to confirm transport and append acknowledgement; it does not prove that application-specific fields are populated. The upstream Collector command remains available as the advanced escape hatch `telescope advanced collector --config <collector.yaml>`.
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 

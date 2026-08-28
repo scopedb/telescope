@@ -41,6 +41,7 @@ func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
 		"Run the OTLP-to-ScopeDB data plane",
 		"Report local delivery state",
 		"Verify synthetic OTLP-to-append delivery",
+		"Execute one ScopeQL statement",
 	} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("printUsage() output does not contain %q", expected)

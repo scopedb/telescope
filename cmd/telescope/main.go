@@ -89,6 +89,8 @@ func run(args []string) error {
 		return runVerify(args[1:])
 	case "status":
 		return runStatus(args[1:])
+	case "query":
+		return runQuery(args[1:])
 	case "advanced":
 		return runAdvanced(args[1:])
 	case "version":
@@ -373,6 +375,7 @@ Usage:
   Diagnostics:
     telescope capture [options] <signal>           Capture OTLP samples for mapping preview
     telescope verify [options] [signals...]        Verify synthetic OTLP-to-append delivery
+    telescope query [options] [scopeql]            Execute one ScopeQL statement
 
   Other:
     telescope version                              Print the build version
@@ -404,6 +407,11 @@ Capture options:
   --listen-http              Standalone OTLP/HTTP address; no config or ScopeDB required
   --limit                    Maximum records to capture, default 100
   --timeout                  Time to wait for telemetry, default 45s
+
+Query options:
+  --file                     Read one ScopeQL statement from a file; use - for stdin
+  --format                   Output table, json, or jsonl, default table
+  --timeout                  Maximum ScopeDB execution time, default 30s
 
 Run options:
   --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR
