@@ -27,6 +27,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestCheckIngestionDestinationsChecksOnlyEnabledSignals(t *testing.T) {
@@ -72,4 +73,53 @@ func TestIngestionConfigRequiresOneCompleteSignal(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "signals.traces.table is required")
 	assert.ErrorContains(t, err, `did you mean "span.name"?`)
+}
+
+func TestIngestionConfigContractDigestUsesNormalizedSemantics(t *testing.T) {
+	first := decodeIngestionConfig(t, `
+signals:
+  traces:
+    table: " app.spans "
+    mapping:
+      name: span.name
+      sampled:
+        value: false
+`)
+	second := decodeIngestionConfig(t, `
+signals:
+  traces:
+    table: app.spans
+    mapping:
+      sampled:
+        value: false
+      name:
+        sources: [" span.name "]
+`)
+	changed := decodeIngestionConfig(t, `
+signals:
+  traces:
+    table: app.spans
+    mapping:
+      name: span.name
+      sampled:
+        value: true
+`)
+
+	firstDigest, err := first.ContractDigest()
+	require.NoError(t, err)
+	secondDigest, err := second.ContractDigest()
+	require.NoError(t, err)
+	changedDigest, err := changed.ContractDigest()
+	require.NoError(t, err)
+
+	assert.Regexp(t, `^sha256:[0-9a-f]{64}$`, firstDigest)
+	assert.Equal(t, firstDigest, secondDigest)
+	assert.NotEqual(t, firstDigest, changedDigest)
+}
+
+func decodeIngestionConfig(t *testing.T, data string) IngestionConfig {
+	t.Helper()
+	var config IngestionConfig
+	require.NoError(t, yaml.Unmarshal([]byte(data), &config))
+	return config
 }

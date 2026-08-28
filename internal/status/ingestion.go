@@ -228,7 +228,9 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	metricsAvailable := metricsErr == nil
 	storageBytes, storageErr := s.queueStorage.AllocatedBytes()
 	response := IngestionStatusResponse{
-		GeneratedAt: s.now(),
+		Version:      s.version,
+		ConfigDigest: s.configDigest,
+		GeneratedAt:  s.now(),
 		Listeners: IngestionListeners{
 			GRPC: listenerAddress("TELESCOPE_OTLP_GRPC_ADDR", "0.0.0.0:4317"),
 			HTTP: listenerAddress("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318"),

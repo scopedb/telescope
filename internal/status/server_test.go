@@ -28,7 +28,7 @@ import (
 )
 
 func TestGetHealth(t *testing.T) {
-	server := New("test")
+	server := New("test", "sha256:test")
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 

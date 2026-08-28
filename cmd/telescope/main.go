@@ -124,13 +124,17 @@ func runTelescope(args []string) error {
 	if err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)
 	}
+	configDigest, err := ingestion.ContractDigest()
+	if err != nil {
+		return fmt.Errorf("identify Telescope config: %w", err)
+	}
 	listenAddr := resolveHTTPListenAddr(*httpAddr)
 
 	otelCollector, err := collector.New(collectorConfigURI, version)
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
 	}
-	operationalServer := statusapi.New(version)
+	operationalServer := statusapi.New(version, configDigest)
 	httpServer := &http.Server{
 		Addr:    listenAddr,
 		Handler: operationalServer,
@@ -139,8 +143,10 @@ func runTelescope(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(os.Stderr, "telescope starting: config=%s signals=%s\n",
+	fmt.Fprintf(os.Stderr, "telescope starting: version=%s config=%s digest=%s signals=%s\n",
+		version,
 		configPath,
+		configDigest,
 		strings.Join(ingestion.EnabledSignals(), ","),
 	)
 

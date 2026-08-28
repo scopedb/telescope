@@ -64,6 +64,12 @@ func runStatus(args []string) error {
 
 func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 	fmt.Fprintf(w, "state: %s\n", status.State)
+	if status.Version != "" {
+		fmt.Fprintf(w, "version: %s\n", status.Version)
+	}
+	if status.ConfigDigest != "" {
+		fmt.Fprintf(w, "config digest: %s\n", status.ConfigDigest)
+	}
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tDROPPED\tQUEUED\tDESTINATION")
 	for _, signal := range status.Signals {

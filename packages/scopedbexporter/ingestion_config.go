@@ -18,6 +18,8 @@ package scopedbexporter
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,6 +46,66 @@ type IngestionSignalsConfig struct {
 // Collector.
 type IngestionConfig struct {
 	Signals IngestionSignalsConfig `yaml:"signals"`
+}
+
+// ContractDigest identifies the normalized signal routes and mapping semantics.
+func (cfg IngestionConfig) ContractDigest() (string, error) {
+	if err := cfg.Validate(); err != nil {
+		return "", err
+	}
+
+	type canonicalRule struct {
+		Sources    []string `json:"sources,omitempty"`
+		Cast       string   `json:"cast,omitempty"`
+		Default    any      `json:"default,omitempty"`
+		DefaultSet bool     `json:"default_set,omitempty"`
+		Value      any      `json:"value,omitempty"`
+		ValueSet   bool     `json:"value_set,omitempty"`
+	}
+	type canonicalSignal struct {
+		Signal  string                   `json:"signal"`
+		Table   string                   `json:"table"`
+		Mapping map[string]canonicalRule `json:"mapping"`
+	}
+	contract := struct {
+		Version int               `json:"version"`
+		Signals []canonicalSignal `json:"signals"`
+	}{Version: 1}
+
+	for _, signal := range cfg.EnabledSignals() {
+		signalConfig, _ := cfg.Signal(signal)
+		canonical := canonicalSignal{
+			Signal:  signal,
+			Table:   strings.TrimSpace(signalConfig.Table),
+			Mapping: make(map[string]canonicalRule, len(signalConfig.Mapping)),
+		}
+		for column, mapping := range signalConfig.Mapping {
+			rule, err := mapping.normalized()
+			if err != nil {
+				return "", fmt.Errorf("%s.%s: %w", signal, column, err)
+			}
+			sources := rule.Sources
+			if rule.Source != "" {
+				sources = []string{rule.Source}
+			}
+			canonical.Mapping[column] = canonicalRule{
+				Sources:    sources,
+				Cast:       rule.Cast,
+				Default:    rule.Default,
+				DefaultSet: rule.hasDefault(),
+				Value:      rule.Value,
+				ValueSet:   rule.hasValue(),
+			}
+		}
+		contract.Signals = append(contract.Signals, canonical)
+	}
+
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		return "", fmt.Errorf("encode ingestion contract: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 func (cfg IngestionConfig) Validate() error {

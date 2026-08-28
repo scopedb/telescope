@@ -48,7 +48,9 @@ func TestReadIngestionStatusAcceptsBaseURL(t *testing.T) {
 func TestWriteStatus(t *testing.T) {
 	var output bytes.Buffer
 	writeStatus(&output, statusapi.IngestionStatusResponse{
-		State: "degraded",
+		Version:      "v0.3.0",
+		ConfigDigest: "sha256:test",
+		State:        "degraded",
 		QueueStorage: statusapi.IngestionQueueStorage{
 			Available:      true,
 			AllocatedBytes: 8192,
@@ -76,6 +78,8 @@ func TestWriteStatus(t *testing.T) {
 	})
 
 	assert.Contains(t, output.String(), "state: degraded")
+	assert.Contains(t, output.String(), "version: v0.3.0")
+	assert.Contains(t, output.String(), "config digest: sha256:test")
 	assert.Contains(t, output.String(), "traces")
 	assert.Contains(t, output.String(), "DROPPED")
 	assert.Contains(t, output.String(), "256 B/1 KiB")

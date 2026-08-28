@@ -36,6 +36,7 @@ type captureReader interface {
 
 type service struct {
 	version          string
+	configDigest     string
 	now              func() time.Time
 	ingestionRuntime exporterStatusReader
 	ingestionCapture captureReader

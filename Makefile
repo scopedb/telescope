@@ -127,6 +127,9 @@ docker-smoke: docker-build
 		docker logs "$$cid"; \
 		exit 1; \
 	fi; \
+	status="$$(curl --fail --silent --show-error "http://$$address/v1/ingestion/status")"; \
+	printf '%s' "$$status" | grep --quiet '"version":"$(VERSION)"'; \
+	printf '%s' "$$status" | grep --quiet '"config_digest":"sha256:[0-9a-f]\{64\}"'; \
 	docker exec "$$cid" telescope status --endpoint http://127.0.0.1:8080 >/dev/null; \
 	curl --fail --silent --show-error "http://$$address/metrics" \
 		| grep --quiet '^telescope_ingestion_queue_capacity_bytes'

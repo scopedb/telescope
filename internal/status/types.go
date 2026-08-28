@@ -25,6 +25,8 @@ type HealthResponse struct {
 }
 
 type IngestionStatusResponse struct {
+	Version           string                     `json:"version,omitempty"`
+	ConfigDigest      string                     `json:"config_digest,omitempty"`
 	State             string                     `json:"state"`
 	GeneratedAt       time.Time                  `json:"generated_at"`
 	Listeners         IngestionListeners         `json:"listeners"`

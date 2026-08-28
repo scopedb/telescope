@@ -41,8 +41,10 @@ type Server struct {
 	handler http.Handler
 }
 
-func New(version string) *Server {
-	return newServer(newService(version))
+func New(version string, configDigest string) *Server {
+	service := newService(version)
+	service.configDigest = strings.TrimSpace(configDigest)
+	return newServer(service)
 }
 
 func newServer(service *service) *Server {

@@ -65,6 +65,7 @@ func (r fakeQueueStorageReader) AllocatedBytes() (int64, error) {
 func TestGetIngestionStatus(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
 	service := newService("test")
+	service.configDigest = "sha256:test"
 	service.now = func() time.Time { return now }
 	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
 		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
@@ -112,6 +113,8 @@ func TestGetIngestionStatus(t *testing.T) {
 	var response IngestionStatusResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.Equal(t, "ready", response.State)
+	assert.Equal(t, "test", response.Version)
+	assert.Equal(t, "sha256:test", response.ConfigDigest)
 	assert.Equal(t, now, response.GeneratedAt)
 	assert.True(t, response.InternalTelemetry.Available)
 	assert.True(t, response.QueueStorage.Available)
