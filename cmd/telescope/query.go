@@ -98,10 +98,14 @@ func runQueryCommand(
 	result, err := handle.Wait(waitCtx)
 	if err != nil {
 		if waitCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			waitCause := err
+			if ctxErr := waitCtx.Err(); ctxErr != nil {
+				waitCause = ctxErr
+			}
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			outcome, cancelErr := handle.Cancel(cancelCtx)
-			waitErr := fmt.Errorf("statement %s did not complete: %w", handle.ID(), err)
+			waitErr := fmt.Errorf("statement %s did not complete: %w", handle.ID(), waitCause)
 			if cancelErr != nil {
 				return errors.Join(waitErr, fmt.Errorf("cancel statement %s: %w", handle.ID(), cancelErr))
 			}

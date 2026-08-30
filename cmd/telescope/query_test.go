@@ -29,7 +29,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
@@ -214,8 +213,8 @@ func TestRunQueryCommandCancelsInterruptedStatement(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements":
 			writeQueryTestJSON(t, w, runningQueryResponse())
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/statements/"+queryTestStatementID:
-			writeQueryTestJSON(t, w, runningQueryResponse())
 			polledOnce.Do(func() { close(polled) })
+			<-r.Context().Done()
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements/"+queryTestStatementID+"/cancel":
 			cancelled.Store(true)
 			writeQueryTestJSON(t, w, `{
@@ -232,7 +231,6 @@ func TestRunQueryCommandCancelsInterruptedStatement(t *testing.T) {
 
 	go func() {
 		<-polled
-		time.Sleep(10 * time.Millisecond)
 		cancel()
 	}()
 
@@ -243,6 +241,7 @@ func TestRunQueryCommandCancelsInterruptedStatement(t *testing.T) {
 		io.Discard,
 		io.Discard,
 	)
+	require.ErrorIs(t, err, context.Canceled)
 	require.ErrorContains(t, err, "did not complete: context canceled")
 	require.ErrorContains(t, err, "ScopeDB status is cancelled")
 	require.True(t, cancelled.Load(), "expected the remote statement to be cancelled")
