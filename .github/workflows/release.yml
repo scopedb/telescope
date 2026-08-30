@@ -34,34 +34,38 @@ jobs:
     name: Release checks
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - uses: taiki-e/install-action@v2
+          cache: false
+      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
         with:
           tool: hawkeye@7.0.0
       - run: make license-check
       - run: make ci-go
       - run: make ci-runtime
 
-  release-ghcr:
-    if: ${{ github.repository == 'scopedb/telescope' }}
+  release-image-dry-run:
+    name: Release image dry run
+    if: ${{ github.event_name == 'pull_request' }}
     needs: checks
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      packages: write
+      contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
+          cache: false
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/scopedb/telescope
           tags: |
@@ -69,22 +73,64 @@ jobs:
             type=edge,branch=main
             type=raw,value={{date 'YYYYMMDD-HHmmss'}}
       - name: Build release artifacts
-        run: make artifacts VERSION="${{ steps.meta.outputs.version }}"
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        if: ${{ github.event_name != 'pull_request' }}
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+        env:
+          TELESCOPE_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: make artifacts VERSION="$TELESCOPE_RELEASE_VERSION"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: Dockerfile
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+
+  release-ghcr:
+    name: Publish release
+    if: ${{ github.repository == 'scopedb/telescope' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch') }}
+    needs: checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # Required to create GitHub releases.
+      packages: write # Required to publish images to GHCR.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/scopedb/telescope
+          tags: |
+            type=semver,pattern={{raw}}
+            type=edge,branch=main
+            type=raw,value={{date 'YYYYMMDD-HHmmss'}}
+      - name: Build release artifacts
+        env:
+          TELESCOPE_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: make artifacts VERSION="$TELESCOPE_RELEASE_VERSION"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          push: true
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
       - name: Publish GitHub release
