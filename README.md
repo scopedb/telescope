@@ -1,20 +1,27 @@
 # Telescope
 
-Telescope is an OpenTelemetry Collector distribution that receives OTLP telemetry and appends it to ScopeDB. It is the data plane between OpenTelemetry producers and user-managed ScopeDB tables.
+Telescope is an open source OpenTelemetry Collector distribution for delivering OTLP telemetry to ScopeDB.
 
-It provides:
+It receives logs, traces, and metrics, maps the fields you select into columns you control, and appends the resulting rows to your ScopeDB tables. Telescope fits into existing OpenTelemetry pipelines without imposing a universal storage schema.
+
+Highlights:
 
 - OTLP/gRPC and OTLP/HTTP receivers for logs, traces, and metrics
-- user-owned signal-to-table mappings
-- a ScopeDB exporter built on the Go SDK append API
-- batching, retry, memory limiting, and a persistent sending queue
-- sample field inspection, mapping preview, additive ScopeDB table planning, preflight validation, live OTLP capture, and exact delivery probes
-- single-statement ScopeQL diagnostics for inspecting stored results
-- operational health, readiness, and ingestion status endpoints
+- explicit signal-to-table mappings and user-managed schemas
+- a reusable ScopeDB exporter built on the Go SDK append API
+- batching, retries, memory limits, and a persistent sending queue from the OpenTelemetry Collector
+- tools to inspect samples, preview mappings, plan additive table changes, and validate destinations before rollout
+- live OTLP capture, delivery probes, ScopeQL diagnostics, and operational status endpoints
 
-`telescope plan` never applies its generated DDL. You choose the signals, destination tables, and fields to append. The command can compare that logical write contract with the live catalog and render reviewable, additive ScopeQL; table creation, physical design, and DDL execution remain explicit and user-owned. At runtime Telescope's data-plane responsibility ends when ScopeDB reports the append result. The operator-invoked `telescope query` command provides single-statement diagnostics for stored data; it is not part of ingestion.
+Telescope focuses on transparent, operator-controlled ingestion. `telescope plan` compares a mapping with the live catalog and renders reviewable, additive ScopeQL, but never applies DDL. You retain control over enabled signals, destination tables, mapped fields, and physical table design. At runtime, Telescope reports the result of each ScopeDB append. The optional `telescope query` command provides single-statement diagnostics for stored data and is separate from the ingestion path.
 
-## Requirements
+## Documentation
+
+- [Mapping and Table Management](docs/table-management.md) explains mapping rules, schema ownership, table planning, and safe configuration changes.
+- [Ingestion Compatibility](docs/ingestion-compatibility.md) documents supported OTLP signals, mapping sources, rejection behavior, and current limitations.
+- [ScopeDB Exporter](packages/scopedbexporter/README.md) covers the reusable OpenTelemetry Collector exporter module and its configuration.
+
+## Prerequisites
 
 - Docker with Docker Compose for container-based deployment
 - a reachable ScopeDB endpoint and API key
@@ -370,7 +377,11 @@ Commands:
 
 For the mapping contract and table ownership model, see [Mapping and Table Management](docs/table-management.md). For supported source selectors, see [Ingestion Compatibility](docs/ingestion-compatibility.md).
 
-## Development
+## Contributing
+
+Bug reports, documentation improvements, and focused pull requests are welcome. Use [GitHub Issues](https://github.com/scopedb/telescope/issues) to report a problem or discuss a proposal. Please open an issue before changing the versioned mapping contract or persistent queue compatibility so the migration impact can be agreed on first.
+
+To run the standard development checks locally:
 
 ```bash
 make fmt
@@ -389,4 +400,6 @@ Project layout:
 - `packages/scopedbexporter`: ScopeDB OpenTelemetry Collector exporter
 - `docs`: ingestion and table mapping documentation
 
-Telescope is licensed under the [Apache License, Version 2.0](LICENSE).
+## License
+
+Telescope is open source software licensed under the [Apache License, Version 2.0](LICENSE).

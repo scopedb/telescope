@@ -1,8 +1,8 @@
-# ScopeDB Exporter
+# ScopeDB Exporter for OpenTelemetry Collector
 
-`scopedbexporter` is an OpenTelemetry Collector exporter module named `scopedb`. It converts Collector `pdata` to user-selected ScopeDB columns and writes NDJSON with the ScopeDB Go SDK `Table.AppendNDJSON` API.
+`scopedbexporter` is the ScopeDB exporter used by Telescope and is available to custom OpenTelemetry Collector distributions through `scopedbexporter.NewFactory()`. The component is named `scopedb`. It converts Collector `pdata` into user-selected ScopeDB columns and writes NDJSON with the ScopeDB Go SDK `Table.AppendNDJSON` API.
 
-The exporter does not impose a Telescope-wide storage record. Each mapping entry projects one destination column from OpenTelemetry input. Only mapped columns are serialized and stored.
+The exporter does not impose a fixed telemetry schema. Each mapping entry projects one destination column from OpenTelemetry input, and only mapped columns are serialized and stored.
 
 ## Configuration
 

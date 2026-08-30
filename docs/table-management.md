@@ -1,8 +1,8 @@
 # ScopeDB Mapping and Table Management
 
-Telescope maps OpenTelemetry values into user-owned ScopeDB tables. It does not own a universal telemetry row or execute table DDL. It can render an additive ScopeQL plan from mappings whose output types are explicit.
+This guide explains how Telescope maps OpenTelemetry values into ScopeDB tables while leaving schema design and DDL execution under your control. Telescope does not impose a universal telemetry row. When mapping output types are explicit, it can render an additive ScopeQL plan for you to review and apply.
 
-The ownership boundary is:
+Responsibilities are divided as follows:
 
 | Concern | Owner |
 | --- | --- |
@@ -221,4 +221,4 @@ The persistent queue stores OTLP before destination mapping. Reusing a non-empty
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.
 
-Use ScopeDB workload measurements to decide promoted columns and indexes. Mapping every attribute into a top-level column or keeping a second full raw record by default adds cost without knowing the customer's access patterns.
+Use ScopeDB workload measurements to decide which columns and indexes to promote. Mapping every attribute into a top-level column or keeping a second full raw record by default adds cost without evidence that it benefits your query patterns.

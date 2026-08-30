@@ -92,9 +92,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          notes=(--generate-notes)
+          if [[ -f "$notes_file" ]]; then
+            notes=(--notes-file "$notes_file")
+          fi
           gh release create "$GITHUB_REF_NAME" \
             dist/*.tar.gz \
             dist/SHA256SUMS \
-            --generate-notes \
+            "${notes[@]}" \
             --title "$GITHUB_REF_NAME" \
             --verify-tag
