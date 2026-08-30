@@ -62,6 +62,10 @@ vet:
 lint:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go tool staticcheck ./...
 
+.PHONY: vuln-check
+vuln-check:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
 .PHONY: test
 test:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test ./...
@@ -75,10 +79,10 @@ test-race:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
 
 .PHONY: check
-check: fmt-check tidy-check vet lint test
+check: fmt-check tidy-check vet lint vuln-check test
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check vet lint test-race
+ci-go: fmt-check tidy-check vet lint vuln-check test-race
 
 .PHONY: build
 build:
