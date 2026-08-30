@@ -16,13 +16,13 @@ FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN GOTOOLCHAIN=go1.25.3 go mod download
+RUN GOTOOLCHAIN=go1.25.13 go mod download
 
 COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=development
-RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.3 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/telescope ./cmd/telescope
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.13 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/telescope ./cmd/telescope
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
