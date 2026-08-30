@@ -1,0 +1,34 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}}
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": {"name": "telescope.sample"},
+          "metrics": [
+            {
+              "name": "checkout.requests",
+              "description": "Checkout request count",
+              "unit": "1",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1787796000000000000",
+                    "timeUnixNano": "1787796060000000000",
+                    "asInt": "42"
+                  }
+                ],
+                "aggregationTemporality": 2,
+                "isMonotonic": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+[
+  {
+    "attributes": {
+      "http.request.method": "POST"
+    },
+    "dropped_attributes_count": 3,
+    "dropped_events_count": 5,
+    "dropped_links_count": 7,
+    "duration_ns": 500,
+    "end_time_unix_nano": "2500",
+    "events": [
+      {
+        "attributes": {
+          "valid": true
+        },
+        "dropped_attributes_count": 4,
+        "name": "validation.complete",
+        "timestamp_unix_nano": "2200"
+      }
+    ],
+    "flags": 1,
+    "kind": "server",
+    "links": [
+      {
+        "attributes": {
+          "link.kind": "follows_from"
+        },
+        "dropped_attributes_count": 6,
+        "flags": 1,
+        "span_id": "1112131415161718",
+        "trace_id": "1112131415161718191a1b1c1d1e1f20",
+        "trace_state": "link=state"
+      }
+    ],
+    "name": "POST /checkout",
+    "parent_span_id": "0807060504030201",
+    "resource": {
+      "deployment.environment.name": "production",
+      "service.name": "checkout"
+    },
+    "resource_dropped_attributes_count": 1,
+    "resource_schema_url": "https://opentelemetry.io/schemas/1.26.0",
+    "scope": {
+      "attributes": {
+        "scope.sequence": 7
+      },
+      "dropped_attributes_count": 2,
+      "name": "golden.tracer",
+      "version": "1.0.0"
+    },
+    "scope_schema_url": "https://example.com/schemas/traces/1.0.0",
+    "span_id": "0102030405060708",
+    "start_time_unix_nano": "2000",
+    "status_code": "error",
+    "status_message": "boom",
+    "trace_id": "0102030405060708090a0b0c0d0e0f10",
+    "trace_state": "vendor=opaque"
+  }
+]

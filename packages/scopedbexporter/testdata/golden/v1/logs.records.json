@@ -1,0 +1,36 @@
+[
+  {
+    "attributes": {
+      "tags": ["checkout", 1.5]
+    },
+    "body": {
+      "attempt": 2,
+      "message": "order accepted"
+    },
+    "dropped_attributes_count": 3,
+    "event_name": "order.accepted",
+    "flags": 1,
+    "message": "{\"attempt\":2,\"message\":\"order accepted\"}",
+    "observed_timestamp_unix_nano": "1100",
+    "resource": {
+      "resource.bytes": "AQID",
+      "service.name": "checkout"
+    },
+    "resource_dropped_attributes_count": 1,
+    "resource_schema_url": "https://opentelemetry.io/schemas/1.26.0",
+    "scope": {
+      "attributes": {
+        "scope.enabled": true
+      },
+      "dropped_attributes_count": 2,
+      "name": "golden.logger",
+      "version": "1.0.0"
+    },
+    "scope_schema_url": "https://example.com/schemas/logs/1.0.0",
+    "severity_number": 9,
+    "span_id": "0102030405060708",
+    "status": "INFO",
+    "timestamp_unix_nano": "1000",
+    "trace_id": "0102030405060708090a0b0c0d0e0f10"
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "telescope.sample"},
+          "spans": [
+            {
+              "traceId": "0102030405060708090a0b0c0d0e0f10",
+              "spanId": "0102030405060708",
+              "parentSpanId": "0807060504030201",
+              "name": "POST /checkout",
+              "kind": 2,
+              "startTimeUnixNano": "1787796000000000000",
+              "endTimeUnixNano": "1787796000025000000",
+              "attributes": [
+                {"key": "http.request.method", "value": {"stringValue": "POST"}}
+              ],
+              "status": {"code": 1}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,262 +1,224 @@
-# Table Management
+# ScopeDB Mapping and Table Management
 
-Telescope writes OpenTelemetry logs, traces, and metrics into three ScopeDB tables. A single daemon is expected to accept telemetry from all deployment environments, with `env` derived from each OpenTelemetry record instead of from daemon configuration. The recommended path is to let Telescope create and maintain the initial table layout, then only customize table routing when you need hard storage isolation, migration control, or a non-default database/schema.
+This guide explains how Telescope maps OpenTelemetry values into ScopeDB tables while leaving schema design and DDL execution under your control. Telescope does not impose a universal telemetry row. When mapping output types are explicit, it can render an additive ScopeQL plan for you to review and apply.
 
-This document is the operational guide for table creation and routing. If you just want a working local daemon, the embedded defaults are enough.
+Responsibilities are divided as follows:
 
-## Default Model
-
-The default table routes are:
-
-```yaml
-tables:
-  logs: scopedb.otel.logs
-  traces: scopedb.otel.traces
-  metrics: scopedb.otel.metrics
-```
-
-Each route may be written as `table`, `schema.table`, or `database.schema.table`. A three-part route such as `telemetry_prod.otel.logs` means database `telemetry_prod`, schema `otel`, table `logs`.
-
-Telescope keeps each signal in a separate table because the promoted columns differ by signal:
-
-| Signal | Default table | Purpose |
-| --- | --- | --- |
-| Logs | `scopedb.otel.logs` | Log events, exceptions, messages, severity, trace/span correlation. |
-| Traces | `scopedb.otel.traces` | Span executions, timing, duration, status, parent/child correlation. |
-| Metrics | `scopedb.otel.metrics` | Metric points, metric identity, numeric values, distributions. |
-
-All tables include shared columns such as `ingest_ts`, `schema_version`, `env`, `row_id`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, and `record`. The `record` column stores the full mapped OpenTelemetry payload as evidence; promoted columns are the intended fast query surface.
-
-The important split is:
-
-- `env` is a logical label stored in every row and derived from OpenTelemetry resource or record attributes.
-- `tables.*` is physical storage routing.
-
-Prefer setting the standard OpenTelemetry deployment environment attribute first. Change table routes only when storage topology, retention, indexing, access policy, or migration control needs to differ.
-
-## Default Physical Layout
-
-Telescope creates ScopeDB-native physical layouts for the default tables:
-
-| Signal | Partition key | Cluster key |
-| --- | --- | --- |
-| Logs | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `severity_number`, `record_timestamp` |
-| Traces | `floor(start_timestamp, 24, 'hour')` | `env`, `service`, `status_code`, `start_timestamp` |
-| Metrics | `floor(record_timestamp, 24, 'hour')` | `env`, `service`, `metric_name`, `record_timestamp` |
-
-The `floor(..., 24, 'hour')` expression is the default UTC day bucket. Partitions stay time-bounded only; service remains the primary clustering dimension, followed by stable low-cardinality status fields. Logs use OTel `severity_number` for physical clustering while preserving string `status` for agent-facing queries.
-
-Telescope also creates default indexes:
-
-| Signal | Indexes |
+| Concern | Owner |
 | --- | --- |
-| Logs | range on `record_timestamp`, `severity_number`; point on `trace_id`, `span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `source`, `status`, `severity_number`, `exception_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `source`, `exception_type`; search and pattern on `message`, `exception_message` |
-| Traces | range on `start_timestamp`, `duration_ns`; point on `trace_id`, `span_id`, `parent_span_id`, `service`, `version`, `k8s_namespace`, `k8s_cluster`, `status_code`, `http_status_code`, `url_path`, `http_route`, `peer_service`, `error_type`; pattern on `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host`, `span_name`, `url_path`, `http_route`, `peer_service`, `rpc_method`, `error_type` |
-| Metrics | range on `record_timestamp`; point on `metric_name`, `service`, `version`, `k8s_namespace`, `k8s_cluster`; pattern on `metric_name`, `service`, `version`, `instance_id`, `k8s_pod`, `k8s_namespace`, `k8s_cluster`, `container_name`, `host_ip`, `host` |
+| Signal-to-table routing and destination projection (selection, fallback/default, constants, casts) | Telescope exporter config |
+| Logical required column types and live catalog diff | `telescope plan` |
+| DDL review/execution, nullability/defaults, partitioning, clustering, retention, and indexes | User-managed ScopeDB DDL and ScopeQL |
+| Telemetry mutation, filtering, sampling, content-based routing, arithmetic, regex, and aggregation | Upstream OpenTelemetry processors |
+| Persistent queue and retry schedule | OpenTelemetry Collector `exporterhelper` |
+| One append request and its `committed`/`rejected`/`unknown` result | ScopeDB Go SDK `AppendNDJSON` |
 
-## How Tables Are Created
+This separation is intentional. A statically typed selector or explicit `cast` determines the logical append type. A representative sample only tests that decision; it cannot determine future shape or infer a physical layout.
 
-Table creation is controlled by the ScopeDB exporter setting:
+Telescope's boundary ends at the append result. It does not query or interpret the stored columns.
+
+## Mapping Model
+
+Each mapping is keyed by destination column. A direct selector is the common shorthand:
 
 ```yaml
-exporters:
-  scopedb:
-    create_tables_if_not_exist: true
+signals:
+  logs:
+    table: telemetry_prod.otel.events
+    mapping:
+      event_time: log.timestamp
+      app: resource.attributes["service.name"]
+      environment: resource.attributes["deployment.environment.name"]
+      level: log.severity_text
+      body: log.body
+      trace_id: log.trace_id
+  traces:
+    table: telemetry_prod.otel.spans
+    mapping:
+      started_at: span.start_time
+      app: resource.attributes["service.name"]
+      trace_id: span.trace_id
+      span_id: span.span_id
+      operation: span.name
+      duration_ns: span.duration_ns
+      tags: span.attributes
+  metrics:
+    table: telemetry_prod.otel.metric_points
+    mapping:
+      measured_at: datapoint.timestamp
+      app: resource.attributes["service.name"]
+      name: metric.name
+      int_value: datapoint.int_value
+      double_value: datapoint.double_value
+      distribution: datapoint.distribution
+      tags: datapoint.attributes
 ```
 
-When enabled, the exporter does this during startup:
+Only those destination columns appear in the NDJSON row. There is no implicit `record`, `env`, `schema_version`, or copy of every OpenTelemetry attribute. Map a whole attribute object only when the target table actually has an object column for it; otherwise select individual keys.
 
-1. Parse `tables.logs`, `tables.traces`, and `tables.metrics`.
-2. Create the database if the route uses `database.schema.table`.
-3. Create the schema if the route uses `schema.table` or `database.schema.table`.
-4. Create each signal table with Telescope's built-in schema.
-5. Cache successful initialization per endpoint, signal, and table route for the process lifetime.
+Missing and null source values are omitted. Selected empty strings, `false`, and numeric zeroes are preserved. Without a mapping default, a source that can be absent therefore needs a compatible nullable destination column or table default.
 
-Creation uses `CREATE ... IF NOT EXISTS`, so repeated daemon starts are expected and safe. If startup cannot create or verify the table, the exporter fails fast instead of silently dropping telemetry.
+Use an expanded rule when a destination column needs fallback, a Telescope-side default, a constant, or a fixed output type:
 
-## Recommended Pattern
+```yaml
+signals:
+  logs:
+    table: telemetry_prod.otel.events
+    mapping:
+      event_time: log.timestamp
+      service:
+        sources:
+          - resource.attributes["service.name"]
+          - resource.attributes["service"]
+        default: unknown
+        cast: string
+      request_id:
+        source: log.body["request"]["id"]
+        cast: string
+      origin:
+        value: otel
+```
 
-Use the embedded daemon defaults for local bootstrap:
+The rule contract is deliberately small:
+
+- Use exactly one of `source`, ordered `sources`, or constant `value`.
+- `default` is used only when every source is absent or null. Empty strings, `false`, and numeric zeroes are present values; `default` and `value` themselves cannot be null.
+- `cast` fixes the output type to `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Structured casts validate the runtime shape instead of serializing it; `any` is never selected implicitly.
+- Object keys and array indexes can be chained with `["key"]` and `[index]`. Missing or mismatched path segments are absent and participate in fallback.
+
+This projection runs only while building the ScopeDB row. It does not mutate the OpenTelemetry record seen by other pipelines, and it is not an event-processing language. Filtering, sampling, arbitrary expressions, regex, arithmetic, aggregation, and content-based routing remain upstream concerns.
+
+The full source selector reference is in the [ScopeDB exporter README](../packages/scopedbexporter/README.md#mapping-sources).
+
+## Plan and Apply Tables
+
+Put only the routes and mappings in `telescope.yaml`; Collector receivers, batching, persistence, compression, and retry remain Telescope-owned:
+
+```yaml
+signals:
+  traces:
+    table: telemetry_prod.otel.spans
+    mapping:
+      started_at: span.start_time
+      operation: span.name
+```
+
+Only configured signals get Collector pipelines. The example accepts traces without requiring placeholder log and metric tables. Add independent `logs` or `metrics` blocks when needed.
+
+Inspect a representative sample before planning when runtime values or casts are involved:
 
 ```bash
-telescope daemon --env-file services/gateway/deploy/.env
+telescope capture \
+  --listen-http 127.0.0.1:14318 \
+  --limit 100 \
+  --timeout 2m \
+  traces > traces.otlp.json
 ```
 
-The env file only needs `TELESCOPE_SCOPEDB_ENDPOINT` and `TELESCOPE_SCOPEDB_API_KEY`. You can provide the same values through environment variables or `--scopedb-endpoint` / `--scopedb-api-key` flags. This uses the embedded Collector config and creates the default tables automatically.
+This standalone mode requires neither `telescope.yaml` nor ScopeDB. It accepts the selected OTLP/HTTP signal, retains only the bounded sample, and does not forward telemetry; configure it as a temporary second exporter if the original stream must continue elsewhere. Use the repository sample below for initial exploration, or replace its path with the captured file for the real mapping.
 
-Docker uses the same embedded Collector config. Docker Compose sets `TELESCOPE_QUEUE_DIR=/var/lib/telescope/queue`, so the persistent queue is stored in the `scopedb-telescope-queue` volume.
-
-Send all logical telemetry environments to the same daemon unless you have a strong reason to split physical tables or ScopeDB credentials. `env` is stored as a column and is cheaper to vary than table topology.
-
-## Choosing Env vs Tables
-
-Prefer setting OpenTelemetry environment attributes when you want to distinguish:
-
-- local, staging, and production telemetry in the same physical tables
-- temporary test traffic from normal traffic
-- multiple apps that can share retention and access policy
-
-Telescope derives the top-level `env` column with this precedence:
-
-1. resource `deployment.environment.name`
-2. resource `deployment.environment`
-3. resource `env`
-4. record attribute `deployment.environment.name`
-5. record attribute `deployment.environment`
-6. record attribute `env`
-7. `default`
-
-Prefer changing `tables.*` when you need:
-
-- different retention, indexing, or access policy per environment
-- migration testing for a new table schema
-- hard physical isolation between tenants or deployments
-- a non-default ScopeDB database/schema layout
-
-Avoid routing multiple signals into the same table. The exporter rejects duplicate `tables.logs`, `tables.traces`, and `tables.metrics` routes because the signal schemas are intentionally different.
-
-## Configuration Reference
-
-Minimal ScopeDB exporter configuration:
-
-```yaml
-exporters:
-  scopedb:
-    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
-    path: /v1/ingest
-    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    create_tables_if_not_exist: true
-    schema_version: v1
-```
-
-Full table routing example:
-
-```yaml
-exporters:
-  scopedb:
-    endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
-    path: /v1/ingest
-    api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
-    tables:
-      logs: telemetry_prod.otel.logs
-      traces: telemetry_prod.otel.traces
-      metrics: telemetry_prod.otel.metrics
-    create_tables_if_not_exist: true
-    schema_version: v1
-    compression: zstd
-    timeout: 10s
-    retry_on_failure:
-      enabled: true
-      initial_interval: 1s
-      max_interval: 30s
-      max_elapsed_time: 0s
-    sending_queue:
-      enabled: true
-      queue_size: 10000
-      num_consumers: 4
-      storage: file_storage
-```
-
-In this example, the three `tables.*` routes choose physical tables in database `telemetry_prod` and schema `otel`. Row-level `env` still comes from each OpenTelemetry record.
-
-Important fields:
-
-| Field | Default | Notes |
-| --- | --- | --- |
-| `endpoint` | none | Required ScopeDB physical region endpoint. |
-| `path` | `/v1/ingest` | ScopeDB ingest API path. |
-| `api_key` | none | Required; sent as `Authorization: Bearer <api_key>`. |
-| `tables.logs` | `scopedb.otel.logs` | Log table route. |
-| `tables.traces` | `scopedb.otel.traces` | Trace/span table route. |
-| `tables.metrics` | `scopedb.otel.metrics` | Metric table route. |
-| `create_tables_if_not_exist` | `false` in exporter defaults, `true` in Telescope daemon config | Enables startup database/schema/table creation. |
-| `schema_version` | `v1` | Stored in every row for future migrations. |
-| `compression` | `zstd` | Use `none`, `gzip`, or `zstd`. |
-| `timeout` | `10s` | Also bounds startup table creation unless unset. |
-
-## Embedded Defaults
-
-The embedded `telescope daemon` config is used by both the local binary and the Docker image:
-
-| Setting | Embedded daemon default |
-| --- | --- |
-| HTTP API | `:8080` |
-| OTLP gRPC | `0.0.0.0:4317` |
-| OTLP HTTP | `0.0.0.0:4318` |
-| health | `0.0.0.0:13133` |
-| queue dir | `$HOME/.telescope/queue` |
-| batch timeout | `TELESCOPE_OTEL_BATCH_TIMEOUT`, default `30s` |
-| batch send size | `TELESCOPE_OTEL_BATCH_SIZE`, default `2000` |
-| batch max size | `TELESCOPE_OTEL_BATCH_MAX_SIZE`, default `2000` |
-| queue size | `5000` |
-| queue consumers | `1` |
-| retry initial interval | `5s` |
-| retry max interval | `60s` |
-| retry max elapsed | `10m` |
-
-Override the queue directory with `TELESCOPE_QUEUE_DIR` when running in a container or another environment that needs a specific writable volume.
-
-Tune the embedded Collector batch processor with `TELESCOPE_OTEL_BATCH_TIMEOUT`, `TELESCOPE_OTEL_BATCH_SIZE`, and `TELESCOPE_OTEL_BATCH_MAX_SIZE`. Smaller batches can drain persistent queues with lower per-request latency when the backend is slow; larger batches reduce request volume when the backend can ingest them comfortably. These knobs only affect the embedded config. Custom configs supplied through `TELESCOPE_COLLECTOR_CONFIG` must define their own batch processor settings.
-
-Use `TELESCOPE_COLLECTOR_CONFIG` or `telescope daemon --collector-config` only when you need to replace the embedded Collector config with a custom config URI or file path.
-
-## Validating Configuration
-
-Validate the embedded config:
+Discover the selectors that the runtime mapper can read from that sample:
 
 ```bash
-TELESCOPE_SCOPEDB_ENDPOINT=https://scopedb.invalid \
-TELESCOPE_SCOPEDB_API_KEY=dummy \
+telescope inspect traces --sample traces.otlp.json
+```
+
+The human output groups exact selectors by resource, scope, and signal layer and reports observed types and the records where each selector is populated. Empty protocol defaults are omitted. Nested objects are expanded into copyable paths; arrays remain whole selectors. Partial and mixed-type fields are highlighted, while sample values are never printed. `--format json` emits the same versioned evidence for tooling. Inspection does not choose destination columns, generate a mapping, or save inferred state.
+
+```bash
+telescope preview \
+  --offline \
+  --strict \
+  --sample traces=deploy/samples/traces.otlp.json \
+  ./telescope.yaml
+```
+
+Then compare the logical write contract with the live catalog:
+
+```bash
+export SCOPEDB_ENDPOINT=https://<region>.scopedb.cloud
+export SCOPEDB_API_KEY=sk_...
+
+telescope plan \
+  --sample traces=deploy/samples/traces.otlp.json \
+  --out tables.scopeql \
+  ./telescope.yaml
+```
+
+ScopeQL owns its connection configuration. If the intended connection is not already present and selected, initialize it before applying Telescope's generated DDL:
+
+```bash
+scopeql config set-connection telescope-target
+scopeql config use-connection telescope-target
+scopeql config get-connections
+```
+
+The setup command prompts for the endpoint and authentication fields supported by the installed ScopeQL version. Telescope's `--env-file`, `TELESCOPE_SCOPEDB_*`, and `SCOPEDB_*` inputs configure Telescope only; they do not create or migrate ScopeQL connections.
+
+After reviewing the generated script and confirming the intended ScopeQL connection, apply it explicitly:
+
+```bash
+scopeql run -f tables.scopeql
+```
+
+The human plan groups every configured signal by destination table and classifies it as `create`, `alter`, `no-op`, or `blocked`. It shows the mapping behind a conflict, sample coverage and observed types, and an evidence-based `cast` edit when one sample type consistently resolves a dynamic mapping. `--out` atomically writes the ScopeQL from the same catalog read while retaining that feedback on stdout. The output file is left untouched when any table is blocked, so setup cannot silently apply a partial contract. `--format json` returns the same versioned generated plan for other tooling, and `--format scopeql` writes DDL to stdout for pipelines.
+
+Generated ScopeQL contains only missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, ordered by dependency and deduplicated across tables. It is never executed by Telescope. For Telescope, explicit connection flags override `TELESCOPE_SCOPEDB_*`, which override its `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` fallbacks. ScopeQL uses its independently selected connection.
+
+A fixed selector type or explicit `cast` is authoritative. Observed sample types and coverage are included as evidence only. An uncast attribute, nested path, `log.body`, or `datapoint.value` therefore blocks table creation even when one sample happens to show a stable type. Add a cast such as `string`, `object`, `array`, or explicitly `any` to record the intended table type. Incompatible existing columns and conflicting requirements from signals sharing one table also block the plan.
+
+Review the generated DDL before applying it. Telescope deliberately does not infer column defaults, partitioning, clustering, retention, distinct keys, or indexes from telemetry samples.
+
+## Validate and Run
+
+Validate the applied contract before accepting OTLP:
+
+```bash
+telescope validate \
+  --scopedb-endpoint https://<region>.scopedb.cloud \
+  --scopedb-api-key sk_... \
+  ./telescope.yaml
+
+telescope run \
+  --scopedb-endpoint https://<region>.scopedb.cloud \
+  --scopedb-api-key sk_... \
+  ./telescope.yaml
+```
+
+The validate command prints `signal -> table -> destination column -> mapping rule`, then describes every configured destination. It reports all invalid selectors and rules in one run, suggests close selector names, and reports missing columns or statically known output-type mismatches. An explicit cast supplies the output type for catalog validation. A cast from runtime data is still marked runtime-dependent when sample values determine whether conversion succeeds.
+
+`telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
+
+Full Collector configuration can still be checked without contacting ScopeDB:
+
+```bash
 make validate
 ```
 
-The validation path checks Collector config shape and exporter config validation. It does not contact ScopeDB unless you actually start a pipeline.
+For an existing deployment, obtain the sample from the actual exporter input instead of assembling one manually:
 
-## Manual Table Control
-
-If your production environment manages DDL separately, set:
-
-```yaml
-exporters:
-  scopedb:
-    create_tables_if_not_exist: false
+```bash
+telescope capture --limit 100 traces |
+  telescope preview --sample traces=- ./telescope.yaml
 ```
 
-In that mode, create the tables ahead of time using the same schema as `packages/scopedbexporter/table_schema.go`. This is useful when database/schema creation requires elevated privileges or when schema changes must go through change management.
+The capture is active only for this request and stops at the record limit or timeout. It observes exporter input after Collector batch processing and before the sending queue, so low-volume telemetry can take up to the batch timeout to appear while append retries cannot duplicate the sample. The default 45-second capture timeout exceeds the bundled 30-second batch timeout.
 
-For most early Telescope deployments, keep `create_tables_if_not_exist: true`. It reduces bootstrap friction and keeps the table layout aligned with the exporter version.
+This running-instance form is selected when `--listen-http` is omitted. `--endpoint` chooses the operational endpoint to read from and cannot be combined with `--listen-http`.
 
-## Schema Evolution
+Use `telescope verify` after startup to send a minimal synthetic record for every enabled signal and wait for exact ScopeDB append acknowledgements. This confirms transport and commit acknowledgement. It neither exercises application-specific mapping values nor queries mapped columns; use `telescope preview` for the mapping itself.
 
-Telescope's initial table schema is intentionally append-friendly:
+## Mapping Changes
 
-- stable promoted columns are first-class table columns
-- `record` keeps the full mapped OpenTelemetry payload
-- `schema_version` allows future readers to distinguish layouts
-- `env` allows logical separation without multiplying table topology
+Treat a mapping change like an application-to-database contract change:
 
-When a raw OpenTelemetry attribute becomes important for repeated queries, prefer promoting it in the exporter/schema and semantic layer rather than relying on arbitrary `record` filters. This keeps agent queries predictable and lets ScopeDB index/materialize the field intentionally.
+1. Update the candidate mapping and preview representative input.
+2. Run `telescope plan`, review the generated additive ScopeQL, and apply it explicitly.
+3. Stop routing new OTLP to the old instance and wait for its queue and accepted-without-final-outcome count to reach zero.
+4. Run `telescope validate`, then restart or roll out Telescope.
 
-For a breaking schema migration, prefer creating new tables first, running both paths briefly, and then switching readers once the new tables have enough coverage.
+The persistent queue stores OTLP before destination mapping. Reusing a non-empty queue with a different config digest would project older telemetry through the new mapping. A binary-only upgrade can reuse the queue when the digest printed by `telescope status` is unchanged. For a mapping change without an ingestion pause, use a separate deployment and queue volume, route new traffic to it, and let the old deployment drain under its original config.
 
-## Troubleshooting
+For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile old and new tables.
 
-`endpoint is required` or `api_key is required`:
-
-Set `TELESCOPE_SCOPEDB_ENDPOINT` and `TELESCOPE_SCOPEDB_API_KEY`.
-
-`table route must be table, schema.table, or database.schema.table`:
-
-Use only identifier parts made of letters, numbers, and underscores, starting with a letter or underscore.
-
-`tables.logs and tables.traces must point to different tables`:
-
-Give each signal a distinct route.
-
-Startup fails while ensuring tables:
-
-Confirm the API key has permission to create the target database/schema/table, or pre-create tables and set `create_tables_if_not_exist: false`.
-
-Telemetry buffers but does not appear in ScopeDB:
-
-Check the persistent queue settings, ScopeDB endpoint, API key, and exporter retry logs. In Docker, the queue is stored in the `scopedb-telescope-queue` volume mounted at `/var/lib/telescope/queue`.
+Use ScopeDB workload measurements to decide which columns and indexes to promote. Mapping every attribute into a top-level column or keeping a second full raw record by default adds cost without evidence that it benefits your query patterns.

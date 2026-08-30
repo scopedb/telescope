@@ -1,0 +1,61 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout"}},
+          {"key": "resource.bytes", "value": {"bytesValue": "AQID"}}
+        ],
+        "droppedAttributesCount": 1
+      },
+      "schemaUrl": "https://opentelemetry.io/schemas/1.26.0",
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "golden.logger",
+            "version": "1.0.0",
+            "attributes": [
+              {"key": "scope.enabled", "value": {"boolValue": true}}
+            ],
+            "droppedAttributesCount": 2
+          },
+          "schemaUrl": "https://example.com/schemas/logs/1.0.0",
+          "logRecords": [
+            {
+              "timeUnixNano": 1000,
+              "observedTimeUnixNano": 1100,
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {
+                "kvlistValue": {
+                  "values": [
+                    {"key": "message", "value": {"stringValue": "order accepted"}},
+                    {"key": "attempt", "value": {"intValue": 2}}
+                  ]
+                }
+              },
+              "attributes": [
+                {
+                  "key": "tags",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        {"stringValue": "checkout"},
+                        {"doubleValue": 1.5}
+                      ]
+                    }
+                  }
+                }
+              ],
+              "droppedAttributesCount": 3,
+              "flags": 1,
+              "traceId": "0102030405060708090a0b0c0d0e0f10",
+              "spanId": "0102030405060708",
+              "eventName": "order.accepted"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

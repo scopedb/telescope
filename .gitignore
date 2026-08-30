@@ -1,5 +1,6 @@
 .DS_Store
 bin/
 dist/
-services/gateway/deploy/.env
-services/gateway/collector/_build/
+deploy/.env
+deploy/telescope.yaml
+deploy/kubernetes/local/

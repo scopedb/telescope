@@ -22,16 +22,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 func TestMapLogs(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = "https://scopedb.invalid"
-	cfg.APIKey = configopaque.String("test-api-key")
-
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
 	resourceLogs.Resource().Attributes().PutStr("service.name", "checkout")
@@ -54,12 +49,11 @@ func TestMapLogs(t *testing.T) {
 	record.Body().SetStr("hello world")
 	record.Attributes().PutStr("env", "dev")
 
-	payload, err := mapLogs(cfg, logs)
+	payload, err := mapLogs(logs)
 	require.NoError(t, err)
 	require.Len(t, payload.Records, 1)
 
 	mapped := payload.Records[0]
-	assert.Equal(t, signalLogs, payload.Signal)
 	assert.Equal(t, "123", mapped["timestamp_unix_nano"])
 	assert.Equal(t, "456", mapped["observed_timestamp_unix_nano"])
 	assert.Equal(t, "01020300000000000000000000000000", mapped["trace_id"])
@@ -75,6 +69,10 @@ func TestMapLogs(t *testing.T) {
 		"host.name":           "checkout-node",
 		"host.ip":             []any{"10.0.0.10"},
 	}, mapped["resource"])
-	assert.Equal(t, map[string]any{"name": "test-scope", "version": "1.2.3"}, mapped["scope"])
+	assert.Equal(t, map[string]any{
+		"name":                     "test-scope",
+		"version":                  "1.2.3",
+		"dropped_attributes_count": uint32(0),
+	}, mapped["scope"])
 	assert.Equal(t, map[string]any{"env": "dev"}, mapped["attributes"])
 }

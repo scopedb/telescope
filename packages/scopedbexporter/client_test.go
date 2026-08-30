@@ -21,420 +21,446 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
+	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/component/componenttest"
-	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 )
 
-type tableInitStatementRequest struct {
-	Statement string `json:"statement"`
-	Format    string `json:"format"`
-}
-
-type tableInitResultSetMetadata struct {
-	Fields  []map[string]any `json:"fields"`
-	NumRows uint64           `json:"num_rows"`
-}
-
-type tableInitResultSet struct {
-	Metadata *tableInitResultSetMetadata `json:"metadata,omitempty"`
-	Format   string                      `json:"format,omitempty"`
-	Rows     json.RawMessage             `json:"rows,omitempty"`
-}
-
-type tableInitStatementResponse struct {
-	StatementID string              `json:"statement_id"`
-	Status      string              `json:"status"`
-	Message     string              `json:"message,omitempty"`
-	ResultSet   *tableInitResultSet `json:"result_set,omitempty"`
-}
-
-func TestClientSendZstdByDefaultAndBearer(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-
+func TestClientSendAppendsMappedNDJSON(t *testing.T) {
+	var received []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, defaultPath, r.URL.Path)
+		require.Equal(t, "/v1/databases/scopedb/schemas/public/tables/vendor_otel_logs_test/rows", r.URL.Path)
 		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
-		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
-		body, err := decodeCompressedRequestBody(r)
+		body, err := decodeSDKRequestBody(r)
 		require.NoError(t, err)
-
-		var request scopeDBIngestRequest
-		require.NoError(t, json.Unmarshal(body, &request))
-		assert.Equal(t, "committed", request.Type)
-		assert.Equal(t, "json", request.Data.Format)
-		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
-		assert.Contains(t, request.Statement, "record_timestamp")
-		assert.Contains(t, request.Statement, "observed_timestamp")
-		assert.Contains(t, request.Statement, "status")
-		assert.Contains(t, request.Statement, "message")
-		assert.NotContains(t, request.Statement, "metric_name")
-
-		lines := strings.Split(strings.TrimSpace(request.Data.Rows), "\n")
-		require.Len(t, lines, 1)
-
-		var row map[string]any
-		require.NoError(t, json.Unmarshal([]byte(lines[0]), &row))
-		assert.Equal(t, signalLogs, row["signal"])
-		assert.Equal(t, "v1", row["schema_version"])
-		assert.Equal(t, "demo", row["env"])
-		assert.NotEmpty(t, row["row_id"])
-		assert.Equal(t, "2024-04-23T01:23:45.123456789Z", row["record_timestamp"])
-		assert.Equal(t, "2024-04-23T01:23:46.123456789Z", row["observed_timestamp"])
-		assert.Equal(t, map[string]any{
-			"body":                         "hello",
-			"timestamp_unix_nano":          "1713835425123456789",
-			"observed_timestamp_unix_nano": "1713835426123456789",
-			"resource": map[string]any{
-				"deployment.environment.name": "demo",
-			},
-		}, row["record"])
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	cfg.Endpoint = server.URL
-
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
-	require.NoError(t, err)
-
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{
-		SchemaVersion: "v1",
-		Records: []Record{{
-			"body":                         "hello",
-			"timestamp_unix_nano":          "1713835425123456789",
-			"observed_timestamp_unix_nano": "1713835426123456789",
-			"resource": map[string]any{
-				"deployment.environment.name": "demo",
-			},
-		}},
-	})
-	require.NoError(t, err)
-}
-
-func TestClientSendGzipAndBearer(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	cfg.Compression = "gzip"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, defaultPath, r.URL.Path)
-		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
-		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
-		assert.NotEmpty(t, r.Header.Get("X-ScopeDB-Uncompressed-Content-Length"))
-
-		body, err := decodeCompressedRequestBody(r)
-		require.NoError(t, err)
-
-		var request scopeDBIngestRequest
-		require.NoError(t, json.Unmarshal(body, &request))
-		assert.Equal(t, "committed", request.Type)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	cfg.Endpoint = server.URL
-
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
-	require.NoError(t, err)
-
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{
-		SchemaVersion: "v1",
-		Records: []Record{{
-			"body":                         "hello",
-			"timestamp_unix_nano":          "1713835425123456789",
-			"observed_timestamp_unix_nano": "1713835426123456789",
-		}},
-	})
-	require.NoError(t, err)
-}
-
-func TestClientEnsureTable(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	ref, err := parseTableRef(cfg.Tables.Logs)
-	require.NoError(t, err)
-	expectedStatements := append(
-		[]string{"CREATE SCHEMA IF NOT EXISTS `public`", createTableStatementForSignal(signalLogs, ref)},
-		createIndexStatementsForSignal(signalLogs, ref)...,
-	)
-	var statements []string
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
-
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/statements":
-			var request tableInitStatementRequest
-			body, err := decodeCompressedRequestBody(r)
-			require.NoError(t, err)
-			require.NoError(t, json.Unmarshal(body, &request))
-			assert.Equal(t, "json", request.Format)
-			statements = append(statements, request.Statement)
-			w.Header().Set("Content-Type", "application/json")
-			require.NoError(t, json.NewEncoder(w).Encode(tableInitStatementResponse{
-				StatementID: "11111111-1111-1111-1111-111111111111",
-				Status:      "finished",
-				ResultSet: &tableInitResultSet{
-					Metadata: &tableInitResultSetMetadata{
-						Fields:  []map[string]any{},
-						NumRows: 0,
-					},
-					Format: "json",
-					Rows:   json.RawMessage(`[]`),
-				},
-			}))
-		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(line, &row))
+			received = append(received, row)
 		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(len(received)),
+		}))
 	}))
 	defer server.Close()
 
-	cfg.Endpoint = server.URL
-
+	cfg := testClientConfig(server.URL)
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{
+		"message": "log.message",
+		"service": `resource.attributes["service.name"]`,
+	})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.EnsureTable(context.Background(), signalLogs, ref)
+	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{
+		"message":    "hello",
+		"trace_id":   "not-selected",
+		"attributes": map[string]any{"order.id": "not-selected"},
+		"resource":   map[string]any{"service.name": "checkout", "host.name": "not-selected"},
+	}}})
 	require.NoError(t, err)
-	assert.Equal(t, expectedStatements, statements)
+	require.Len(t, received, 1)
+	assert.Equal(t, map[string]any{"message": "hello", "service": "checkout"}, received[0])
 }
 
-func TestClientEnsureTableCreatesDatabaseSchemaAndTable(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	cfg.Tables.Logs = "scopedb.otel.logs"
-	ref, err := parseTableRef(cfg.Tables.Logs)
-	require.NoError(t, err)
-
-	expectedStatements := []string{
-		"CREATE DATABASE IF NOT EXISTS `scopedb`",
-		"CREATE SCHEMA IF NOT EXISTS `scopedb`.`otel`",
-		createTableStatementForSignal(signalLogs, ref),
-	}
-	expectedStatements = append(expectedStatements, createIndexStatementsForSignal(signalLogs, ref)...)
-	var statements []string
-
+func TestClientSendUsesConfiguredGzipCompression(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/v1/statements", r.URL.Path)
-
-		var request tableInitStatementRequest
-		body, err := decodeCompressedRequestBody(r)
+		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
+		body, err := decodeSDKRequestBody(r)
 		require.NoError(t, err)
-		require.NoError(t, json.Unmarshal(body, &request))
-		statements = append(statements, request.Statement)
-
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(tableInitStatementResponse{
-			StatementID: "44444444-4444-4444-4444-444444444444",
-			Status:      "finished",
-			ResultSet: &tableInitResultSet{
-				Metadata: &tableInitResultSetMetadata{
-					Fields:  []map[string]any{},
-					NumRows: 0,
-				},
-				Format: "json",
-				Rows:   json.RawMessage(`[]`),
-			},
-		}))
+		assert.JSONEq(t, `{"message":"hello"}`, strings.TrimSpace(string(body)))
+		writeAppendCommitted(t, w, 1)
 	}))
 	defer server.Close()
 
-	cfg.Endpoint = server.URL
+	cfg := testClientConfig(server.URL)
+	cfg.Compression = "gzip"
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.EnsureTable(context.Background(), signalLogs, ref)
-	require.NoError(t, err)
-	assert.Equal(t, expectedStatements, statements)
+	require.NoError(t, client.Send(context.Background(), signalLogs, &IngestPayload{
+		Records: []Record{{"message": "hello"}},
+	}))
 }
 
-func TestClientEnsureTableFailedStatement(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	ref, err := parseTableRef(cfg.Tables.Logs)
+func TestClientSendRoutesAllSignals(t *testing.T) {
+	cfg := testClientConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
+	cfg.Mappings.Traces = shorthandMapping(map[string]string{"name": "span.name"})
+	cfg.Mappings.Metrics = shorthandMapping(map[string]string{"name": "metric.name"})
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
+	var tableNames []string
+	var rows []map[string]any
+	client.appendFn = func(_ context.Context, table *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		tableNames = append(tableNames, table.Name)
+		var row map[string]any
+		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		rows = append(rows, row)
+		return scopedb.AppendRowsResult{AppendState: scopedb.AppendStateCommitted, NumRowsInserted: 1}, nil
+	}
+
+	require.NoError(t, client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "log"}}}))
+	require.NoError(t, client.Send(context.Background(), signalTraces, &IngestPayload{Records: []Record{{"name": "span"}}}))
+	require.NoError(t, client.Send(context.Background(), signalMetrics, &IngestPayload{Records: []Record{{"metric_name": "metric"}}}))
+
+	assert.Equal(t, []string{"vendor_otel_logs_test", "vendor_otel_traces_test", "vendor_otel_metrics_test"}, tableNames)
+	assert.Equal(t, []map[string]any{{"message": "log"}, {"name": "span"}, {"name": "metric"}}, rows)
+}
+
+func TestClientValidateDestination(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/v1/statements", r.URL.Path)
-		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/databases/scopedb/schemas/public/tables/vendor_otel_logs_test", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(tableInitStatementResponse{
-			StatementID: "22222222-2222-2222-2222-222222222222",
-			Status:      "failed",
-			Message:     "permission denied",
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"database":     "scopedb",
+			"schema":       "public",
+			"name":         "vendor_otel_logs_test",
+			"columns":      []map[string]any{{"name": "message", "data_type": "string"}},
+			"partition_by": []string{},
+			"cluster_by":   []string{},
+			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
 		}))
 	}))
 	defer server.Close()
 
-	cfg.Endpoint = server.URL
-
+	cfg := testClientConfig(server.URL)
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.EnsureTable(context.Background(), signalLogs, ref)
+	require.NoError(t, client.ValidateDestination(context.Background(), signalLogs))
+	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	require.NoError(t, err)
+	require.Len(t, validation.Columns, 1)
+	assert.Equal(t, "string", validation.Columns[0].TargetType)
+	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
+	cfg.Mappings.Logs["service"] = MappingRule{Source: `resource.attributes["service.name"]`}
+	client, err = NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+	err = client.ValidateDestination(context.Background(), signalLogs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "permission denied")
+	assert.ErrorContains(t, err, "missing mapped columns: service")
 }
 
-func TestClientSendUsesSignalSpecificTable(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	cfg.Tables.Logs = "public.vendor_otel_logs_test"
-	cfg.Compression = "none"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request scopeDBIngestRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_logs_test`")
-		assert.Contains(t, request.Statement, "status")
-		assert.Contains(t, request.Statement, "message")
-		assert.NotContains(t, request.Statement, "parent_span_id")
-		w.WriteHeader(http.StatusOK)
+func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"database": "scopedb",
+			"schema":   "public",
+			"name":     "vendor_otel_logs_test",
+			"columns": []map[string]any{
+				{"name": "severity", "data_type": "string"},
+				{"name": "tenant", "data_type": "string"},
+			},
+			"partition_by": []string{},
+			"cluster_by":   []string{},
+			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+		}))
 	}))
 	defer server.Close()
 
-	cfg.Endpoint = server.URL
-
+	cfg := testClientConfig(server.URL)
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{
+		"severity": "log.severity_number",
+		"tenant":   `resource.attributes["tenant.id"]`,
+	})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{
-		SchemaVersion: "v1",
-		Records:       []Record{{"body": "hello"}},
-	})
-	require.NoError(t, err)
+	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "severity (log.severity_number produces int, table has string)")
+	assert.NotContains(t, err.Error(), "tenant")
+	require.Len(t, validation.Columns, 2)
+	assert.Equal(t, MappingIncompatible, validation.Columns[0].Compatibility)
+	assert.Equal(t, MappingRuntimeDependent, validation.Columns[1].Compatibility)
 }
 
-func TestClientSendUsesTraceSchema(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	cfg.Compression = "none"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request scopeDBIngestRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_traces_test`")
-		assert.Contains(t, request.Statement, "span_name")
-		assert.Contains(t, request.Statement, "span_kind")
-		assert.Contains(t, request.Statement, "status_code")
-		assert.Contains(t, request.Statement, "duration_ns")
-		assert.NotContains(t, request.Statement, "message")
-		w.WriteHeader(http.StatusOK)
+func TestClientValidateDestinationUsesCastOutputType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeTableDescription(t, w, "vendor_otel_logs_test", []string{"severity"})
 	}))
 	defer server.Close()
 
-	cfg.Endpoint = server.URL
-
+	cfg := testClientConfig(server.URL)
+	cfg.Mappings.Logs = MappingConfig{
+		"severity": {Source: "log.severity_number", Cast: "string"},
+	}
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.Send(context.Background(), signalTraces, &IngestPayload{
-		SchemaVersion: "v1",
-		Records: []Record{{
-			"name":                 "GET /checkout",
-			"kind":                 "server",
-			"status_code":          "error",
-			"start_time_unix_nano": "1713835425123456789",
-			"end_time_unix_nano":   "1713835426123456789",
-		}},
-	})
+	validation, err := client.inspectDestination(context.Background(), signalLogs)
 	require.NoError(t, err)
+	require.Len(t, validation.Columns, 1)
+	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
+	assert.Equal(t, "string", validation.Columns[0].OutputType)
+	assert.False(t, validation.Columns[0].RuntimeDependent)
 }
 
-func TestClientSendUsesMetricSchema(t *testing.T) {
-	cfg := testClientConfig("http://example.invalid")
-	cfg.Compression = "none"
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request scopeDBIngestRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-		assert.Contains(t, request.Statement, "INSERT INTO `public`.`vendor_otel_metrics_test`")
-		assert.Contains(t, request.Statement, "metric_type")
-		assert.Contains(t, request.Statement, "temporality")
-		assert.Contains(t, request.Statement, "unit")
-		assert.Contains(t, request.Statement, "number_value")
-		assert.Contains(t, request.Statement, "distribution")
-		assert.NotContains(t, request.Statement, "span_name")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	cfg.Endpoint = server.URL
-
+func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
+	cfg := testClientConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.Send(context.Background(), signalMetrics, &IngestPayload{
-		SchemaVersion: "v1",
-		Records: []Record{{
-			"metric_name":               "cpu.utilization",
-			"type":                      "gauge",
-			"unit":                      "1",
-			"temporality":               "delta",
-			"timestamp_unix_nano":       "1713835425123456789",
-			"start_timestamp_unix_nano": "1713835424123456789",
-		}},
-	})
-	require.NoError(t, err)
+	attempt := 0
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		attempt++
+		if attempt == 2 {
+			return scopedb.AppendRowsResult{}, &scopedb.Error{
+				Kind:      scopedb.ErrorKindAppendRowsFailed,
+				Message:   "temporary",
+				Retryable: true,
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateRejected,
+				},
+			}
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{
+		{"body": strings.Repeat("a", 5*1024*1024)},
+		{"body": strings.Repeat("b", 5*1024*1024)},
+	}})
+	require.Error(t, err)
+	assert.False(t, consumererror.IsPermanent(err))
 }
 
-func TestClientSendRetryableStatuses(t *testing.T) {
-	for _, statusCode := range []int{http.StatusTooManyRequests, http.StatusInternalServerError} {
-		t.Run(http.StatusText(statusCode), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				http.Error(w, "temporary", statusCode)
-			}))
-			defer server.Close()
+func TestClientSendRetriesUnconfirmedAppendResult(t *testing.T) {
+	tests := []struct {
+		name   string
+		result scopedb.AppendRowsResult
+	}{
+		{
+			name:   "unknown outcome",
+			result: scopedb.AppendRowsResult{AppendState: scopedb.AppendStateUnknown},
+		},
+		{
+			name:   "committed row count mismatch",
+			result: scopedb.AppendRowsResult{AppendState: scopedb.AppendStateCommitted, NumRowsInserted: 0},
+		},
+	}
 
-			cfg := testClientConfig(server.URL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testClientConfig("https://scopedb.invalid")
+			cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 			client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 			require.NoError(t, err)
+			defer client.Close()
+			client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
+				return tt.result, nil
+			}
 
-			err = client.Send(context.Background(), signalLogs, &IngestPayload{
-				SchemaVersion: "v1",
-				Records:       []Record{{"body": "hello"}},
-			})
+			err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "hello"}}})
 			require.Error(t, err)
 			assert.False(t, consumererror.IsPermanent(err))
 		})
 	}
 }
 
-func TestClientSendPermanentStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-	}))
-	defer server.Close()
-
-	cfg := testClientConfig(server.URL)
+func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) {
+	cfg := testClientConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
 	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 	require.NoError(t, err)
+	defer client.Close()
 
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{
-		SchemaVersion: "v1",
-		Records:       []Record{{"body": "hello"}},
-	})
+	var appended []map[string]any
+	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal(line, &row))
+			appended = append(appended, row)
+		}
+		return scopedb.AppendRowsResult{
+			AppendState:     scopedb.AppendStateCommitted,
+			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
+		}, nil
+	}
+
+	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{
+		{"body": "before"},
+		{"body": math.NaN()},
+		{"body": "after"},
+	}})
 	require.Error(t, err)
 	assert.True(t, consumererror.IsPermanent(err))
+	assert.Equal(t, []map[string]any{{"body": "before"}, {"body": "after"}}, appended)
+	assert.ErrorContains(t, err, "mapped row 1")
+}
+
+func TestClientSendRejectsInvalidCastBeforeAppend(t *testing.T) {
+	cfg := testClientConfig("https://scopedb.invalid")
+	cfg.Mappings.Logs = MappingConfig{
+		"attempt": {Source: `log.attributes["attempt"]`, Cast: "int"},
+	}
+	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	require.NoError(t, err)
+	defer client.Close()
+
+	appendCalls := 0
+	client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
+		appendCalls++
+		return scopedb.AppendRowsResult{}, nil
+	}
+	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{
+		"attributes": map[string]any{"attempt": "second"},
+	}}})
+	require.Error(t, err)
+	assert.True(t, consumererror.IsPermanent(err))
+	assert.Equal(t, 0, appendCalls)
+	reason, ok := mappingErrorReason(err)
+	assert.True(t, ok)
+	assert.Equal(t, mappingReasonCastFailed, reason)
+}
+
+func TestClassifyAppendError(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		permanent bool
+		contains  string
+	}{
+		{
+			name: "permanent rejection",
+			err: &scopedb.Error{
+				Kind:      scopedb.ErrorKindAppendRowsFailed,
+				Message:   "invalid row",
+				RequestID: "req-1",
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateRejected,
+					RowErrors:   []scopedb.AppendRowError{{RowIndex: 3, Column: "ts", Message: "invalid timestamp"}},
+				},
+			},
+			permanent: true,
+			contains:  "row=3 column=ts reason=invalid timestamp",
+		},
+		{
+			name: "retryable rejection",
+			err: &scopedb.Error{
+				Kind:       scopedb.ErrorKindAppendRowsFailed,
+				Message:    "busy",
+				Retryable:  true,
+				RetryAfter: time.Second,
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateRejected,
+				},
+			},
+			contains: "Throttle",
+		},
+		{
+			name: "unknown is retried by gateway",
+			err: &scopedb.Error{
+				Kind:    scopedb.ErrorKindAppendRowsFailed,
+				Message: "outcome unknown",
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState: scopedb.AppendStateUnknown,
+				},
+			},
+			contains: "state=unknown",
+		},
+		{
+			name: "deterministic client error",
+			err: &scopedb.Error{
+				Kind:    scopedb.ErrorKindConfigInvalid,
+				Message: "invalid append configuration",
+			},
+			permanent: true,
+			contains:  "invalid append configuration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classified := classifyAppendError(tt.err)
+			assert.Equal(t, tt.permanent, consumererror.IsPermanent(classified))
+			assert.ErrorContains(t, classified, tt.contains)
+		})
+	}
+}
+
+func TestCompleteRejectedRowsRequiresAnExactRowSet(t *testing.T) {
+	tests := []struct {
+		name      string
+		retryable bool
+		truncated bool
+		rows      []scopedb.AppendRowError
+		wantRows  []scopedb.AppendRowError
+		wantOK    bool
+	}{
+		{
+			name:     "complete",
+			rows:     []scopedb.AppendRowError{{RowIndex: 1}, {RowIndex: 0}},
+			wantRows: []scopedb.AppendRowError{{RowIndex: 0}, {RowIndex: 1}},
+			wantOK:   true,
+		},
+		{name: "retryable", retryable: true, rows: []scopedb.AppendRowError{{RowIndex: 0}}},
+		{name: "truncated", truncated: true, rows: []scopedb.AppendRowError{{RowIndex: 0}}},
+		{name: "missing rows"},
+		{
+			name:     "multiple errors for one row",
+			rows:     []scopedb.AppendRowError{{RowIndex: 0}, {RowIndex: 0}},
+			wantRows: []scopedb.AppendRowError{{RowIndex: 0}},
+			wantOK:   true,
+		},
+		{name: "out of range", rows: []scopedb.AppendRowError{{RowIndex: 2}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &scopedb.Error{
+				Retryable: tt.retryable,
+				AppendDetails: &scopedb.AppendErrorDetails{
+					AppendState:        scopedb.AppendStateRejected,
+					RowErrors:          tt.rows,
+					RowErrorsTruncated: tt.truncated,
+				},
+			}
+			rows, ok := completeRejectedRows(err, 2)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantRows, rows)
+		})
+	}
 }
 
 func testClientConfig(endpoint string) *Config {
-	cfg := createDefaultConfig().(*Config)
+	cfg := validTestConfig()
 	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String("test-api-key")
 	cfg.Tables = TableRoutingConfig{
 		Logs:    "public.vendor_otel_logs_test",
 		Traces:  "public.vendor_otel_traces_test",
@@ -444,43 +470,29 @@ func testClientConfig(endpoint string) *Config {
 	return cfg
 }
 
-func TestNewClientUsesNopSettings(t *testing.T) {
-	cfg := testClientConfig("https://scopedb.invalid")
-	settings := exportertest.NewNopSettings(typeStr)
-	settings.TelemetrySettings = componenttest.NewNopTelemetrySettings()
-
-	client, err := NewClient(cfg, settings)
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	assert.NotNil(t, client.logger)
-	assert.NotNil(t, client.httpClient)
-	assert.Equal(t, component.NewID(typeStr).Type(), settings.ID.Type())
-}
-
-func decodeCompressedRequestBody(r *http.Request) ([]byte, error) {
-	compressedBody, err := io.ReadAll(r.Body)
+func decodeSDKRequestBody(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
-
-	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
+	switch r.Header.Get("Content-Encoding") {
 	case "":
-		return compressedBody, nil
+		return body, nil
 	case "gzip":
-		gr, err := gzip.NewReader(bytes.NewReader(compressedBody))
+		reader, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		defer gr.Close()
-		return io.ReadAll(gr)
+		defer reader.Close()
+		return io.ReadAll(reader)
 	case "zstd":
-		zr, err := zstd.NewReader(bytes.NewReader(compressedBody))
+		reader, err := zstd.NewReader(bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		defer zr.Close()
-		return io.ReadAll(zr)
+		defer reader.Close()
+		return io.ReadAll(reader)
 	default:
-		return nil, io.ErrUnexpectedEOF
+		return nil, errors.New("unsupported content encoding")
 	}
 }

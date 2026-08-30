@@ -13,5 +13,9 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 
 [*.toml]
-indent_size = tab
+indent_style = space
+indent_size = 2
 tab_width = 2
+
+[*.{yaml,yml}]
+indent_size = 2
