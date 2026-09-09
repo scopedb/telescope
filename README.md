@@ -136,6 +136,8 @@ cp -R deploy/kubernetes/example deploy/kubernetes/local
 
 export KUBE_CONTEXT=my-kubernetes-context
 kubectl --context "$KUBE_CONTEXT" cluster-info
+# The overlay declares this namespace too, but the secret below is created
+# before the overlay is applied, so create the namespace first.
 kubectl --context "$KUBE_CONTEXT" create namespace telescope --dry-run=client -o yaml | \
   kubectl --context "$KUBE_CONTEXT" apply -f -
 kubectl --context "$KUBE_CONTEXT" -n telescope create secret generic telescope-scopedb \
