@@ -79,10 +79,10 @@ test-race:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
 
 .PHONY: check
-check: fmt-check tidy-check vet lint vuln-check test
+check: fmt-check tidy-check vet lint vuln-check test-race
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check vet lint vuln-check test-race
+ci-go: check
 
 .PHONY: build
 build:

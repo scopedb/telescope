@@ -389,7 +389,7 @@ make check
 make build
 ```
 
-`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, and executes the unit tests. `make test-race` adds the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
+`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, checks known vulnerabilities, and executes the unit tests under the race detector. `make test` runs the unit tests without the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
 
 Project layout:
 
