@@ -157,6 +157,20 @@ docker-smoke: docker-build
 		docker logs "$$cid"; \
 		exit 1; \
 	fi; \
+	health=false; \
+	for attempt in $$(seq 1 600); do \
+		case "$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$$cid")" in \
+			healthy) health=true; break ;; \
+			unhealthy) break ;; \
+		esac; \
+		sleep 0.1; \
+	done; \
+	if [ "$$health" != true ]; then \
+		echo "container health check did not report healthy"; \
+		docker inspect --format '{{json .State.Health}}' "$$cid"; \
+		docker logs "$$cid"; \
+		exit 1; \
+	fi; \
 	status="$$(curl --fail --silent --show-error "http://$$address/v1/ingestion/status")"; \
 	printf '%s' "$$status" | grep --quiet '"version":"$(VERSION)"'; \
 	printf '%s' "$$status" | grep --quiet '"config_digest":"sha256:[0-9a-f]\{64\}"'; \
