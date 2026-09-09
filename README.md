@@ -389,7 +389,7 @@ make check
 make build
 ```
 
-`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, checks known vulnerabilities, and executes the unit tests under the race detector. `make test` runs the unit tests without the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
+`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, checks known vulnerabilities, and executes the unit tests under the race detector. `make test` runs the unit tests without the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`, either locally or through the manually dispatched `ScopeDB integration` CI job, which reads `TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT`, `TELESCOPE_SCOPEDB_INTEGRATION_API_KEY`, and `TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID` from repository secrets and skips when they are absent; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
 
 Project layout:
 
