@@ -19,7 +19,7 @@ groups:
         expr: max_over_time(telescope_queue_storage_allocated_bytes[24h])
 
       - alert: TelescopeQueueNearCapacity
-        expr: telescope_ingestion_queue_bytes / telescope_ingestion_queue_capacity_bytes > 0.8
+        expr: telescope_ingestion_queue_utilization > 0.8
         for: 5m
         labels:
           severity: warning
@@ -37,7 +37,7 @@ groups:
 
       - alert: TelescopeDeliveryStalled
         expr: |
-          (telescope_ingestion_queue_bytes > 0)
+          (telescope_ingestion_queue_utilization > 0)
           and on (signal, table)
           (time() - telescope_ingestion_last_success_timestamp_seconds > 300)
         for: 5m
@@ -51,7 +51,7 @@ groups:
         expr: |
           (telescope_ingestion_destination_verified == 0)
           and on (signal, table)
-          (telescope_ingestion_queue_bytes > 0)
+          (telescope_ingestion_queue_utilization > 0)
         for: 5m
         labels:
           severity: warning
