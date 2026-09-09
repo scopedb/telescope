@@ -152,7 +152,7 @@ kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope sta
 kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope verify
 ```
 
-The baseline starts one replica with a 2 GiB queue volume. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
+The baseline starts one replica with a 2 GiB queue volume. `TELESCOPE_QUEUE_MAX_BYTES` is the logical serialized-telemetry budget (512 MiB by default), while the volume must additionally hold the queue database pages reported by `queue_storage.allocated_bytes`; size the volume above that cap rather than equal to it. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
 
 ## Send Telemetry
 
