@@ -58,3 +58,24 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
       - run: make ci-runtime
+
+  integration:
+    name: ScopeDB integration
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      # The ScopeDB-backed tests skip when the endpoint and credentials are
+      # absent, so a repository without these secrets still reports success.
+      - name: Run ScopeDB integration tests
+        env:
+          TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT: ${{ secrets.TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT }}
+          TELESCOPE_SCOPEDB_INTEGRATION_API_KEY: ${{ secrets.TELESCOPE_SCOPEDB_INTEGRATION_API_KEY }}
+          TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID: ${{ secrets.TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID }}
+        run: make test-integration

@@ -33,5 +33,12 @@ VOLUME ["/var/lib/telescope/queue"]
 
 EXPOSE 4317 4318 8080
 
+# Liveness only: /healthz reports whether the operational server answers. It
+# deliberately does not use /readyz, which returns 503 while the ScopeDB
+# destination is unverified or a signal is degraded. Set TELESCOPE_HTTP_ADDR
+# to a different port and the health check must be overridden accordingly.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q --spider http://127.0.0.1:8080/healthz || exit 1
+
 ENTRYPOINT ["/usr/local/bin/telescope"]
 CMD ["run", "/etc/telescope/telescope.yaml"]

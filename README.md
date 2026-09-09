@@ -136,6 +136,8 @@ cp -R deploy/kubernetes/example deploy/kubernetes/local
 
 export KUBE_CONTEXT=my-kubernetes-context
 kubectl --context "$KUBE_CONTEXT" cluster-info
+# The overlay declares this namespace too, but the secret below is created
+# before the overlay is applied, so create the namespace first.
 kubectl --context "$KUBE_CONTEXT" create namespace telescope --dry-run=client -o yaml | \
   kubectl --context "$KUBE_CONTEXT" apply -f -
 kubectl --context "$KUBE_CONTEXT" -n telescope create secret generic telescope-scopedb \
@@ -152,7 +154,7 @@ kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope sta
 kubectl --context "$KUBE_CONTEXT" -n telescope exec telescope-0 -- telescope verify
 ```
 
-The baseline starts one replica with a 2 GiB queue volume. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
+The baseline starts one replica with a 2 GiB queue volume. `TELESCOPE_QUEUE_MAX_BYTES` is the logical serialized-telemetry budget (512 MiB by default), while the volume must additionally hold the queue database pages reported by `queue_storage.allocated_bytes`; size the volume above that cap rather than equal to it. Every additional StatefulSet ordinal receives its own volume; drain an ordinal before scaling it down. Kustomize gives the generated config a content hash and rolls the StatefulSet when the mapping changes. Apply such a change in place only after the existing queues and accepted-without-final-outcome counts reach zero. Otherwise deploy a second instance with distinct names, selectors, and volumes, route new OTLP to it, and let the old instance drain under its original config.
 
 ## Send Telemetry
 
@@ -389,7 +391,7 @@ make check
 make build
 ```
 
-`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, and executes the unit tests. `make test-race` adds the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
+`make check` verifies formatting and module integrity, runs `go vet` and `staticcheck`, checks known vulnerabilities, and executes the unit tests under the race detector. `make test` runs the unit tests without the race detector. ScopeDB-backed tests are excluded from the default suite and run explicitly with `make test-integration`, either locally or through the manually dispatched `ScopeDB integration` CI job, which reads `TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT`, `TELESCOPE_SCOPEDB_INTEGRATION_API_KEY`, and `TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID` from repository secrets and skips when they are absent; `make ci-runtime` validates the container, Kubernetes manifests, and release artifacts.
 
 Project layout:
 

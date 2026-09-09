@@ -79,10 +79,10 @@ test-race:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
 
 .PHONY: check
-check: fmt-check tidy-check vet lint vuln-check test
+check: fmt-check tidy-check vet lint vuln-check test-race
 
 .PHONY: ci-go
-ci-go: fmt-check tidy-check vet lint vuln-check test-race
+ci-go: check
 
 .PHONY: build
 build:
@@ -154,6 +154,20 @@ docker-smoke: docker-build
 		sleep 0.1; \
 	done; \
 	if [ "$$ready" != true ]; then \
+		docker logs "$$cid"; \
+		exit 1; \
+	fi; \
+	health=false; \
+	for attempt in $$(seq 1 600); do \
+		case "$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$$cid")" in \
+			healthy) health=true; break ;; \
+			unhealthy) break ;; \
+		esac; \
+		sleep 0.1; \
+	done; \
+	if [ "$$health" != true ]; then \
+		echo "container health check did not report healthy"; \
+		docker inspect --format '{{json .State.Health}}' "$$cid"; \
 		docker logs "$$cid"; \
 		exit 1; \
 	fi; \

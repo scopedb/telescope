@@ -56,7 +56,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 				Table:         "scopedb.otel.traces",
 				QueueEnabled:  true,
 				QueueCapacity: 5000,
-				QueueUnit:     "bytes",
+				QueueUnit:     "items",
 			},
 		},
 	}}
@@ -96,11 +96,13 @@ telescope_ingestion_invalid_items_total{signal="logs",reason="unsupported_number
 # HELP telescope_ingestion_queue_bytes Logical serialized bytes currently retained in the exporter queue.
 # TYPE telescope_ingestion_queue_bytes gauge
 telescope_ingestion_queue_bytes{signal="logs",table="scopedb.otel.logs"} 5
-telescope_ingestion_queue_bytes{signal="traces",table="scopedb.otel.traces"} 2
 # HELP telescope_ingestion_queue_capacity_bytes Configured logical byte capacity of the exporter queue.
 # TYPE telescope_ingestion_queue_capacity_bytes gauge
 telescope_ingestion_queue_capacity_bytes{signal="logs",table="scopedb.otel.logs"} 5000
-telescope_ingestion_queue_capacity_bytes{signal="traces",table="scopedb.otel.traces"} 5000
+# HELP telescope_ingestion_queue_utilization Fraction of the configured exporter queue capacity currently retained, for every queue sizer.
+# TYPE telescope_ingestion_queue_utilization gauge
+telescope_ingestion_queue_utilization{signal="logs",table="scopedb.otel.logs"} 0.001
+telescope_ingestion_queue_utilization{signal="traces",table="scopedb.otel.traces"} 0.0004
 # HELP telescope_ingestion_last_success_timestamp_seconds Unix timestamp of the latest ScopeDB append success, or zero before the first success.
 # TYPE telescope_ingestion_last_success_timestamp_seconds gauge
 telescope_ingestion_last_success_timestamp_seconds{signal="logs",table="scopedb.otel.logs"} 123

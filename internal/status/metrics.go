@@ -43,6 +43,7 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 	var invalid []*dto.Metric
 	var queueBytes []*dto.Metric
 	var queueCapacity []*dto.Metric
+	var queueUtilization []*dto.Metric
 	var lastSuccess []*dto.Metric
 	var destinationVerified []*dto.Metric
 
@@ -66,6 +67,13 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 				float64(signal.InvalidItemsByReason[reason]),
 				prometheusLabel{name: "signal", value: signal.Signal},
 				prometheusLabel{name: "reason", value: reason},
+			))
+		}
+
+		if signal.Queue.Enabled && signal.Queue.Capacity > 0 {
+			queueUtilization = append(queueUtilization, prometheusGauge(
+				float64(signal.Queue.Size)/float64(signal.Queue.Capacity),
+				labels...,
 			))
 		}
 
@@ -122,6 +130,12 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 			help:    "Configured logical byte capacity of the exporter queue.",
 			typeOf:  dto.MetricType_GAUGE,
 			metrics: queueCapacity,
+		},
+		{
+			name:    "telescope_ingestion_queue_utilization",
+			help:    "Fraction of the configured exporter queue capacity currently retained, for every queue sizer.",
+			typeOf:  dto.MetricType_GAUGE,
+			metrics: queueUtilization,
 		},
 		{
 			name:    "telescope_ingestion_last_success_timestamp_seconds",
