@@ -35,9 +35,12 @@ import (
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func TestScopeDBAppendIntegration(t *testing.T) {
+func scopeDBIntegrationClient(t *testing.T) (*scopedb.Client, string, string) {
+	t.Helper()
 	endpoint := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT")
 	apiKey := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_API_KEY")
 	tenantID := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID")
@@ -58,7 +61,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 			request.Header.Set("X-ScopeDB-Tenant-Id", tenantID)
 		}
 		proxyServer := httptest.NewServer(proxy)
-		defer proxyServer.Close()
+		t.Cleanup(proxyServer.Close)
 		requestEndpoint = proxyServer.URL
 		apiKey = "integration-proxy"
 	}
@@ -68,13 +71,18 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 		APIKey:   apiKey,
 	})
 	require.NoError(t, err)
-	defer sdkClient.Close()
+	t.Cleanup(sdkClient.Close)
 
+	return sdkClient, requestEndpoint, apiKey
+}
+
+func TestScopeDBAppendIntegration(t *testing.T) {
+	sdkClient, requestEndpoint, apiKey := scopeDBIntegrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	table := sdkClient.Table(fmt.Sprintf("telescope_it_%d", time.Now().UnixNano()))
 	t.Logf("temporary table: %s", table.Identifier())
-	_, err = sdkClient.Statement(fmt.Sprintf(`
+	_, err := sdkClient.Statement(fmt.Sprintf(`
 		CREATE TABLE %s (
 			event_time timestamp,
 			service string,
@@ -158,4 +166,91 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 		"before invalid row",
 		"after invalid row",
 	}, messages)
+}
+
+func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
+	sdkClient, endpoint, apiKey := scopeDBIntegrationClient(t)
+	traces, err := (&ptrace.JSONUnmarshaler{}).UnmarshalTraces(readGoldenFile(t, "traces.otlp.json"))
+	require.NoError(t, err)
+	tracePayload, err := mapTraces(traces)
+	require.NoError(t, err)
+	metrics, err := (&pmetric.JSONUnmarshaler{}).UnmarshalMetrics(readGoldenFile(t, "metrics.otlp.json"))
+	require.NoError(t, err)
+	metricPayload, err := mapMetrics(metrics)
+	require.NoError(t, err)
+
+	for _, signal := range []string{signalTraces, signalMetrics} {
+		t.Run(signal, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			table := sdkClient.Table(fmt.Sprintf("telescope_%s_it_%d", signal, time.Now().UnixNano()))
+			cfg := createDefaultConfig().(*Config)
+			cfg.Endpoint = endpoint
+			cfg.APIKey = configopaque.String(apiKey)
+			columns := "event_time timestamp, trace_id string, parent_span_id string, duration_ns int, attributes object, events array"
+			payload := tracePayload
+			if signal == signalTraces {
+				cfg.Tables.Traces = table.Name
+				cfg.Mappings.Traces = shorthandMapping(map[string]string{
+					"event_time": "span.start_time", "trace_id": "span.trace_id",
+					"parent_span_id": "span.parent_span_id", "duration_ns": "span.duration_ns",
+					"attributes": "span.attributes", "events": "span.events",
+				})
+			} else {
+				columns = "event_time timestamp, name string, int_value int, double_value float, distribution object"
+				payload = metricPayload
+				cfg.Tables.Metrics = table.Name
+				cfg.Mappings.Metrics = shorthandMapping(map[string]string{
+					"event_time": "datapoint.timestamp", "name": "metric.name",
+					"int_value": "datapoint.int_value", "double_value": "datapoint.double_value",
+					"distribution": "datapoint.distribution",
+				})
+			}
+			_, err := sdkClient.Query(ctx, fmt.Sprintf("CREATE TABLE %s (%s)", table.Identifier(), columns))
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				assert.NoError(t, table.Drop(ctx))
+			})
+			client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+			require.NoError(t, err)
+			defer client.Close()
+			require.NoError(t, client.ValidateDestination(ctx, signal))
+			require.NoError(t, client.Send(ctx, signal, payload))
+
+			query := "FROM " + table.Identifier()
+			if signal == signalTraces {
+				query += ` SELECT event_time, trace_id, parent_span_id, duration_ns,
+					attributes['http.request.method']::string AS method,
+					events[0]['name']::string AS event_name`
+			} else {
+				query += ` SELECT event_time, name, int_value, double_value,
+					distribution['count']::int AS count ORDER BY event_time`
+			}
+			result, err := sdkClient.Query(ctx, query)
+			require.NoError(t, err)
+			rows, err := result.ToObjects()
+			require.NoError(t, err)
+			if signal == signalTraces {
+				require.Len(t, rows, 1)
+				assert.Equal(t, time.Unix(0, 2000).UTC(), rows[0]["event_time"])
+				assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", rows[0]["trace_id"])
+				assert.Equal(t, "0807060504030201", rows[0]["parent_span_id"])
+				assert.Equal(t, int64(500), rows[0]["duration_ns"])
+				assert.Equal(t, "POST", rows[0]["method"])
+				assert.Equal(t, "validation.complete", rows[0]["event_name"])
+			} else {
+				require.Len(t, rows, 5)
+				assert.Equal(t, time.Unix(0, 2000).UTC(), rows[0]["event_time"])
+				assert.Equal(t, "system.load", rows[0]["name"])
+				assert.Equal(t, 0.75, rows[0]["double_value"])
+				assert.Equal(t, int64(42), rows[1]["int_value"])
+				assert.Nil(t, rows[1]["double_value"])
+				assert.Equal(t, int64(3), rows[2]["count"])
+				assert.Equal(t, int64(4), rows[3]["count"])
+				assert.Equal(t, int64(2), rows[4]["count"])
+			}
+		})
+	}
 }

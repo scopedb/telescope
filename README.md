@@ -20,6 +20,7 @@ Telescope focuses on transparent, operator-controlled ingestion. `telescope plan
 - [Mapping and Table Management](docs/table-management.md) explains mapping rules, schema ownership, table planning, and safe configuration changes.
 - [Ingestion Compatibility](docs/ingestion-compatibility.md) documents supported OTLP signals, mapping sources, rejection behavior, and current limitations.
 - [ScopeDB Exporter](packages/scopedbexporter/README.md) covers the reusable OpenTelemetry Collector exporter module and its configuration.
+- [Migrate v0.2 to Append](docs/migrate-v0.2-to-append.md) provides a trace/log mapping, explicit table definitions, and a queue-safe cutover from the legacy endpoint.
 
 ## Prerequisites
 

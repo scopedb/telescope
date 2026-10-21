@@ -124,12 +124,16 @@ func TestLoadConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 }
 
 func TestDeploymentConfigExamplesAreValid(t *testing.T) {
-	for _, path := range []string{
-		filepath.Join("..", "..", "deploy", "telescope.example.yaml"),
-		filepath.Join("..", "..", "deploy", "kubernetes", "example", "telescope.yaml"),
+	for _, example := range []struct {
+		path    string
+		signals []string
+	}{
+		{filepath.Join("..", "..", "deploy", "telescope.example.yaml"), []string{"traces"}},
+		{filepath.Join("..", "..", "deploy", "kubernetes", "example", "telescope.yaml"), []string{"traces"}},
+		{filepath.Join("..", "..", "deploy", "otel-checkout.yaml"), []string{"logs", "traces"}},
 	} {
-		config, err := LoadConfig(path)
-		require.NoError(t, err, path)
-		assert.Equal(t, []string{"traces"}, config.EnabledSignals(), path)
+		config, err := LoadConfig(example.path)
+		require.NoError(t, err, example.path)
+		assert.Equal(t, example.signals, config.EnabledSignals(), example.path)
 	}
 }

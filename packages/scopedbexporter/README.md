@@ -4,6 +4,8 @@
 
 The exporter does not impose a fixed telemetry schema. Each mapping entry projects one destination column from OpenTelemetry input, and only mapped columns are serialized and stored.
 
+Append requires ScopeDB 0.5.6 or later. For the legacy v0.2 configuration and schema, follow [Migrate v0.2 to Append](../../docs/migrate-v0.2-to-append.md); changing the endpoint alone is insufficient.
+
 ## Configuration
 
 ```yaml
