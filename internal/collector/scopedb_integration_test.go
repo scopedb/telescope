@@ -31,9 +31,22 @@ import (
 	"github.com/scopedb/telescope/packages/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func TestScopeDBTelescopeIntegration(t *testing.T) {
+	for _, protocol := range []string{"http", "grpc"} {
+		t.Run(protocol, func(t *testing.T) {
+			testScopeDBTelescopeIntegration(t, protocol)
+		})
+	}
+}
+
+func testScopeDBTelescopeIntegration(t *testing.T, protocol string) {
 	endpoint := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT")
 	apiKey := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_API_KEY")
 	tenantID := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID")
@@ -92,9 +105,10 @@ func TestScopeDBTelescopeIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	otlpHTTPAddress := freeTCPAddress(t)
+	otlpGRPCAddress := freeTCPAddress(t)
 	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", requestEndpoint)
 	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", requestAPIKey)
-	t.Setenv("TELESCOPE_OTLP_GRPC_ADDR", freeTCPAddress(t))
+	t.Setenv("TELESCOPE_OTLP_GRPC_ADDR", otlpGRPCAddress)
 	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", otlpHTTPAddress)
 	t.Setenv("TELESCOPE_QUEUE_DIR", t.TempDir())
 	t.Setenv("TELESCOPE_OTEL_BATCH_TIMEOUT", "10ms")
@@ -103,13 +117,24 @@ func TestScopeDBTelescopeIntegration(t *testing.T) {
 	runtime := startCollectorFromURI(t, configURI)
 	defer runtime.stop(t)
 
+	var grpcConnection *grpc.ClientConn
+	if protocol == "grpc" {
+		grpcConnection, err = grpc.NewClient(otlpGRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		defer grpcConnection.Close()
+	}
+
 	values := map[string]string{
 		"logs":    "telescope live log",
 		"traces":  "telescope live span",
 		"metrics": "telescope.live.metric",
 	}
 	for _, signal := range []string{"logs", "traces", "metrics"} {
-		require.NoError(t, sendRecoverySignal(otlpHTTPAddress, signal, values[signal]))
+		if protocol == "grpc" {
+			sendIntegrationGRPCSignal(t, ctx, grpcConnection, signal, values[signal])
+		} else {
+			require.NoError(t, sendRecoverySignal(otlpHTTPAddress, signal, values[signal]))
+		}
 	}
 	for _, signal := range []string{"logs", "traces", "metrics"} {
 		table := tables[signal]
@@ -125,6 +150,29 @@ func TestScopeDBTelescopeIntegration(t *testing.T) {
 			assert.Equal(collect, values[signal], objects[0]["value"])
 		}, 20*time.Second, 200*time.Millisecond)
 	}
+}
+
+func sendIntegrationGRPCSignal(t *testing.T, ctx context.Context, connection *grpc.ClientConn, signal string, value string) {
+	t.Helper()
+	payload, err := marshalRecoverySignal(signal, value)
+	require.NoError(t, err)
+	switch signal {
+	case "logs":
+		request := plogotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalProto(payload))
+		_, err = plogotlp.NewGRPCClient(connection).Export(ctx, request)
+	case "traces":
+		request := ptraceotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalProto(payload))
+		_, err = ptraceotlp.NewGRPCClient(connection).Export(ctx, request)
+	case "metrics":
+		request := pmetricotlp.NewExportRequest()
+		require.NoError(t, request.UnmarshalProto(payload))
+		_, err = pmetricotlp.NewGRPCClient(connection).Export(ctx, request)
+	default:
+		t.Fatalf("unsupported integration signal %q", signal)
+	}
+	require.NoError(t, err)
 }
 
 func integrationRequestEndpoint(t *testing.T, endpoint string, apiKey string, tenantID string) (string, string) {
