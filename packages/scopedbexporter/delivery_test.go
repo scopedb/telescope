@@ -107,7 +107,7 @@ func TestWriteTimeoutAndConnectionLossAreTerminalUnknown(t *testing.T) {
 			defer server.Close()
 			defer close(release)
 			cfg := testExporterConfig(server.URL)
-			cfg.Timeout.Timeout = 30 * time.Millisecond
+			cfg.Timeout.Timeout = time.Second
 			cfg.RetryOnFailure.Enabled = true
 			cfg.RetryOnFailure.InitialInterval = time.Millisecond
 			cfg.RetryOnFailure.MaxInterval = time.Millisecond
@@ -189,8 +189,7 @@ func TestAppendBatchBoundsMappedPayload(t *testing.T) {
 }
 
 func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
-	// A delayed response beyond the SDK default must still obey the Collector's
-	// configured attempt budget. The integration version can exercise a real 30s delay.
+	// Inspect the HTTP context so the SDK deadline regression needs no 30-second wait.
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Timeout.Timeout = 60 * time.Second
 	cfg.SendingQueue = configoptional.None[exporterhelper.QueueBatchConfig]()
