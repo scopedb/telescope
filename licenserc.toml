@@ -33,6 +33,7 @@ inception_year = 2026
 [[rules]]
 filenames = [
   "client_integration_test.go",
+  "compatibility_integration_test.go",
   "queue_storage_other.go",
   "queue_storage_unix.go",
   "queue_storage_unix_test.go",

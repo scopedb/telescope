@@ -28,6 +28,8 @@ import (
 )
 
 var commonSourceSelectors = []string{
+	"record",
+	"record.id",
 	"resource.attributes",
 	"resource.schema_url",
 	"resource.dropped_attributes_count",
@@ -205,7 +207,7 @@ func selectorTypeFor(source string) selectorType {
 	}
 
 	switch base {
-	case "resource.attributes", "scope.attributes", "log.attributes", "span.attributes",
+	case "record", "resource.attributes", "scope.attributes", "log.attributes", "span.attributes",
 		"metric.metadata", "datapoint.attributes", "datapoint.distribution":
 		return selectorTypeObject
 	case "span.events", "span.links", "datapoint.exemplars":
@@ -227,7 +229,7 @@ func selectorTypeFor(source string) selectorType {
 		return selectorTypeNumber
 	case "log.body":
 		return selectorTypeDynamic
-	case "resource.schema_url", "scope.name", "scope.version", "scope.schema_url",
+	case "record.id", "resource.schema_url", "scope.name", "scope.version", "scope.schema_url",
 		"log.timestamp_unix_nano", "log.observed_timestamp_unix_nano", "log.trace_id", "log.span_id",
 		"log.event_name", "log.severity_text", "log.message", "span.trace_id", "span.span_id",
 		"span.parent_span_id", "span.trace_state", "span.name", "span.kind", "span.start_time_unix_nano",
@@ -291,6 +293,9 @@ func compileRecordGetter(signal string, source string) (recordGetter, error) {
 	}
 
 	getter := commonRecordGetter(base)
+	if base == "record.id" {
+		getter = func(record Record) (any, bool) { return recordID(signal, record) }
+	}
 	if getter == nil {
 		switch signal {
 		case signalLogs:
@@ -530,6 +535,8 @@ func editDistance(left string, right string) int {
 
 func commonRecordGetter(source string) recordGetter {
 	switch source {
+	case "record":
+		return func(record Record) (any, bool) { return map[string]any(record), true }
 	case "resource.attributes":
 		return pathGetter("resource")
 	case "resource.schema_url":

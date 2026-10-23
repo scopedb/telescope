@@ -187,7 +187,7 @@ telescope run \
 
 The validate command prints `signal -> table -> destination column -> mapping rule`, then describes every configured destination. It reports all invalid selectors and rules in one run, suggests close selector names, and reports missing columns or statically known output-type mismatches. An explicit cast supplies the output type for catalog validation. A cast from runtime data is still marked runtime-dependent when sample values determine whether conversion succeeds.
 
-`telescope run` performs the same validation when ScopeDB is reachable. A deterministic table or mapping mismatch prevents startup. A temporary network, timeout, rate-limit, or server error leaves the destination unverified but does not prevent the OTLP listener and persistent queue from starting.
+`telescope run` validates configuration locally and does not contact the catalog during startup. Run `telescope validate` before deployment to detect destination mismatches. An unavailable destination does not prevent listeners or persistent queue recovery; the running destination becomes verified after its first confirmed append.
 
 Full Collector configuration can still be checked without contacting ScopeDB:
 

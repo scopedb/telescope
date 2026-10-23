@@ -1,0 +1,45 @@
+[
+  {
+    "env": "default",
+    "message": "{\"attempt\":2,\"message\":\"order accepted\"}",
+    "observed_timestamp": "1970-01-01T00:00:00.0000011Z",
+    "record": {
+      "attributes": {
+        "tags": [
+          "checkout",
+          1.5
+        ]
+      },
+      "body": {
+        "attempt": 2,
+        "message": "order accepted"
+      },
+      "message": "{\"attempt\":2,\"message\":\"order accepted\"}",
+      "observed_timestamp_unix_nano": "1100",
+      "resource": {
+        "resource.bytes": "AQID",
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.enabled": true
+        },
+        "name": "golden.logger",
+        "version": "1.0.0"
+      },
+      "severity_number": 9,
+      "span_id": "0102030405060708",
+      "status": "INFO",
+      "timestamp_unix_nano": "1000",
+      "trace_id": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000001Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "severity_number": 9,
+    "source": "golden.logger",
+    "span_id": "0102030405060708",
+    "status": "INFO",
+    "trace_id": "0102030405060708090a0b0c0d0e0f10"
+  }
+]

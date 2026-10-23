@@ -21,10 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
+	"github.com/scopedb/telescope/internal/httpclient"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
@@ -38,8 +41,10 @@ const (
 
 type Client struct {
 	sdk      *scopedb.Client
+	http     *http.Client
 	logger   *zap.Logger
 	plans    map[string]*mappingPlan
+	batch    AppendBatchConfig
 	appendFn func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error)
 }
 
@@ -51,6 +56,7 @@ type recordFailure struct {
 type sendOutcome struct {
 	committed   []int
 	rejected    []recordFailure
+	unknown     []recordFailure
 	uncommitted []int
 	err         error
 }
@@ -60,10 +66,15 @@ func NewClient(cfg *Config, settings exporter.Settings) (*Client, error) {
 }
 
 func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
+	httpClient := httpclient.New()
 	sdkClient, err := scopedb.NewClient(scopedb.Config{
 		Endpoint:    cfg.Endpoint,
 		APIKey:      string(cfg.APIKey),
 		Compression: sdkCompression(cfg.compressionMode()),
+		// Collector's per-attempt context owns the timeout, including mapping
+		// and all chunks. Do not add the SDK's independent 30-second deadline.
+		WriteTimeout: new(time.Duration(0)),
+		HTTPClient:   httpClient,
 	})
 	if err != nil {
 		return nil, err
@@ -83,8 +94,10 @@ func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 
 	return &Client{
 		sdk:    sdkClient,
+		http:   httpClient,
 		logger: logger.Named("scopedbexporter/client"),
 		plans:  plans,
+		batch:  cfg.AppendBatch,
 		appendFn: func(ctx context.Context, table *scopedb.Table, ndjson []byte) (scopedb.AppendRowsResult, error) {
 			return table.AppendNDJSON(ctx, ndjson)
 		},
@@ -94,6 +107,9 @@ func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 func (c *Client) Close() {
 	if c.sdk != nil {
 		c.sdk.Close()
+	}
+	if c.http != nil {
+		c.http.CloseIdleConnections()
 	}
 }
 
@@ -108,12 +124,12 @@ func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalD
 		return SignalDestinationValidation{}, fmt.Errorf("no mapping plan for signal %q", signal)
 	}
 
-	description, err := c.table(plan.table).Describe(ctx)
+	description, err := c.table(plan.table).Catalog().Get(ctx)
 	if err != nil {
 		return SignalDestinationValidation{}, fmt.Errorf("describe target table %s: %w", plan.table.String(), err)
 	}
-	available := make(map[string]scopedb.DataType, len(description.Columns))
-	for _, column := range description.Columns {
+	available := make(map[string]scopedb.DataType, len(description.Definition.Columns))
+	for _, column := range description.Definition.Columns {
 		available[column.Name] = column.DataType
 	}
 	var missing []string
@@ -164,6 +180,9 @@ func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload
 	if outcome.err != nil {
 		return outcome.err
 	}
+	if len(outcome.unknown) > 0 {
+		return consumererror.NewPermanent(fmt.Errorf("%d rows have an unknown append outcome: %w", len(outcome.unknown), outcome.unknown[0].err))
+	}
 	if len(outcome.rejected) == 0 {
 		return nil
 	}
@@ -195,8 +214,9 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 
 	outcome := sendOutcome{}
 	table := c.table(plan.table)
-	body := make([]byte, 0, min(maxAppendRequestBytes, len(payload.Records)*256))
-	chunkIndexes := make([]int, 0, min(maxAppendRequestRows, len(payload.Records)))
+	maxBytes, maxRows := c.batch.limits()
+	body := make([]byte, 0, min(maxBytes, len(payload.Records)*256))
+	chunkIndexes := make([]int, 0, min(maxRows, len(payload.Records)))
 	chunkStarts := make([]int, 0, cap(chunkIndexes))
 	resetChunk := func() {
 		body = body[:0]
@@ -213,11 +233,12 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 		if err != nil {
 			return err
 		}
-		if result.AppendState != scopedb.AppendStateCommitted || result.NumRowsInserted != int64(rows) {
-			return consumererror.NewRetryableError(fmt.Errorf(
-				"append to %s did not confirm all rows committed: state=%s inserted=%d expected=%d",
-				plan.table.String(), result.AppendState, result.NumRowsInserted, rows,
-			))
+		if result.Status != scopedb.AppendStateCommitted || result.NumRowsInserted != int64(rows) {
+			return &scopedb.Error{
+				Kind:          scopedb.ErrorKindAppendRowsFailed,
+				Message:       fmt.Sprintf("append to %s did not confirm all rows committed: status=%s inserted=%d expected=%d", plan.table.String(), result.Status, result.NumRowsInserted, rows),
+				AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendStateUnknown},
+			}
 		}
 		c.logger.Debug(
 			"Appended rows to ScopeDB",
@@ -228,6 +249,16 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 		)
 		return nil
 	}
+	settleUnknown := func(err error) bool {
+		if !isUnknownAppend(err) {
+			return false
+		}
+		for _, index := range chunkIndexes {
+			outcome.unknown = append(outcome.unknown, recordFailure{index: index, err: err})
+		}
+		resetChunk()
+		return true
+	}
 	flush := func(remainingFrom int) bool {
 		if len(chunkIndexes) == 0 {
 			return true
@@ -236,6 +267,9 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 		if err == nil {
 			outcome.committed = append(outcome.committed, chunkIndexes...)
 			resetChunk()
+			return true
+		}
+		if settleUnknown(err) {
 			return true
 		}
 
@@ -260,6 +294,9 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 			return true
 		}
 		if err := appendChunk(body, len(chunkIndexes)); err != nil {
+			if settleUnknown(err) {
+				return true
+			}
 			setDeliveryError(classifyAppendError(err), remainingFrom)
 			return false
 		}
@@ -286,16 +323,16 @@ func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload
 			continue
 		}
 		lineBytes := len(line) + 1
-		if lineBytes > maxAppendRequestBytes {
+		if lineBytes > maxBytes {
 			reject(index, &mappingError{
 				reason: mappingReasonRowTooLarge,
 				err: fmt.Errorf(
-					"mapped row %d is %d bytes; maximum is %d", index, lineBytes, maxAppendRequestBytes,
+					"mapped row %d is %d bytes; maximum is %d", index, lineBytes, maxBytes,
 				),
 			})
 			continue
 		}
-		if len(chunkIndexes) > 0 && (len(body)+lineBytes > maxAppendRequestBytes || len(chunkIndexes) == maxAppendRequestRows) {
+		if len(chunkIndexes) > 0 && (len(body)+lineBytes > maxBytes || len(chunkIndexes) == maxRows) {
 			if !flush(index) {
 				return outcome
 			}
@@ -315,7 +352,7 @@ func completeRejectedRows(err error, rowCount int) ([]scopedb.AppendRowError, bo
 		return nil, false
 	}
 	details := scopeErr.AppendDetails
-	if details.AppendState != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
+	if details.Status != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
 		return nil, false
 	}
 	rows := append([]scopedb.AppendRowError(nil), details.RowErrors...)
@@ -394,10 +431,7 @@ func classifyAppendError(err error) error {
 		return consumererror.NewRetryableError(err)
 	}
 	formatted := formatAppendError(scopeErr)
-	if scopeErr.AppendDetails == nil && !scopeErr.Retryable {
-		return consumererror.NewPermanent(formatted)
-	}
-	if scopeErr.AppendDetails != nil && scopeErr.AppendDetails.AppendState == scopedb.AppendStateRejected && !scopeErr.Retryable {
+	if scopeErr.AppendDetails == nil || scopeErr.AppendDetails.Status != scopedb.AppendStateRejected || !scopeErr.Retryable {
 		return consumererror.NewPermanent(formatted)
 	}
 
@@ -408,10 +442,15 @@ func classifyAppendError(err error) error {
 	return retryable
 }
 
+func isUnknownAppend(err error) bool {
+	var scopeErr *scopedb.Error
+	return errors.As(err, &scopeErr) && scopeErr.AppendDetails != nil && scopeErr.AppendDetails.Status == scopedb.AppendStateUnknown
+}
+
 func formatAppendError(err *scopedb.Error) error {
 	parts := make([]string, 0, 3)
 	if err.AppendDetails != nil {
-		parts = append(parts, "state="+string(err.AppendDetails.AppendState))
+		parts = append(parts, "state="+string(err.AppendDetails.Status))
 		if len(err.AppendDetails.RowErrors) > 0 {
 			row := err.AppendDetails.RowErrors[0]
 			parts = append(parts, fmt.Sprintf("row=%d column=%s reason=%s", row.RowIndex, row.Column, row.Message))

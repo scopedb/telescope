@@ -133,9 +133,9 @@ func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal strin
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-					"message":      "test outage",
-					"append_state": "unknown",
-					"retryable":    true,
+					"message":   "test outage",
+					"details":   map[string]any{"status": "rejected"},
+					"retryable": true,
 				}))
 				return
 			}
@@ -149,7 +149,7 @@ func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal strin
 			}
 			w.Header().Set("Content-Type", "application/json")
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-				"append_state":      "committed",
+				"status":            "committed",
 				"num_rows_inserted": 1,
 			}))
 		default:
@@ -241,9 +241,9 @@ func TestExporterFailureMetricCountsOnlyTheFinalOutcome(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"message":      "test outage",
-			"append_state": "unknown",
-			"retryable":    true,
+			"message":   "test outage",
+			"details":   map[string]any{"status": "rejected"},
+			"retryable": true,
 		}))
 	}))
 	defer backend.Close()
@@ -285,7 +285,12 @@ func startRecoveryCollector(t *testing.T, config string) *recoveryCollector {
 
 func startCollectorFromURI(t *testing.T, configURI string) *recoveryCollector {
 	t.Helper()
-	instance, err := otelcol.NewCollector(Settings(configURI, "test"))
+	return startCollectorWithSettings(t, Settings(configURI, "test"))
+}
+
+func startCollectorWithSettings(t *testing.T, settings otelcol.CollectorSettings) *recoveryCollector {
+	t.Helper()
+	instance, err := otelcol.NewCollector(settings)
 	require.NoError(t, err)
 	runtime := &recoveryCollector{
 		collector: instance,
@@ -494,17 +499,16 @@ func marshalRecoverySignal(signal string, value string) ([]byte, error) {
 
 func writeRecoveryTableDescription(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
-	name := strings.TrimPrefix(r.URL.Path, "/v1/databases/scopedb/schemas/public/tables/")
+	w.Header().Set("ETag", `"1"`)
+	name := strings.TrimPrefix(r.URL.Path, "/v1/catalog/databases/scopedb/schemas/public/tables/")
 	require.Contains(t, []string{"recovery_logs", "recovery_traces", "recovery_metrics"}, name)
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"database":     "scopedb",
-		"schema":       "public",
 		"name":         name,
 		"columns":      []map[string]any{{"name": "value", "data_type": "string"}},
 		"partition_by": []string{},
 		"cluster_by":   []string{},
-		"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+		"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 	}))
 }
 
@@ -512,7 +516,7 @@ func writeRecoveryAppendCommitted(t *testing.T, w http.ResponseWriter) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"append_state":      "committed",
+		"status":            "committed",
 		"num_rows_inserted": 1,
 	}))
 }

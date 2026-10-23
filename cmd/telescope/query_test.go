@@ -45,13 +45,13 @@ func TestRunQueryCommandWritesTypedJSON(t *testing.T) {
 
 		body := decodeQueryRequestBody(t, r)
 		var request struct {
-			Statement   string `json:"statement"`
-			ExecTimeout string `json:"exec_timeout"`
-			Format      string `json:"format"`
+			Statement  string  `json:"statement"`
+			MaxElapsed float64 `json:"max_elapsed_seconds"`
+			Format     string  `json:"format"`
 		}
 		require.NoError(t, json.Unmarshal(body, &request))
 		require.Equal(t, "FROM scopedb.otel.traces LIMIT 1", request.Statement)
-		require.Equal(t, "2s", request.ExecTimeout)
+		require.Equal(t, float64(2), request.MaxElapsed)
 		require.Equal(t, "json", request.Format)
 
 		writeQueryTestJSON(t, w, `{

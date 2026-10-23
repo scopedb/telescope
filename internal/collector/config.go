@@ -21,6 +21,7 @@ extensions:
   file_storage:
     directory: ${env:TELESCOPE_QUEUE_DIR}
     create_directory: true
+    fsync: true
 
 receivers:
   otlp:
@@ -45,12 +46,16 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     compression: zstd
+    timeout: ${env:TELESCOPE_WRITE_TIMEOUT}
+    append_batch:
+      max_rows: ${env:TELESCOPE_APPEND_MAX_ROWS}
+      max_bytes: ${env:TELESCOPE_APPEND_MAX_BYTES}
     sending_queue:
       enabled: true
       storage: file_storage
       sizer: bytes
       queue_size: ${env:TELESCOPE_QUEUE_MAX_BYTES}
-      num_consumers: 1
+      num_consumers: ${env:TELESCOPE_QUEUE_CONSUMERS}
     retry_on_failure:
       enabled: true
       initial_interval: 5s
@@ -60,6 +65,8 @@ exporters:
 service:
   extensions: [file_storage]
   telemetry:
+    resource:
+      service.name: telescope
     logs:
       level: warn
   pipelines:

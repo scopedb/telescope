@@ -70,6 +70,7 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 		return fmt.Errorf("build collector: %w", err)
 	}
 	operationalServer := statusapi.NewWithRegistries(version, configDigest, statuses, captures)
+	operationalServer.SetCollectorRunning(func() bool { return otelCollector.GetState() == otelcol.StateRunning })
 	httpServer := &http.Server{
 		Addr:    listenAddr,
 		Handler: operationalServer,

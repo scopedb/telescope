@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN GOTOOLCHAIN=go1.25.13 go mod download
+RUN GOTOOLCHAIN=go1.26.10 go mod download
 
 COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=development
-RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.25.13 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/telescope ./cmd/telescope
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=0 GOTOOLCHAIN=go1.26.10 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/telescope ./cmd/telescope
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
@@ -34,8 +34,7 @@ VOLUME ["/var/lib/telescope/queue"]
 EXPOSE 4317 4318 8080
 
 # Liveness only: /healthz reports whether the operational server answers. It
-# deliberately does not use /readyz, which returns 503 while the ScopeDB
-# destination is unverified or a signal is degraded. Set TELESCOPE_HTTP_ADDR
+# does not depend on receiver readiness or ScopeDB availability. Set TELESCOPE_HTTP_ADDR
 # to a different port and the health check must be overridden accordingly.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -q --spider http://127.0.0.1:8080/healthz || exit 1

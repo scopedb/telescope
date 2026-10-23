@@ -70,15 +70,16 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		fmt.Fprintf(w, "config digest: %s\n", status.ConfigDigest)
 	}
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tDROPPED\tQUEUED\tDESTINATION")
+	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tUNKNOWN\tDROPPED\tQUEUED\tDESTINATION")
 	for _, signal := range status.Signals {
 		fmt.Fprintf(
 			table,
-			"%s\t%s\t%d\t%d\t%d\t%s\t%s\n",
+			"%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
 			signal.Signal,
 			signal.State,
 			signal.Received,
 			signal.Written,
+			signal.Unknown,
 			signal.Dropped,
 			formatQueue(signal.Queue),
 			signal.Table,
@@ -123,7 +124,7 @@ func formatInvalidReasons(counts map[string]uint64) string {
 }
 
 func unsettledRecords(signal statusapi.IngestionSignalStatus) uint64 {
-	final := signal.Written + signal.Dropped
+	final := signal.Written + signal.Unknown + signal.Dropped
 	if !signal.Queue.Observed || signal.Queue.Size > 0 || signal.Received <= final {
 		return 0
 	}
