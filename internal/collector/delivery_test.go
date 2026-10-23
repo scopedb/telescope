@@ -43,7 +43,8 @@ func TestPersistentQueueRecoversUnderSharedRateLimit(t *testing.T) {
 		outage, err = time.ParseDuration(raw)
 		require.NoError(t, err)
 	}
-	const batches = 24
+	// Accumulate three minutes at 2,400 records/second before recovery.
+	const batches = 54
 	const batchRows = 8000
 	const total = batches * batchRows
 	var mu sync.Mutex
