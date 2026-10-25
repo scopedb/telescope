@@ -69,13 +69,15 @@ Applications that accept possible duplicates can enable `unknown_retry` (`delive
 ```yaml
 unknown_retry:
   enabled: true
-  max_retries: 3
+  max_retries: 20
   max_elapsed_time: 5m
 ```
 
-This defaults to disabled. Eligible outcomes include unstructured HTTP 5xx, connection loss, and malformed success acknowledgements. Cancellation, client timeouts after connection acquisition, and permanent HTTP errors remain terminal. The policy preserves the SDK classification and certificate verification.
+This defaults to disabled, with limits of 20 retries and five minutes when enabled. Eligible outcomes include unstructured HTTP 5xx, connection loss, attempt timeouts, and malformed success acknowledgements. Cancellation and permanent HTTP errors remain terminal. A new attempt gets a fresh attempt timeout but shares the remaining replay budget. The policy preserves the SDK classification and certificate verification.
 
-Telescope retains the pending chunk's exact mapped bytes while Collector schedules retries. Both limits must be positive: `max_retries` counts additional attempts for previously unknown chunks, including safe rejections during replay; elapsed time starts at the first replayable unknown. Both budgets are shared across one dequeued request's chunks. A replay cannot start after expiry, and an in-flight replay is bounded by the remaining budget and normal attempt timeout. If `Retry-After` cannot fit, replay ends without resending. Otherwise final accounting may wait for Collector's next backoff wakeup. The ordinary retry horizon or shutdown can stop delivery earlier.
+Telescope retains the pending chunk's exact mapped bytes while Collector schedules retries. Both limits must be positive: `max_retries` counts additional attempts for previously unknown chunks, including safe rejections during replay; elapsed time starts at the first replayable unknown. Both budgets are shared across one dequeued request's chunks, and the first exhausted limit stops replay. Waiting in the queue consumes neither budget. With one consumer, queued requests wait behind the request being retried.
+
+A replay cannot start after expiry, and an in-flight replay is bounded by the remaining budget and normal attempt timeout. If `Retry-After` cannot fit, replay ends without resending. Otherwise final accounting may wait for Collector's next backoff wakeup. The ordinary retry horizon starts earlier, at the first delivery attempt, and can stop replay even when both elapsed limits are equal. Its default of zero removes that outer elapsed limit; cancellation and shutdown still stop retries.
 
 A later success confirms at least one copy was written. A later rejection cannot resolve the earlier uncertainty. If delivery ends without confirmation, the ambiguous chunk counts as unknown, while an unsent suffix exhausting ordinary retries counts as dropped. Pending replay has no final outcome yet.
 

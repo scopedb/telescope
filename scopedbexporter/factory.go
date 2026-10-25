@@ -144,7 +144,9 @@ func exporterOptions(cfg *Config, exp *dbExporter) []exporterhelper.Option {
 		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithTimeout(cfg.Timeout),
+		// pushSignal owns the attempt deadline so replay decisions can still
+		// inspect the delivery context after an individual attempt expires.
+		exporterhelper.WithTimeout(exporterhelper.TimeoutConfig{}),
 		exporterhelper.WithRetry(cfg.RetryOnFailure),
 		xexporterhelper.WithQueueBatch(cfg.SendingQueue, xexporterhelper.QueueBatchSettings{Encoding: deliveryEncoding{exp}, ReferenceCounter: deliveryReferenceCounter{}}),
 	}

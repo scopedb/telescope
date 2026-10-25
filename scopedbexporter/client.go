@@ -67,7 +67,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 		Endpoint:    cfg.Endpoint,
 		APIKey:      string(cfg.APIKey),
 		Compression: sdkCompression(cfg.compressionMode()),
-		// Collector's per-attempt context owns the timeout, including mapping
+		// The exporter's attempt context owns the timeout, including mapping
 		// and all chunks. Do not add the SDK's independent 30-second deadline.
 		WriteTimeout: new(time.Duration(0)),
 	})
@@ -88,7 +88,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 	}, nil
 }
 
-func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
+func (c *appendClient) send(ctx, attemptCtx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
 	if payload == nil {
 		return sendOutcome{err: consumererror.NewPermanent(errors.New("nil append payload"))}
 	}
@@ -154,7 +154,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		if len(chunkIndexes) == 0 {
 			return true
 		}
-		err := appendChunk(ctx, body, len(chunkIndexes))
+		err := appendChunk(attemptCtx, body, len(chunkIndexes))
 		if err == nil {
 			outcome.committed = append(outcome.committed, chunkIndexes...)
 			resetChunk()
@@ -188,7 +188,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 			resetChunk()
 			return true
 		}
-		if err := appendChunk(ctx, body, len(chunkIndexes)); err != nil {
+		if err := appendChunk(attemptCtx, body, len(chunkIndexes)); err != nil {
 			if replay.retain(ctx, body, len(chunkIndexes), err) {
 				setDeliveryError(unknownRetryError(err), remainingFrom)
 				return false
@@ -215,8 +215,8 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		// Shutdown ends scheduling; an unresolved file entry must remain recoverable.
 		if replay.canReplay(ctx) && !replay.exporter.stopping.Load() {
 			replay.recordReplay()
-			attemptCtx, cancel := context.WithDeadline(ctx, replay.started.Add(replay.config.MaxElapsedTime))
-			err = appendChunk(attemptCtx, pending.body, pending.rows)
+			replayCtx, cancel := context.WithDeadline(attemptCtx, replay.started.Add(replay.config.MaxElapsedTime))
+			err = appendChunk(replayCtx, pending.body, pending.rows)
 			cancel()
 		}
 		if err == nil {

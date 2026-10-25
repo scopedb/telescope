@@ -130,7 +130,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 
 	payload, err := mapLogs(logs)
 	require.NoError(t, err)
-	outcome := client.send(ctx, signalLogs, payload, nil)
+	outcome := client.send(ctx, ctx, signalLogs, payload, nil)
 	require.NoError(t, outcome.err)
 	require.Len(t, outcome.committed, len(payload.Records))
 
@@ -144,7 +144,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	assert.Equal(t, "01020300000000000000000000000000", objects[0]["trace_id"])
 	assert.Len(t, objects[0], 4)
 
-	outcome = client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
+	outcome = client.send(ctx, ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"message": "before invalid row"},
 		{"message": 42},
 		{"message": "after invalid row"},
@@ -224,7 +224,7 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 			defer client.Close()
 			_, validationErr := client.plans[signal].inspectDestination(ctx, client.Client)
 			require.NoError(t, validationErr)
-			outcome := client.send(ctx, signal, payload, nil)
+			outcome := client.send(ctx, ctx, signal, payload, nil)
 			require.NoError(t, outcome.err)
 			require.Len(t, outcome.committed, len(payload.Records))
 
