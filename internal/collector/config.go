@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/scopedb/telescope/scopedbexporter"
+	"go.opentelemetry.io/collector/config/configretry"
 )
 
 // Config keeps ingestion mappings and runtime policy in one validated document.
@@ -168,8 +169,13 @@ func (c Config) Validate() error {
 	if err := c.Delivery.UnknownRetry.Validate(); err != nil {
 		return err
 	}
-	if r.InitialInterval <= 0 || r.MaxInterval < r.InitialInterval || r.MaxElapsedTime < 0 {
-		return errors.New("delivery.retry requires positive initial_interval, max_interval >= initial_interval, and nonnegative max_elapsed_time")
+	if r.InitialInterval <= 0 || r.MaxInterval < r.InitialInterval {
+		return errors.New("delivery.retry requires positive initial_interval and max_interval >= initial_interval")
+	}
+	retry := configretry.NewDefaultBackOffConfig()
+	retry.InitialInterval, retry.MaxInterval, retry.MaxElapsedTime = r.InitialInterval, r.MaxInterval, r.MaxElapsedTime
+	if err := retry.Validate(); err != nil {
+		return fmt.Errorf("delivery.retry: %w", err)
 	}
 	if c.Batch.Size < 1 || c.Batch.MaxSize < c.Batch.Size || c.Batch.Timeout <= 0 {
 		return errors.New("batch requires positive size and timeout, and max_size >= size")
