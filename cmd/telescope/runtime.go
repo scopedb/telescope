@@ -69,11 +69,11 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 
 	statuses := scopedbexporter.NewStatusRegistry()
 	captures := scopedbexporter.NewCaptureRegistry()
-	otelCollector, err := collector.NewWithRegistries(collectorConfigURI, version, statuses, captures)
+	otelCollector, err := collector.New(collectorConfigURI, version, statuses, captures)
 	if err != nil {
 		return fmt.Errorf("build collector: %w", err)
 	}
-	operationalServer := statusapi.NewWithRegistries(version, configDigest, statuses, captures)
+	operationalServer := statusapi.New(version, configDigest, statuses, captures)
 	queueDirectory := ""
 	if ingestion.Delivery.Queue.Type == "file" {
 		queueDirectory = ingestion.Delivery.Queue.Directory

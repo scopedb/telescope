@@ -121,11 +121,6 @@ func TestPreviewMappingAcceptsOTLPProtobufForEverySignal(t *testing.T) {
 	}
 }
 
-func TestObservedTypeUsesMappingValueTypes(t *testing.T) {
-	assert.Equal(t, "array", observedType(selectorTypeDynamic, []uint64{1, 2}))
-	assert.Equal(t, "binary", observedType(selectorTypeDynamic, []byte{1, 2}))
-}
-
 func TestPreviewMappingAppliesExpandedRules(t *testing.T) {
 	preview, err := PreviewMapping(signalLogs, SignalIngestionConfig{
 		Table: "analytics.logs",

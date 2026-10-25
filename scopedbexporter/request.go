@@ -91,14 +91,19 @@ func (r *deliveryRequest) OnError(err error) xexporterhelper.Request {
 }
 
 func (r *deliveryRequest) send(ctx context.Context) error {
-	ctx = context.WithValue(ctx, unknownRetryContextKey{}, &r.replay)
 	switch data := r.data.(type) {
 	case plog.Logs:
-		r.err = r.exporter.pushLogs(ctx, data)
+		r.err = pushSignal(r, ctx, data, data.LogRecordCount(), mapLogs, func(err error, indexes []int) error {
+			return consumererror.NewLogs(err, logsFromRecords(data, indexes))
+		})
 	case ptrace.Traces:
-		r.err = r.exporter.pushTraces(ctx, data)
+		r.err = pushSignal(r, ctx, data, data.SpanCount(), mapTraces, func(err error, indexes []int) error {
+			return consumererror.NewTraces(err, tracesFromRecords(data, indexes))
+		})
 	case pmetric.Metrics:
-		r.err = r.exporter.pushMetrics(ctx, data)
+		r.err = pushSignal(r, ctx, data, data.DataPointCount(), mapMetrics, func(err error, indexes []int) error {
+			return consumererror.NewMetrics(err, metricsFromRecords(data, indexes))
+		})
 	}
 	return r.err
 }

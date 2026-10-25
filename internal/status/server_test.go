@@ -25,50 +25,18 @@ import (
 	"time"
 
 	"github.com/scopedb/telescope/scopedbexporter"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewWithRegistriesUsesProvidedRuntime(t *testing.T) {
-	statuses := scopedbexporter.NewStatusRegistry()
-	captures := scopedbexporter.NewCaptureRegistry()
-	server := NewWithRegistries("test", "sha256:test", statuses, captures)
-
-	if server.service.ingestionRuntime != statuses {
-		t.Fatal("status server did not use the provided status registry")
-	}
-	if server.service.ingestionCapture != captures {
-		t.Fatal("status server did not use the provided capture registry")
-	}
-}
-
 func TestGetHealth(t *testing.T) {
-	server := New("test", "sha256:test")
+	server := newServer(newService("test"))
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("unexpected status: %d", recorder.Code)
-	}
 	var response HealthResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Status != "ok" || response.Service != serviceName || response.Version != "test" {
-		t.Fatalf("unexpected health response: %#v", response)
-	}
-}
-
-func TestServerReady(t *testing.T) {
-	service := newService("test")
-	service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
-		Signals: map[string]scopedbexporter.SignalRuntimeStatus{
-			"traces": {Signal: "traces", Ready: true},
-		},
-	}}
-	service.ingestionMetrics = fakeCollectorMetricsReader{}
-
-	if !newServer(service).Ready(context.Background()) {
-		t.Fatal("expected server to report ready")
-	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, HealthResponse{Status: "ok", Service: "telescope", Version: "test"}, response)
 }
 
 func TestGetIngestionCaptureReturnsRawOTLPJSON(t *testing.T) {
@@ -93,22 +61,13 @@ func TestGetIngestionCaptureReturnsRawOTLPJSON(t *testing.T) {
 	)
 
 	server.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("unexpected status: %d (%s)", recorder.Code, recorder.Body.String())
-	}
-	if recorder.Body.String() != `{"resourceSpans":[]}` {
-		t.Fatalf("unexpected body: %s", recorder.Body.String())
-	}
-	if got := recorder.Header().Get("X-Telescope-Signal"); got != "traces" {
-		t.Fatalf("unexpected signal header: %q", got)
-	}
-	if got := recorder.Header().Get("X-Telescope-Records"); got != "2" {
-		t.Fatalf("unexpected records header: %q", got)
-	}
-	if captures.signal != "traces" || captures.limit != 2 || captures.timeout != 3*time.Second {
-		t.Fatalf("unexpected capture request: %#v", captures)
-	}
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, `{"resourceSpans":[]}`, recorder.Body.String())
+	require.Equal(t, "traces", recorder.Header().Get("X-Telescope-Signal"))
+	require.Equal(t, "2", recorder.Header().Get("X-Telescope-Records"))
+	require.Equal(t, "traces", captures.signal)
+	require.Equal(t, 2, captures.limit)
+	require.Equal(t, 3*time.Second, captures.timeout)
 }
 
 func TestGetIngestionCaptureRejectsDisabledSignal(t *testing.T) {
@@ -125,10 +84,7 @@ func TestGetIngestionCaptureRejectsDisabledSignal(t *testing.T) {
 		recorder,
 		httptest.NewRequest(http.MethodGet, "/v1/ingestion/capture?signal=traces&limit=1&timeout=1s", nil),
 	)
-
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("unexpected status: %d", recorder.Code)
-	}
+	require.Equal(t, http.StatusNotFound, recorder.Code)
 }
 
 func TestGetIngestionCaptureMapsExpectedErrors(t *testing.T) {
@@ -157,10 +113,7 @@ func TestGetIngestionCaptureMapsExpectedErrors(t *testing.T) {
 				recorder,
 				httptest.NewRequest(http.MethodGet, "/v1/ingestion/capture?signal=metrics&limit=1&timeout=1s", nil),
 			)
-
-			if recorder.Code != tt.wantStatus {
-				t.Fatalf("unexpected status: %d", recorder.Code)
-			}
+			require.Equal(t, tt.wantStatus, recorder.Code)
 		})
 	}
 }
@@ -175,9 +128,7 @@ func TestGetIngestionCaptureRejectsInvalidOptions(t *testing.T) {
 	} {
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
-		if recorder.Code != http.StatusBadRequest {
-			t.Fatalf("%s: unexpected status %d", target, recorder.Code)
-		}
+		require.Equal(t, http.StatusBadRequest, recorder.Code)
 	}
 }
 
@@ -194,4 +145,12 @@ func (f *fakeCaptureReader) Capture(_ context.Context, signal string, limit int,
 	f.limit = limit
 	f.timeout = timeout
 	return f.sample, f.err
+}
+
+func newService(version string) *service {
+	return newServiceWithRuntime(
+		version,
+		scopedbexporter.NewStatusRegistry(),
+		scopedbexporter.NewCaptureRegistry(),
+	)
 }

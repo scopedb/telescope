@@ -28,13 +28,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
-	"go.opentelemetry.io/collector/exporter/exportertest"
-	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 func replayTestConfig(endpoint string) *Config {
@@ -46,15 +42,6 @@ func replayTestConfig(endpoint string) *Config {
 	cfg.UnknownRetry = UnknownRetryConfig{Enabled: true, MaxRetries: 2, MaxElapsedTime: time.Minute}
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	return cfg
-}
-
-func replayTestLogs(values ...string) plog.Logs {
-	logs := plog.NewLogs()
-	rows := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
-	for _, value := range values {
-		rows.AppendEmpty().Body().SetStr(value)
-	}
-	return logs
 }
 
 func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
@@ -75,10 +62,7 @@ func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
 			var bodies []string
 			var mu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				decoder, err := zstd.NewReader(r.Body)
-				require.NoError(t, err)
-				body, err := io.ReadAll(decoder)
-				decoder.Close()
+				body, err := decodeSDKRequestBody(r)
 				require.NoError(t, err)
 				mu.Lock()
 				bodies = append(bodies, string(body))
@@ -87,19 +71,16 @@ func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
 				w.WriteHeader(tc.statuses[i])
 				_, _ = io.WriteString(w, tc.bodies[i])
 			}))
-			defer server.Close()
+			t.Cleanup(server.Close)
 			cfg := replayTestConfig(server.URL)
-			registry := NewStatusRegistry()
-			exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-			require.NoError(t, err)
-			require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-			err = exp.ConsumeLogs(t.Context(), replayTestLogs("same encoded record"))
+			exp, registry := startTestLogsExporter(t, cfg)
+			err := exp.ConsumeLogs(t.Context(), testLogs("same encoded record"))
 			if tc.unknown > 0 {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
-			require.NoError(t, exp.Shutdown(context.Background()))
+
 			require.Equal(t, tc.calls, calls.Load())
 			mu.Lock()
 			for _, body := range bodies {
@@ -121,10 +102,7 @@ func TestUnknownReplayKeepsCommittedChunksOutOfLaterRetries(t *testing.T) {
 	attempts := map[string]int{}
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reader, err := zstd.NewReader(r.Body)
-		require.NoError(t, err)
-		defer reader.Close()
-		body, err := io.ReadAll(reader)
+		body, err := decodeSDKRequestBody(r)
 		require.NoError(t, err)
 		var row map[string]string
 		require.NoError(t, json.Unmarshal(body, &row))
@@ -143,15 +121,12 @@ func TestUnknownReplayKeepsCommittedChunksOutOfLaterRetries(t *testing.T) {
 			writeAppendCommitted(t, w, 1)
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	cfg := replayTestConfig(server.URL)
 	cfg.AppendBatch.MaxRows = 1
-	registry := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	require.NoError(t, exp.ConsumeLogs(t.Context(), replayTestLogs("committed", "unknown", "suffix")))
-	require.NoError(t, exp.Shutdown(context.Background()))
+	exp, registry := startTestLogsExporter(t, cfg)
+	require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("committed", "unknown", "suffix")))
+
 	mu.Lock()
 	require.Equal(t, map[string]int{"committed": 1, "unknown": 3, "suffix": 2}, attempts)
 	mu.Unlock()
@@ -172,16 +147,12 @@ func TestUnknownReplayBudgetSharesAllChunks(t *testing.T) {
 		w.WriteHeader(503)
 		_, _ = io.WriteString(w, "unavailable")
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	cfg := replayTestConfig(server.URL)
 	cfg.AppendBatch.MaxRows = 1
 	cfg.UnknownRetry.MaxRetries = 1
-	registry := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	require.Error(t, exp.ConsumeLogs(t.Context(), replayTestLogs("first", "second")))
-	require.NoError(t, exp.Shutdown(context.Background()))
+	exp, registry := startTestLogsExporter(t, cfg)
+	require.Error(t, exp.ConsumeLogs(t.Context(), testLogs("first", "second")))
 	require.Equal(t, int32(3), calls.Load())
 	state := registry.Snapshot().Signals[signalLogs]
 	require.Equal(t, uint64(1), state.ConfirmedWrittenRecords)
@@ -199,25 +170,24 @@ func TestOrdinaryRetryExhaustionKeepsUnknownSeparate(t *testing.T) {
 				w.WriteHeader(503)
 				_, _ = io.WriteString(w, "unavailable")
 			}))
-			defer server.Close()
+			t.Cleanup(server.Close)
 			cfg := replayTestConfig(server.URL)
 			cfg.AppendBatch.MaxRows = 1
 			cfg.RetryOnFailure.MaxElapsedTime = time.Second
 			if queued {
 				cfg.SendingQueue = configoptional.Some(exporterhelper.NewDefaultQueueConfig())
 			}
-			registry := NewStatusRegistry()
-			exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-			require.NoError(t, err)
-			require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-			err = exp.ConsumeLogs(t.Context(), replayTestLogs("unknown", "unsent"))
+			exp, registry := startTestLogsExporter(t, cfg)
+			err := exp.ConsumeLogs(t.Context(), testLogs("unknown", "unsent"))
 			if queued {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
 			}
-			require.Eventually(t, func() bool { return registry.Snapshot().Signals[signalLogs].UnknownRecords == 1 }, time.Second, time.Millisecond)
-			require.NoError(t, exp.Shutdown(context.Background()))
+			require.Eventually(t, func() bool {
+				s := registry.Snapshot().Signals[signalLogs]
+				return s.UnknownRecords == 1 && s.RetryExhaustedRecords == 1
+			}, time.Second, time.Millisecond)
 			require.Equal(t, int32(1), calls.Load())
 			state := registry.Snapshot().Signals[signalLogs]
 			require.Equal(t, uint64(1), state.UnknownRecords)
@@ -236,15 +206,11 @@ func TestUnknownReplayHonorsRetryAfterAndElapsedLimit(t *testing.T) {
 		w.WriteHeader(503)
 		_, _ = io.WriteString(w, "unavailable")
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	cfg := replayTestConfig(server.URL)
 	cfg.UnknownRetry.MaxElapsedTime = 20 * time.Millisecond
-	registry := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	require.Error(t, exp.ConsumeLogs(t.Context(), replayTestLogs("expires during backoff")))
-	require.NoError(t, exp.Shutdown(context.Background()))
+	exp, registry := startTestLogsExporter(t, cfg)
+	require.Error(t, exp.ConsumeLogs(t.Context(), testLogs("expires during backoff")))
 	require.Equal(t, int32(1), calls.Load())
 	require.Equal(t, uint64(1), registry.Snapshot().Signals[signalLogs].UnknownRecords)
 }
@@ -259,14 +225,10 @@ func TestUnknownReplayDoesNotRetryClientCancellation(t *testing.T) {
 		cancel()
 		<-r.Context().Done()
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	cfg := replayTestConfig(server.URL)
-	registry := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	require.Error(t, exp.ConsumeLogs(ctx, replayTestLogs(strings.Repeat("cancelled", 100))))
-	require.NoError(t, exp.Shutdown(context.Background()))
+	exp, registry := startTestLogsExporter(t, cfg)
+	require.Error(t, exp.ConsumeLogs(ctx, testLogs(strings.Repeat("cancelled", 100))))
 	require.Equal(t, int32(1), calls.Load())
 	require.Zero(t, registry.Snapshot().Signals[signalLogs].UnknownReplayAttempts)
 	require.Equal(t, uint64(1), registry.Snapshot().Signals[signalLogs].UnknownRecords)
@@ -283,15 +245,11 @@ func TestUnknownReplayBoundsAnInFlightAttempt(t *testing.T) {
 		}
 		<-r.Context().Done()
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	cfg := replayTestConfig(server.URL)
 	cfg.UnknownRetry.MaxElapsedTime = 200 * time.Millisecond
-	registry := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(registry, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	require.Error(t, exp.ConsumeLogs(t.Context(), replayTestLogs("bounded attempt")))
-	require.NoError(t, exp.Shutdown(context.Background()))
+	exp, registry := startTestLogsExporter(t, cfg)
+	require.Error(t, exp.ConsumeLogs(t.Context(), testLogs("bounded attempt")))
 	require.Equal(t, int32(2), calls.Load())
 	state := registry.Snapshot().Signals[signalLogs]
 	require.Equal(t, uint64(1), state.UnknownRecords)

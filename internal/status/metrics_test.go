@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	}}
 	service.ingestionMetrics = fakeCollectorMetricsReader{snapshot: collectorMetricsSnapshot{
 		Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 99, QueueSize: 5, QueueCapacity: 5000},
+			"logs":   {Received: 10, QueueSize: 5, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		},
 	}}
@@ -76,60 +77,38 @@ func TestGetPrometheusMetrics(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.Equal(t, string(expfmt.NewFormat(expfmt.TypeTextPlain)), recorder.Header().Get("Content-Type"))
-	assert.Equal(t, `# HELP telescope_ingestion_unknown_replay_attempts_total Append attempts replaying a chunk with a previous unknown outcome.
-# TYPE telescope_ingestion_unknown_replay_attempts_total counter
-telescope_ingestion_unknown_replay_attempts_total{signal="logs",table="scopedb.otel.logs"} 2
-telescope_ingestion_unknown_replay_attempts_total{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_ingestion_unknown_replayed_records_total Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery.
-# TYPE telescope_ingestion_unknown_replayed_records_total counter
-telescope_ingestion_unknown_replayed_records_total{signal="logs",table="scopedb.otel.logs"} 1
-telescope_ingestion_unknown_replayed_records_total{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_ingestion_unknown_total Telemetry items with an unknown append outcome, excluded from written and dropped items.
-# TYPE telescope_ingestion_unknown_total counter
-telescope_ingestion_unknown_total{signal="logs",table="scopedb.otel.logs"} 0
-telescope_ingestion_unknown_total{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_ingestion_received_total Telemetry items accepted by Telescope, in each signal's native unit.
-# TYPE telescope_ingestion_received_total counter
-telescope_ingestion_received_total{signal="logs",table="scopedb.otel.logs"} 10
-telescope_ingestion_received_total{signal="traces",table="scopedb.otel.traces"} 4
-# HELP telescope_ingestion_written_total Telemetry items confirmed written to ScopeDB, in each signal's native unit.
-# TYPE telescope_ingestion_written_total counter
-telescope_ingestion_written_total{signal="logs",table="scopedb.otel.logs"} 7
-telescope_ingestion_written_total{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_ingestion_dropped_total Telemetry items ultimately dropped, partitioned by final reason.
-# TYPE telescope_ingestion_dropped_total counter
-telescope_ingestion_dropped_total{signal="logs",table="scopedb.otel.logs",reason="retry_exhausted"} 2
-telescope_ingestion_dropped_total{signal="logs",table="scopedb.otel.logs",reason="enqueue_failed"} 1
-telescope_ingestion_dropped_total{signal="logs",table="scopedb.otel.logs",reason="permanent_rejected"} 2
-telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="retry_exhausted"} 0
-telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="enqueue_failed"} 0
-telescope_ingestion_dropped_total{signal="traces",table="scopedb.otel.traces",reason="permanent_rejected"} 0
-# HELP telescope_ingestion_invalid_items_total Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason.
-# TYPE telescope_ingestion_invalid_items_total counter
-telescope_ingestion_invalid_items_total{signal="logs",reason="unsupported_metric_type"} 2
-telescope_ingestion_invalid_items_total{signal="logs",reason="unsupported_number_value_type"} 1
-# HELP telescope_ingestion_queue_bytes Logical serialized bytes currently retained in the exporter queue.
-# TYPE telescope_ingestion_queue_bytes gauge
-telescope_ingestion_queue_bytes{signal="logs",table="scopedb.otel.logs"} 5
-# HELP telescope_ingestion_queue_capacity_bytes Configured logical byte capacity of the exporter queue.
-# TYPE telescope_ingestion_queue_capacity_bytes gauge
-telescope_ingestion_queue_capacity_bytes{signal="logs",table="scopedb.otel.logs"} 5000
-# HELP telescope_ingestion_queue_utilization Fraction of the configured exporter queue capacity currently retained, for every queue sizer.
-# TYPE telescope_ingestion_queue_utilization gauge
-telescope_ingestion_queue_utilization{signal="logs",table="scopedb.otel.logs"} 0.001
-telescope_ingestion_queue_utilization{signal="traces",table="scopedb.otel.traces"} 0.0004
-# HELP telescope_ingestion_last_success_timestamp_seconds Unix timestamp of the latest ScopeDB append success, or zero before the first success.
-# TYPE telescope_ingestion_last_success_timestamp_seconds gauge
-telescope_ingestion_last_success_timestamp_seconds{signal="logs",table="scopedb.otel.logs"} 123
-telescope_ingestion_last_success_timestamp_seconds{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_ingestion_destination_verified Whether the ScopeDB destination has been verified by validation or a successful append.
-# TYPE telescope_ingestion_destination_verified gauge
-telescope_ingestion_destination_verified{signal="logs",table="scopedb.otel.logs"} 1
-telescope_ingestion_destination_verified{signal="traces",table="scopedb.otel.traces"} 0
-# HELP telescope_queue_storage_allocated_bytes Filesystem blocks currently allocated to files in the Telescope queue directory.
-# TYPE telescope_queue_storage_allocated_bytes gauge
-telescope_queue_storage_allocated_bytes 8192
-`, recorder.Body.String())
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(recorder.Body)
+	require.NoError(t, err)
+	values := map[string]float64{}
+	for name, family := range families {
+		for _, metric := range family.Metric {
+			signal, reason := labelValue(metric, "signal"), labelValue(metric, "reason")
+			if signal != "" && name != "telescope_ingestion_invalid_items_total" {
+				require.Equal(t, "scopedb.otel."+signal, labelValue(metric, "table"))
+			}
+			values[name+"/"+signal+"/"+reason] = metric.GetCounter().GetValue() + metric.GetGauge().GetValue()
+		}
+	}
+	for key, want := range map[string]float64{
+		"telescope_ingestion_received_total/logs/":                             10,
+		"telescope_ingestion_written_total/logs/":                              7,
+		"telescope_ingestion_unknown_replay_attempts_total/logs/":              2,
+		"telescope_ingestion_unknown_replayed_records_total/logs/":             1,
+		"telescope_ingestion_dropped_total/logs/retry_exhausted":               2,
+		"telescope_ingestion_dropped_total/logs/enqueue_failed":                1,
+		"telescope_ingestion_dropped_total/logs/permanent_rejected":            2,
+		"telescope_ingestion_invalid_items_total/logs/unsupported_metric_type": 2,
+		"telescope_ingestion_queue_bytes/logs/":                                5,
+		"telescope_ingestion_queue_capacity_bytes/logs/":                       5000,
+		"telescope_ingestion_queue_utilization/traces/":                        0.0004,
+		"telescope_ingestion_last_success_timestamp_seconds/logs/":             123,
+		"telescope_queue_storage_allocated_bytes//":                            8192,
+	} {
+		assert.Equal(t, want, values[key], key)
+	}
+	assert.NotContains(t, values, "telescope_ingestion_queue_bytes/traces/")
+	assert.NotContains(t, values, "telescope_ingestion_queue_capacity_bytes/traces/")
 }
 
 func TestPrometheusMetricsOmitUnavailableQueueStorage(t *testing.T) {

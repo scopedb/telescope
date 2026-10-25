@@ -25,23 +25,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/require"
 )
-
-func TestPrintConfigurationSummaryCountsColumns(t *testing.T) {
-	var output bytes.Buffer
-	printConfigurationSummary(&output, []scopedbexporter.SignalMappingDescription{{
-		Signal: "logs",
-		Columns: []scopedbexporter.MappingColumnDescription{
-			{Column: "message", OutputType: "string"},
-			{Column: "body", OutputType: "dynamic", RuntimeDependent: true},
-		},
-	}})
-	if got, want := output.String(), "configuration: ok (columns=2, statically-typed=1, sample-check=1)\n"; got != want {
-		t.Fatalf("printConfigurationSummary() = %q, want %q", got, want)
-	}
-}
 
 func TestValidateReportsEffectiveConfigurationWithoutSecrets(t *testing.T) {
 	t.Setenv("TELESCOPE_QUEUE_DIR", "/var/lib/telescope/override")
@@ -88,37 +73,30 @@ func TestTelescopeConfigPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			flags := flag.NewFlagSet("test", flag.ContinueOnError)
-			if err := flags.Parse(tt.args); err != nil {
-				t.Fatalf("parse flags: %v", err)
-			}
+			require.NoError(t, flags.Parse(tt.args))
+
 			got, err := telescopeConfigPath(flags)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				require.Error(t, err)
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("telescopeConfigPath() error = %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("telescopeConfigPath() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestPreviewUsesStdinSampleWithoutWriting(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "telescope.yaml")
-	if err := os.WriteFile(configPath, []byte(`
+	require.NoError(t, os.WriteFile(configPath, []byte(`
 signals:
   logs:
     table: app.logs
     mapping:
       message: log.message
-`), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+`), 0o600))
+
 	sample := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"hello"}}]}]}]}`
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -131,74 +109,22 @@ signals:
 		&stdout,
 		&stderr,
 	)
-	if err != nil {
-		t.Fatalf("runConfigCommand() error = %v", err)
-	}
-	if !strings.Contains(stdout.String(), "sample logs <- - (1 records)") {
-		t.Fatalf("preview output missing sample: %s", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), `{"message":"hello"}`) {
-		t.Fatalf("preview output missing projected row: %s", stdout.String())
-	}
-}
-
-func TestValidateRejectsSampleFlag(t *testing.T) {
-	err := runConfigCommand(
-		context.Background(),
-		"validate",
-		[]string{"--sample", "logs=sample.json"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestConfigCommandRejectsNonPositiveTimeout(t *testing.T) {
-	err := runConfigCommand(
-		context.Background(),
-		"validate",
-		[]string{"--offline", "--timeout", "0s"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPreviewRequiresSample(t *testing.T) {
-	err := runConfigCommand(
-		context.Background(),
-		"preview",
-		[]string{"--offline"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "preview requires at least one --sample") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), "sample logs <- - (1 records)")
+	require.Contains(t, stdout.String(), `{"message":"hello"}`)
 }
 
 func TestPreviewStrictFailsIncompleteSample(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "telescope.yaml")
-	if err := os.WriteFile(configPath, []byte(`
+	require.NoError(t, os.WriteFile(configPath, []byte(`
 signals:
   logs:
     table: app.logs
     mapping:
       message: log.message
       tenant: resource.attributes["tenant"]
-`), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+`), 0o600))
+
 	sample := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"hello"}}]}]}]}`
 	var stdout bytes.Buffer
 
@@ -210,13 +136,6 @@ signals:
 		&stdout,
 		&bytes.Buffer{},
 	)
-	if err == nil {
-		t.Fatal("expected strict preview error")
-	}
-	if !strings.Contains(err.Error(), "warnings under --strict") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "WARN unobserved") {
-		t.Fatalf("preview output missing warning: %s", stdout.String())
-	}
+	require.ErrorContains(t, err, "warnings under --strict")
+	require.Contains(t, stdout.String(), "WARN unobserved")
 }

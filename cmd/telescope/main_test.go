@@ -21,14 +21,14 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"github.com/scopedb/telescope/internal/collector"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 var errTestWrite = errors.New("test write failed")
@@ -46,29 +46,17 @@ func TestRunCommandWritesVersionToStdout(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if err := runCommand(context.Background(), []string{"version"}, strings.NewReader(""), &stdout, &stderr); err != nil {
-		t.Fatalf("runCommand() error = %v", err)
-	}
-	if got := stdout.String(); got != "v-test\n" {
-		t.Fatalf("runCommand() stdout = %q, want %q", got, "v-test\\n")
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("runCommand() stderr = %q, want none", stderr.String())
-	}
+	require.NoError(t, runCommand(context.Background(), []string{"version"}, strings.NewReader(""), &stdout, &stderr))
+	require.Equal(t, "v-test\n", stdout.String())
+	require.Equal(t, 0, stderr.Len())
 }
 
 func TestRunCommandWritesUsageToStderr(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if err := runCommand(context.Background(), nil, strings.NewReader(""), &stdout, &stderr); err != nil {
-		t.Fatalf("runCommand() error = %v", err)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("runCommand() stdout = %q, want none", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "Usage:") {
-		t.Fatalf("runCommand() stderr = %q, want usage", stderr.String())
-	}
+	require.NoError(t, runCommand(context.Background(), nil, strings.NewReader(""), &stdout, &stderr))
+	require.Equal(t, 0, stdout.Len())
+	require.Contains(t, stderr.String(), "Usage:")
 }
 
 func TestCommandHelpNeedsNoConfiguration(t *testing.T) {
@@ -78,12 +66,9 @@ func TestCommandHelpNeedsNoConfiguration(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			err := runCommand(t.Context(), []string{command, "--help"}, strings.NewReader(""), &stdout, &stderr)
-			if !errors.Is(err, flag.ErrHelp) {
-				t.Fatalf("help: %v", err)
-			}
-			if stdout.Len() != 0 || stderr.Len() == 0 {
-				t.Fatalf("help must go only to stderr: stdout=%q stderr=%q", stdout.String(), stderr.String())
-			}
+			require.ErrorIs(t, err, flag.ErrHelp)
+			require.Empty(t, stdout.String())
+			require.NotEmpty(t, stderr.String())
 		})
 	}
 }
@@ -96,9 +81,7 @@ func TestRunCommandReportsOutputFailure(t *testing.T) {
 		failingWriter{},
 		io.Discard,
 	)
-	if !errors.Is(err, errTestWrite) {
-		t.Fatalf("runCommand() error = %v, want output failure", err)
-	}
+	require.ErrorIs(t, err, errTestWrite)
 }
 
 func TestRunCommandDoesNotHideHelpOutputFailure(t *testing.T) {
@@ -109,209 +92,20 @@ func TestRunCommandDoesNotHideHelpOutputFailure(t *testing.T) {
 		io.Discard,
 		failingWriter{},
 	)
-	if !errors.Is(err, errTestWrite) {
-		t.Fatalf("runCommand() error = %v, want help output failure", err)
-	}
-	if errors.Is(err, flag.ErrHelp) {
-		t.Fatalf("runCommand() error = %v hides the output failure as help", err)
-	}
-}
-
-func TestLoadEnvFileSetsMissingValues(t *testing.T) {
-	clearBootstrapEnv(t)
-	path := writeEnvFile(t, `
-# bootstrap config
-TELESCOPE_SCOPEDB_ENDPOINT="https://file.scopedb.cloud"
-TELESCOPE_SCOPEDB_API_KEY='sk_file'
-`)
-
-	if err := loadEnvFile(path); err != nil {
-		t.Fatalf("loadEnvFile() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://file.scopedb.cloud" {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_file" {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
-}
-
-func TestLoadEnvFileDoesNotOverrideExistingEnvironment(t *testing.T) {
-	clearBootstrapEnv(t)
-	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://env.scopedb.cloud")
-	path := writeEnvFile(t, `
-TELESCOPE_SCOPEDB_ENDPOINT=https://file.scopedb.cloud
-TELESCOPE_SCOPEDB_API_KEY=sk_file
-`)
-
-	if err := loadEnvFile(path); err != nil {
-		t.Fatalf("loadEnvFile() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://env.scopedb.cloud" {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_file" {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
-}
-
-func TestApplyBootstrapFlagsOverrideEnvFile(t *testing.T) {
-	clearBootstrapEnv(t)
-	path := writeEnvFile(t, `
-TELESCOPE_SCOPEDB_ENDPOINT=https://file.scopedb.cloud
-TELESCOPE_SCOPEDB_API_KEY=sk_file
-`)
-	endpoint := "https://flag.scopedb.cloud"
-
-	err := applyBootstrapFlags(bootstrapFlags{
-		envFile:         &path,
-		scopedbEndpoint: &endpoint,
-	})
-	if err != nil {
-		t.Fatalf("applyBootstrapFlags() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://flag.scopedb.cloud" {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_file" {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
-}
-
-func TestApplyBootstrapFlagsUsesSharedScopeDBEnvironment(t *testing.T) {
-	clearBootstrapEnv(t)
-	path := writeEnvFile(t, `
-SCOPEDB_ENDPOINT=https://shared.scopedb.cloud
-SCOPEDB_API_KEY=sk_shared
-`)
-
-	if err := applyBootstrapFlags(bootstrapFlags{envFile: &path}); err != nil {
-		t.Fatalf("applyBootstrapFlags() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://shared.scopedb.cloud" {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_shared" {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
-}
-
-func TestApplyBootstrapFlagsPrefersTelescopeEnvironment(t *testing.T) {
-	clearBootstrapEnv(t)
-	t.Setenv("SCOPEDB_ENDPOINT", "https://shared.scopedb.cloud")
-	t.Setenv("SCOPEDB_API_KEY", "sk_shared")
-	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://telescope.scopedb.cloud")
-	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "sk_telescope")
-
-	if err := applyBootstrapFlags(bootstrapFlags{}); err != nil {
-		t.Fatalf("applyBootstrapFlags() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != "https://telescope.scopedb.cloud" {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != "sk_telescope" {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
-}
-
-func TestApplyBootstrapFlagsPreferFlagsOverEveryEnvironment(t *testing.T) {
-	clearBootstrapEnv(t)
-	t.Setenv("SCOPEDB_ENDPOINT", "https://shared.scopedb.cloud")
-	t.Setenv("SCOPEDB_API_KEY", "sk_shared")
-	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://telescope.scopedb.cloud")
-	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "sk_telescope")
-	endpoint := "https://flag.scopedb.cloud"
-	apiKey := "sk_flag"
-
-	if err := applyBootstrapFlags(bootstrapFlags{scopedbEndpoint: &endpoint, scopedbAPIKey: &apiKey}); err != nil {
-		t.Fatalf("applyBootstrapFlags() error = %v", err)
-	}
-
-	if got := os.Getenv("TELESCOPE_SCOPEDB_ENDPOINT"); got != endpoint {
-		t.Fatalf("TELESCOPE_SCOPEDB_ENDPOINT = %q", got)
-	}
-	if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != apiKey {
-		t.Fatalf("TELESCOPE_SCOPEDB_API_KEY = %q", got)
-	}
+	require.ErrorIs(t, err, errTestWrite)
+	require.NotErrorIs(t, err, flag.ErrHelp)
 }
 
 func TestLoadEnvFileRejectsInvalidLine(t *testing.T) {
 	clearBootstrapEnv(t)
 	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT\n")
-
-	if err := loadEnvFile(path); err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, loadEnvFile(path))
 }
 
 func TestLoadEnvFileRejectsInvalidEnvironmentValue(t *testing.T) {
 	clearBootstrapEnv(t)
 	path := writeEnvFile(t, "TELESCOPE_SCOPEDB_ENDPOINT=https://bad\x00value\n")
-
-	if err := loadEnvFile(path); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestSetEnvIfValueRejectsInvalidEnvironmentValue(t *testing.T) {
-	if err := setEnvIfValue("TELESCOPE_SCOPEDB_ENDPOINT", "https://bad\x00value"); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestResolveHTTPListenAddr(t *testing.T) {
-	tests := []struct {
-		name     string
-		flag     string
-		addr     string
-		expected string
-	}{
-		{name: "default", expected: "127.0.0.1:8080"},
-		{name: "environment", addr: "127.0.0.1:9090", expected: "127.0.0.1:9090"},
-		{name: "flag before environment", flag: "127.0.0.1:7070", addr: "127.0.0.1:9090", expected: "127.0.0.1:7070"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("TELESCOPE_HTTP_ADDR", tt.addr)
-			if got := resolveHTTPListenAddr(tt.flag); got != tt.expected {
-				t.Fatalf("resolveHTTPListenAddr() = %q, want %q", got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestReportReadiness(t *testing.T) {
-	t.Setenv("TELESCOPE_OTLP_GRPC_ADDR", "127.0.0.1:14317")
-	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", "127.0.0.1:14318")
-	checks := 0
-	var output bytes.Buffer
-
-	reportReadiness(context.Background(), func(context.Context) bool {
-		checks++
-		return checks == 2
-	}, &output, time.Millisecond, "127.0.0.1:18080", collector.ReceiverConfig{GRPCAddr: "127.0.0.1:14317", HTTPAddr: "127.0.0.1:14318"})
-
-	want := "telescope ready: otlp_grpc=127.0.0.1:14317 otlp_http=127.0.0.1:14318 http=127.0.0.1:18080\n"
-	if output.String() != want {
-		t.Fatalf("reportReadiness() output = %q, want %q", output.String(), want)
-	}
-}
-
-func TestReportReadinessStopsWithContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	var output bytes.Buffer
-
-	reportReadiness(ctx, func(context.Context) bool { return true }, &output, time.Millisecond, "127.0.0.1:18080", collector.ReceiverConfig{GRPCAddr: "127.0.0.1:14317", HTTPAddr: "127.0.0.1:14318"})
-
-	if output.Len() != 0 {
-		t.Fatalf("reportReadiness() output = %q, want none", output.String())
-	}
+	require.Error(t, loadEnvFile(path))
 }
 
 func clearBootstrapEnv(t *testing.T) {
@@ -325,9 +119,8 @@ func clearBootstrapEnv(t *testing.T) {
 func writeEnvFile(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write env file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
 	return path
 }
 
@@ -347,12 +140,8 @@ func TestCheckedWriterSerializesConcurrentOutput(t *testing.T) {
 	}
 	close(start)
 	writers.Wait()
-	if err := writer.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Count(output.String(), "ready\n"); got != 1600 {
-		t.Fatalf("lost concurrent output: got %d lines", got)
-	}
+	require.NoError(t, writer.Err())
+	require.Equal(t, 1600, strings.Count(output.String(), "ready\n"))
 }
 
 func TestLoadEnvFilePreservesLiteralQuotes(t *testing.T) {
@@ -363,16 +152,54 @@ func TestLoadEnvFilePreservesLiteralQuotes(t *testing.T) {
 	} {
 		t.Run(entry.value, func(t *testing.T) {
 			clearBootstrapEnv(t)
-			if err := loadEnvFile(writeEnvFile(t, "TELESCOPE_SCOPEDB_API_KEY="+entry.value)); err != nil {
-				t.Fatal(err)
-			}
-			if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != entry.want {
-				t.Fatalf("credential changed: got %q, want %q", got, entry.want)
-			}
+			require.NoError(t, loadEnvFile(writeEnvFile(t, "TELESCOPE_SCOPEDB_API_KEY="+entry.value)))
+			require.Equal(t, entry.want, os.Getenv("TELESCOPE_SCOPEDB_API_KEY"))
 		})
 	}
 	clearBootstrapEnv(t)
-	if err := loadEnvFile(writeEnvFile(t, `TELESCOPE_SCOPEDB_API_KEY="secret'`)); err == nil {
-		t.Fatal("accepted an unmatched quote")
+	require.Error(t, loadEnvFile(writeEnvFile(t, `TELESCOPE_SCOPEDB_API_KEY="secret'`)))
+}
+
+func TestBootstrapPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name, shared, telescope, flag, want string
+	}{
+		{"file fallback", "", "", "", "file"},
+		{"shared environment", "shared", "", "", "shared"},
+		{"Telescope environment", "shared", "telescope", "", "telescope"},
+		{"flag override", "shared", "telescope", "flag", "flag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearBootstrapEnv(t)
+			t.Setenv("SCOPEDB_ENDPOINT", tc.shared)
+			t.Setenv("SCOPEDB_API_KEY", tc.shared)
+			t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", tc.telescope)
+			t.Setenv("TELESCOPE_SCOPEDB_API_KEY", tc.telescope)
+			path := writeEnvFile(t, "# Credentials\nSCOPEDB_ENDPOINT=\"file\"\nSCOPEDB_API_KEY='file'\n")
+			require.NoError(t, applyBootstrapFlags(bootstrapFlags{envFile: &path, scopedbEndpoint: &tc.flag, scopedbAPIKey: &tc.flag}))
+			endpoint, key := scopeDBCredentials()
+			require.Equal(t, tc.want, endpoint)
+			require.Equal(t, tc.want, key)
+		})
+	}
+}
+
+func TestCommandRejectsInvalidInput(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"validate", "--sample", "logs=sample.json"}, "flag provided but not defined"},
+		{[]string{"validate", "--offline", "--timeout", "0s"}, "--timeout must be greater than zero"},
+		{[]string{"preview", "--offline"}, "preview requires at least one --sample"},
+		{[]string{"plan", "--format", "scopeql", "--out", "tables.scopeql"}, "--out requires --format human"},
+		{[]string{"plan", "--format", "yaml"}, "unsupported plan format"},
+		{[]string{"plan", "--timeout", "0s"}, "--timeout must be greater than zero"},
+		{[]string{"capture", "--endpoint", "http://localhost:8080", "--listen-http", "localhost:4318", "traces"}, "cannot be used together"},
+		{[]string{"capture", "profiles"}, "unsupported capture signal"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			require.ErrorContains(t, runCommand(t.Context(), tc.args, strings.NewReader(""), io.Discard, io.Discard), tc.want)
+		})
 	}
 }

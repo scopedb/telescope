@@ -22,6 +22,8 @@ The command composes Collector and status; both depend on the exporter. The expo
 
 Tests live beside the behavior they exercise. `scopedbexporter/testdata/golden/` freezes normalized records and v0.2-compatible rows; `internal/collector/testdata/queue/v1/` freezes the persistent queue format. These are compatibility inputs, not generated output. Do not replace them to make an incompatible change pass.
 
+Keep each regression at the boundary that owns it: mapping fixtures for record shape, exporter HTTP requests and final counters for delivery, Collector restarts for persistence, and CLI tests for configuration and operational wiring. Reuse these tests instead of repeating each outcome at every layer. Prefer `testify` assertions and small setup helpers; avoid tests of constructor fields, private forwarding helpers, and complete help or metrics text when observable behavior is already covered.
+
 `bin/` and `dist/` are ignored build outputs. A release archive contains the binary and operator documentation/examples, not source, tests, development scripts, or private deployment files. The container contains the runtime binary, license, and CA certificates; configuration and queue storage are supplied at deployment.
 
 ## Local checks

@@ -40,49 +40,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-func TestUnknownChunkIsNotReplayedWithRetryableSuffix(t *testing.T) {
-	cfg := testExporterConfig("https://scopedb.invalid")
-	cfg.AppendBatch.MaxRows = 1
-	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	statuses := NewStatusRegistry()
-	exp, err := newDBExporter(cfg, exportertest.NewNopSettings(typeStr), signalLogs, statuses)
-	require.NoError(t, err)
-	defer exp.client.Close()
-	var calls []string
-	exp.client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
-		var row map[string]string
-		require.NoError(t, json.Unmarshal(body, &row))
-		calls = append(calls, row["message"])
-		switch len(calls) {
-		case 2:
-			return scopedb.AppendRowsResult{}, &scopedb.Error{Message: "connection lost", AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendStateUnknown}}
-		case 3:
-			return scopedb.AppendRowsResult{}, &scopedb.Error{Message: "busy", Retryable: true, AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendStateRejected}}
-		default:
-			return scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: 1}, nil
-		}
-	}
-	logs := plog.NewLogs()
-	records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
-	for _, value := range []string{"committed", "unknown", "rejected", "unsent"} {
-		records.AppendEmpty().Body().SetStr(value)
-	}
-	err = exp.pushLogs(t.Context(), logs)
-	require.Error(t, err)
-	require.False(t, consumererror.IsPermanent(err))
-	var partial consumererror.Logs
-	require.ErrorAs(t, err, &partial)
-	require.Equal(t, 2, partial.Data().LogRecordCount())
-	require.NoError(t, exp.pushLogs(t.Context(), partial.Data()))
-	require.Equal(t, []string{"committed", "unknown", "rejected", "rejected", "unsent"}, calls)
-	state := statuses.Snapshot().Signals[signalLogs]
-	require.Equal(t, uint64(3), state.ConfirmedWrittenRecords)
-	require.Equal(t, uint64(1), state.UnknownRecords)
-	require.Zero(t, state.PermanentFailedRecords)
-}
-
-func TestWriteTimeoutAndConnectionLossAreTerminalUnknown(t *testing.T) {
-	for _, mode := range []string{"timeout", "disconnect", "unstructured_503"} {
+func TestUnconfirmedAppendsAreTerminalByDefault(t *testing.T) {
+	for _, mode := range []string{"timeout", "disconnect", "unstructured_503", "missing_acknowledgement", "wrong_row_count"} {
 		t.Run(mode, func(t *testing.T) {
 			var attempts atomic.Int32
 			release := make(chan struct{})
@@ -103,6 +62,10 @@ func TestWriteTimeoutAndConnectionLossAreTerminalUnknown(t *testing.T) {
 					conn.Close()
 				case "unstructured_503":
 					http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
+				case "missing_acknowledgement":
+					fmt.Fprint(w, "{}")
+				case "wrong_row_count":
+					writeAppendCommitted(t, w, 0)
 				}
 			}))
 			defer server.Close()
@@ -236,15 +199,172 @@ func TestMemoryQueueDrainsAtShutdownWithoutRetrying(t *testing.T) {
 	}
 }
 
+func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
+	// Inspect the HTTP context so the SDK deadline regression needs no 30-second wait.
+	cfg := testExporterConfig("https://scopedb.invalid")
+	cfg.Timeout.Timeout = time.Minute
+	exp, _ := startTestLogsExporter(t, cfg)
+	exp.(*capturingLogsExporter).exp.client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		deadline, ok := r.Context().Deadline()
+		require.True(t, ok)
+		require.Greater(t, time.Until(deadline), 50*time.Second)
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"committed","num_rows_inserted":1}`))}, nil
+	})
+	require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("ok")))
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
+
+func TestPartialDeliveryFinalOutcomes(t *testing.T) {
+	for _, queued := range []bool{false, true} {
+		for _, tc := range []struct {
+			name                                  string
+			status                                int
+			written, unknown, rejected, exhausted uint64
+		}{
+			{"committed", 200, 3, 1, 1, 0},
+			{"rejected", 400, 1, 1, 3, 0},
+			{"exhausted", 429, 1, 1, 1, 2},
+			{"unknown", 503, 2, 2, 1, 0},
+		} {
+			t.Run(fmt.Sprintf("%s/queued=%v", tc.name, queued), func(t *testing.T) {
+				var mu sync.Mutex
+				attempts := map[int]int{}
+				backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body, err := decodeSDKRequestBody(r)
+					require.NoError(t, err)
+					var row struct {
+						Value int `json:"value"`
+					}
+					require.NoError(t, json.Unmarshal(body, &row))
+					mu.Lock()
+					defer mu.Unlock()
+					attempts[row.Value]++
+					switch row.Value {
+					case 2:
+						http.Error(w, "unknown", http.StatusServiceUnavailable)
+						return
+					case 3:
+						if attempts[3] == 1 {
+							http.Error(w, "busy", http.StatusTooManyRequests)
+							return
+						}
+						if tc.status != 200 {
+							w.Header().Set("Retry-After", "10")
+							w.WriteHeader(tc.status)
+							if tc.status == 400 {
+								fmt.Fprint(w, `{"details":{"status":"rejected"}}`)
+							}
+							return
+						}
+					}
+					writeAppendCommitted(t, w, 1)
+				}))
+				t.Cleanup(backend.Close)
+				cfg := testExporterConfig(backend.URL)
+				cfg.AppendBatch.MaxRows = 1
+				cfg.Mappings.Logs = MappingConfig{"value": {Source: "log.message", Cast: "int"}}
+				cfg.RetryOnFailure.Enabled = true
+				cfg.RetryOnFailure.InitialInterval = time.Millisecond
+				cfg.RetryOnFailure.MaxInterval = time.Millisecond
+				cfg.RetryOnFailure.MaxElapsedTime = time.Second
+				if queued {
+					cfg.SendingQueue = configoptional.Some(exporterhelper.NewDefaultQueueConfig())
+				}
+				exp, statuses := startTestLogsExporter(t, cfg)
+				err := exp.ConsumeLogs(t.Context(), testLogs("1", "2", "invalid", "3", "4"))
+				if queued {
+					require.NoError(t, err)
+				} else if tc.status == 400 || tc.status == 429 {
+					require.Error(t, err)
+				}
+				require.EventuallyWithT(t, func(c *assert.CollectT) {
+					s := statuses.Snapshot().Signals[signalLogs]
+					assert.Equal(c, tc.written, s.ConfirmedWrittenRecords)
+					assert.Equal(c, tc.unknown, s.UnknownRecords)
+					assert.Equal(c, tc.rejected, s.PermanentFailedRecords)
+					assert.Equal(c, tc.exhausted, s.RetryExhaustedRecords)
+					assert.Equal(c, uint64(1), s.InvalidItemsByReason[mappingReasonCastFailed])
+				}, time.Second, time.Millisecond)
+				mu.Lock()
+				defer mu.Unlock()
+				require.Equal(t, 1, attempts[1])
+				require.Equal(t, 1, attempts[2])
+				require.Equal(t, 2, attempts[3])
+				require.LessOrEqual(t, attempts[4], 1)
+			})
+		}
+	}
+}
+
+func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		indexes   []uint64
+		truncated bool
+		permanent bool
+		want      []string
+	}{
+		{"one invalid row", []uint64{1}, false, false, []string{"before", "after"}},
+		{"duplicate row errors", []uint64{2, 0, 2}, false, false, []string{"invalid"}},
+		{"all rejected", []uint64{0, 1, 2}, false, false, nil},
+		{"truncated", []uint64{1}, true, true, nil},
+		{"out of range", []uint64{3}, false, true, nil},
+		{"missing", nil, false, true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls int
+			var accepted []string
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls == 1 {
+					details := scopedb.AppendErrorDetails{Status: scopedb.AppendStateRejected, RowErrorsTruncated: tc.truncated}
+					for _, index := range tc.indexes {
+						details.RowErrors = append(details.RowErrors, scopedb.AppendRowError{RowIndex: index, Column: "message", Message: "wrong type"})
+					}
+					w.WriteHeader(422)
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"details": details}))
+					return
+				}
+				body, err := decodeSDKRequestBody(r)
+				require.NoError(t, err)
+				for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+					var row map[string]string
+					require.NoError(t, json.Unmarshal([]byte(line), &row))
+					accepted = append(accepted, row["message"])
+				}
+				writeAppendCommitted(t, w, int64(len(accepted)))
+			}))
+			t.Cleanup(backend.Close)
+			exp, statuses := startTestLogsExporter(t, testExporterConfig(backend.URL))
+			err := exp.ConsumeLogs(t.Context(), testLogs("before", "invalid", "after"))
+			if tc.permanent {
+				require.True(t, consumererror.IsPermanent(err), "%v", err)
+			} else {
+				require.NoError(t, err)
+			}
+			backend.Close()
+			require.Equal(t, tc.want, accepted)
+			if len(tc.want) > 0 {
+				require.Equal(t, 2, calls)
+			} else {
+				require.Equal(t, 1, calls)
+			}
+			s := statuses.Snapshot().Signals[signalLogs]
+			require.Equal(t, uint64(len(tc.want)), s.ConfirmedWrittenRecords)
+			require.Equal(t, uint64(3-len(tc.want)), s.PermanentFailedRecords)
+			require.Zero(t, s.UnknownRecords)
+		})
+	}
+}
+
 func TestAppendBatchBoundsMappedPayload(t *testing.T) {
-	cfg := testClientConfig("https://scopedb.invalid")
-	cfg.AppendBatch = AppendBatchConfig{MaxRows: 2, MaxBytes: 64}
-	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
-	require.NoError(t, err)
-	defer client.Close()
 	var sent []string
-	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := decodeSDKRequestBody(r)
+		require.NoError(t, err)
 		require.LessOrEqual(t, len(body), 64)
 		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 		require.LessOrEqual(t, len(lines), 2)
@@ -253,33 +373,14 @@ func TestAppendBatchBoundsMappedPayload(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(line), &row))
 			sent = append(sent, row["message"])
 		}
-		return scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: int64(len(lines))}, nil
-	}
-	outcome := client.send(t.Context(), signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "a"}, {"message": strings.Repeat("x", 80)}, {"message": strings.Repeat("y", 35)}, {"message": "b"}, {"message": "c"}}})
-	require.NoError(t, outcome.err)
-	require.Len(t, outcome.rejected, 1)
+		writeAppendCommitted(t, w, int64(len(lines)))
+	}))
+	t.Cleanup(backend.Close)
+	cfg := testExporterConfig(backend.URL)
+	cfg.AppendBatch = AppendBatchConfig{MaxRows: 2, MaxBytes: 64}
+	exp, statuses := startTestLogsExporter(t, cfg)
+	require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("a", strings.Repeat("x", 80), strings.Repeat("y", 35), "b", "c")))
+	backend.Close()
 	require.Equal(t, []string{"a", strings.Repeat("y", 35), "b", "c"}, sent)
+	require.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].InvalidItemsByReason[mappingReasonRowTooLarge])
 }
-
-func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
-	// Inspect the HTTP context so the SDK deadline regression needs no 30-second wait.
-	cfg := testExporterConfig("https://scopedb.invalid")
-	cfg.Timeout.Timeout = 60 * time.Second
-	cfg.SendingQueue = configoptional.None[exporterhelper.QueueBatchConfig]()
-	exp, err := newDBExporter(cfg, exportertest.NewNopSettings(typeStr), signalLogs, NewStatusRegistry())
-	require.NoError(t, err)
-	defer exp.client.Close()
-	exp.client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		deadline, ok := r.Context().Deadline()
-		require.True(t, ok)
-		require.Greater(t, time.Until(deadline), 50*time.Second)
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"committed","num_rows_inserted":1}`))}, nil
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout.Timeout)
-	defer cancel()
-	requireCommitted(t, exp.client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "ok"}}}))
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }

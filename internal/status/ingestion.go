@@ -53,8 +53,6 @@ type collectorSignalMetrics struct {
 	Received        uint64
 	ReceiverFailed  uint64
 	ReceiverRefused uint64
-	ExportFailed    uint64
-	EnqueueFailed   uint64
 	QueueSize       int64
 	QueueCapacity   int64
 }
@@ -107,48 +105,16 @@ func (r *prometheusCollectorMetricsReader) Read(ctx context.Context) (collectorM
 		return snapshot, fmt.Errorf("parse collector internal metrics: %w", err)
 	}
 
-	for _, signal := range ingestionSignals {
-		names := signalMetricNames(signal)
+	for signal, unit := range map[string]string{"logs": "log_records", "traces": "spans", "metrics": "metric_points"} {
 		snapshot.Signals[signal] = collectorSignalMetrics{
-			Received:        uintMetric(families, names.received, receiverComponent),
-			ReceiverFailed:  uintMetric(families, names.receiverFailed, receiverComponent),
-			ReceiverRefused: uintMetric(families, names.receiverRefused, receiverComponent),
-			ExportFailed:    uintMetric(families, names.exportFailed, scopeDBExporterComponent),
-			EnqueueFailed:   uintMetric(families, names.enqueueFailed, scopeDBExporterComponent),
-			QueueSize:       intMetric(families, "otelcol_exporter_queue_size", queueForSignal(signal)),
-			QueueCapacity:   intMetric(families, "otelcol_exporter_queue_capacity", queueForSignal(signal)),
+			Received:        uint64(metricValue(families, "otelcol_receiver_accepted_"+unit, receiverComponent)),
+			ReceiverFailed:  uint64(metricValue(families, "otelcol_receiver_failed_"+unit, receiverComponent)),
+			ReceiverRefused: uint64(metricValue(families, "otelcol_receiver_refused_"+unit, receiverComponent)),
+			QueueSize:       int64(metricValue(families, "otelcol_exporter_queue_size", queueForSignal(signal))),
+			QueueCapacity:   int64(metricValue(families, "otelcol_exporter_queue_capacity", queueForSignal(signal))),
 		}
 	}
 	return snapshot, nil
-}
-
-type signalMetricsNames struct {
-	received        string
-	receiverFailed  string
-	receiverRefused string
-	exportFailed    string
-	enqueueFailed   string
-}
-
-func signalMetricNames(signal string) signalMetricsNames {
-	var unit string
-	switch signal {
-	case "logs":
-		unit = "log_records"
-	case "traces":
-		unit = "spans"
-	case "metrics":
-		unit = "metric_points"
-	default:
-		return signalMetricsNames{}
-	}
-	return signalMetricsNames{
-		received:        "otelcol_receiver_accepted_" + unit,
-		receiverFailed:  "otelcol_receiver_failed_" + unit,
-		receiverRefused: "otelcol_receiver_refused_" + unit,
-		exportFailed:    "otelcol_exporter_send_failed_" + unit,
-		enqueueFailed:   "otelcol_exporter_enqueue_failed_" + unit,
-	}
 }
 
 type metricFilter func(*dto.Metric) bool
@@ -181,22 +147,6 @@ func labelValue(metric *dto.Metric, name string) string {
 	return ""
 }
 
-func uintMetric(families map[string]*dto.MetricFamily, name string, filter metricFilter) uint64 {
-	value := metricValue(families, name, filter)
-	if value <= 0 {
-		return 0
-	}
-	return uint64(value)
-}
-
-func intMetric(families map[string]*dto.MetricFamily, name string, filter metricFilter) int64 {
-	value := metricValue(families, name, filter)
-	if value <= 0 {
-		return 0
-	}
-	return int64(value)
-}
-
 func metricValue(families map[string]*dto.MetricFamily, name string, filter metricFilter) float64 {
 	family := families[name]
 	if family == nil {
@@ -219,7 +169,7 @@ func metricValue(families map[string]*dto.MetricFamily, name string, filter metr
 			value += metric.GetUntyped().GetValue()
 		}
 	}
-	return value
+	return max(0, value)
 }
 
 func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
@@ -257,7 +207,6 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	for _, signal := range configuredSignalNames(runtime) {
 		runtimeStatus := runtime.Signals[signal]
 		metricStatus := metrics.Signals[signal]
-		dropped, retryExhausted := signalDropCounts(runtimeStatus)
 		queueCapacity := runtimeStatus.QueueCapacity
 		if metricsAvailable && metricStatus.QueueCapacity > 0 {
 			queueCapacity = metricStatus.QueueCapacity
@@ -274,8 +223,8 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			Unknown:                runtimeStatus.UnknownRecords,
 			UnknownReplayAttempts:  runtimeStatus.UnknownReplayAttempts,
 			UnknownReplayedRecords: runtimeStatus.UnknownReplayedRecords,
-			Dropped:                dropped,
-			RetryExhausted:         retryExhausted,
+			Dropped:                runtimeStatus.RetryExhaustedRecords + runtimeStatus.EnqueueFailedRecords + runtimeStatus.PermanentFailedRecords,
+			RetryExhausted:         runtimeStatus.RetryExhaustedRecords,
 			EnqueueFailed:          runtimeStatus.EnqueueFailedRecords,
 			PermanentRejected:      runtimeStatus.PermanentFailedRecords,
 			InvalidItemsByReason:   runtimeStatus.InvalidItemsByReason,
@@ -310,11 +259,6 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	}
 	response.State = overallIngestionState(response.Signals)
 	return response
-}
-
-func signalDropCounts(runtime scopedbexporter.SignalRuntimeStatus) (uint64, uint64) {
-	retryExhausted := runtime.RetryExhaustedRecords
-	return retryExhausted + runtime.EnqueueFailedRecords + runtime.PermanentFailedRecords, retryExhausted
 }
 
 func configuredSignalNames(snapshot scopedbexporter.StatusSnapshot) []string {

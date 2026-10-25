@@ -47,14 +47,6 @@ type service struct {
 	collectorRunning func() bool
 }
 
-func newService(version string) *service {
-	return newServiceWithRuntime(
-		version,
-		scopedbexporter.NewStatusRegistry(),
-		scopedbexporter.NewCaptureRegistry(),
-	)
-}
-
 func newServiceWithRuntime(version string, runtime exporterStatusReader, captures captureReader) *service {
 	return &service{
 		listeners:        IngestionListeners{GRPC: listenerAddress("TELESCOPE_OTLP_GRPC_ADDR", "0.0.0.0:4317"), HTTP: listenerAddress("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318")},

@@ -24,58 +24,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
-	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
-	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestGoldenMappingContractV1(t *testing.T) {
-	tests := []struct {
-		name       string
-		mapRecords func(t *testing.T, input []byte) []telemetryRecord
-	}{
-		{
-			name: "logs",
-			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
-				logs, err := (&plog.JSONUnmarshaler{}).UnmarshalLogs(input)
-				require.NoError(t, err)
-				payload, err := mapLogs(logs)
-				require.NoError(t, err)
-				return payload.Records
-			},
-		},
-		{
-			name: "traces",
-			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
-				traces, err := (&ptrace.JSONUnmarshaler{}).UnmarshalTraces(input)
-				require.NoError(t, err)
-				payload, err := mapTraces(traces)
-				require.NoError(t, err)
-				return payload.Records
-			},
-		},
-		{
-			name: "metrics",
-			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
-				metrics, err := (&pmetric.JSONUnmarshaler{}).UnmarshalMetrics(input)
-				require.NoError(t, err)
-				payload, err := mapMetrics(metrics)
-				require.NoError(t, err)
-				return payload.Records
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			input := readGoldenFile(t, tt.name+".otlp.json")
-			expected := readGoldenFile(t, tt.name+".records.json")
-			actual, err := json.MarshalIndent(tt.mapRecords(t, input), "", "  ")
+	for _, signal := range []string{signalLogs, signalTraces, signalMetrics} {
+		t.Run(signal, func(t *testing.T) {
+			payload, err := mapOTLPSample(signal, readGoldenFile(t, signal+".otlp.json"))
 			require.NoError(t, err)
-			require.JSONEq(t, string(expected), string(actual), "mapped records:\n%s", actual)
+			actual, err := json.MarshalIndent(payload.Records, "", "  ")
+			require.NoError(t, err)
+			require.JSONEq(t, string(readGoldenFile(t, signal+".records.json")), string(actual))
 		})
 	}
 }

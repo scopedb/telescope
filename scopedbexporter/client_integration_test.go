@@ -130,7 +130,9 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 
 	payload, err := mapLogs(logs)
 	require.NoError(t, err)
-	requireCommitted(t, client.send(ctx, signalLogs, payload))
+	outcome := client.send(ctx, signalLogs, payload, nil)
+	require.NoError(t, outcome.err)
+	require.Len(t, outcome.committed, len(payload.Records))
 
 	result, err := sdkClient.Query(ctx, fmt.Sprintf("FROM %s", table.Identifier()))
 	require.NoError(t, err)
@@ -142,11 +144,11 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	assert.Equal(t, "01020300000000000000000000000000", objects[0]["trace_id"])
 	assert.Len(t, objects[0], 4)
 
-	outcome := client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
+	outcome = client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"message": "before invalid row"},
 		{"message": 42},
 		{"message": "after invalid row"},
-	}})
+	}}, nil)
 	require.NoError(t, outcome.err)
 	assert.Equal(t, []int{0, 2}, outcome.committed)
 	require.Len(t, outcome.rejected, 1)
@@ -222,7 +224,9 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 			defer client.Close()
 			_, validationErr := client.inspectDestination(ctx, signal)
 			require.NoError(t, validationErr)
-			requireCommitted(t, client.send(ctx, signal, payload))
+			outcome := client.send(ctx, signal, payload, nil)
+			require.NoError(t, outcome.err)
+			require.Len(t, outcome.committed, len(payload.Records))
 
 			query := "FROM " + table.Identifier()
 			if signal == signalTraces {

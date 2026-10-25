@@ -272,14 +272,6 @@ func TestCompileMappingRuleResolvesKnownConstantCast(t *testing.T) {
 	assert.Equal(t, int64(3), evaluation.value)
 }
 
-func TestMappingCastRuntimeDependency(t *testing.T) {
-	assert.False(t, mappingCastNeedsRuntimeCheck(selectorTypeInt, selectorTypeString))
-	assert.False(t, mappingCastNeedsRuntimeCheck(selectorTypeTimestamp, selectorTypeString))
-	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeString, selectorTypeInt))
-	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeDynamic, selectorTypeString))
-	assert.True(t, mappingCastNeedsRuntimeCheck(selectorTypeFloat, selectorTypeFloat))
-}
-
 func TestCompileMappingRuleDeclaresDynamicStructuredType(t *testing.T) {
 	compiled, err := compileMappingRule(signalLogs, MappingRule{Source: "log.body", Cast: "object"})
 	require.NoError(t, err)
