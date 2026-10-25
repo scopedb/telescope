@@ -356,7 +356,7 @@ export SCOPEDB_API_KEY=sk_...
 ./bin/telescope run deploy/telescope.yaml
 ```
 
-The Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fallbacks. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over those fallback variables. ScopeQL uses its own selected connection; Telescope environment files do not configure it. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
+The Telescope CLI accepts `SCOPEDB_ENDPOINT` and `SCOPEDB_API_KEY` as fallbacks. An `--env-file` contains literal `KEY=VALUE` lines, with optional matching single or double quotes around each value. Shell expansion and inline comments are not supported. Command-line connection flags take precedence over `TELESCOPE_SCOPEDB_*`, which take precedence over those fallback variables. ScopeQL uses its own selected connection; Telescope environment files do not configure it. The Docker Compose example keeps using its explicit `TELESCOPE_SCOPEDB_*` deployment variables.
 
 Commands:
 

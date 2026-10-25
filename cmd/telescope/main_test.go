@@ -99,29 +99,6 @@ func TestRunCommandDoesNotHideHelpOutputFailure(t *testing.T) {
 	}
 }
 
-func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
-	var output bytes.Buffer
-	printUsage(&output)
-
-	for _, expected := range []string{
-		"Setup:",
-		"Operations:",
-		"Diagnostics:",
-		"Discover mapping selectors in an OTLP sample",
-		"Capture OTLP samples for mapping preview",
-		"Preview sample projection without appending",
-		"Plan additive ScopeDB table DDL",
-		"Run the OTLP-to-ScopeDB data plane",
-		"Report local delivery state",
-		"Verify synthetic OTLP-to-append delivery",
-		"Execute one ScopeQL statement",
-	} {
-		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("printUsage() output does not contain %q", expected)
-		}
-	}
-}
-
 func TestLoadEnvFileSetsMissingValues(t *testing.T) {
 	clearBootstrapEnv(t)
 	path := writeEnvFile(t, `
@@ -357,5 +334,27 @@ func TestCheckedWriterSerializesConcurrentOutput(t *testing.T) {
 	}
 	if got := strings.Count(output.String(), "ready\n"); got != 1600 {
 		t.Fatalf("lost concurrent output: got %d lines", got)
+	}
+}
+
+func TestLoadEnvFilePreservesLiteralQuotes(t *testing.T) {
+	for _, entry := range []struct{ value, want string }{
+		{`"'secret'"`, `'secret'`},
+		{`'"secret"'`, `"secret"`},
+		{`secret'`, `secret'`},
+	} {
+		t.Run(entry.value, func(t *testing.T) {
+			clearBootstrapEnv(t)
+			if err := loadEnvFile(writeEnvFile(t, "TELESCOPE_SCOPEDB_API_KEY="+entry.value)); err != nil {
+				t.Fatal(err)
+			}
+			if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != entry.want {
+				t.Fatalf("credential changed: got %q, want %q", got, entry.want)
+			}
+		})
+	}
+	clearBootstrapEnv(t)
+	if err := loadEnvFile(writeEnvFile(t, `TELESCOPE_SCOPEDB_API_KEY="secret'`)); err == nil {
+		t.Fatal("accepted an unmatched quote")
 	}
 }

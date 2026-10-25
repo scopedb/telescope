@@ -22,13 +22,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -44,10 +42,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
-const (
-	defaultOTLPEndpoint   = "http://127.0.0.1:4318"
-	defaultStatusEndpoint = "http://127.0.0.1:8080/v1/ingestion/status"
-)
+const defaultOTLPEndpoint = "http://127.0.0.1:4318"
 
 func runVerifyCommand(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -59,7 +54,7 @@ func runVerifyCommand(ctx context.Context, args []string, stdout io.Writer, stde
 		flags.PrintDefaults()
 	}
 	otlpEndpoint := flags.String("otlp-endpoint", defaultOTLPEndpoint, "OTLP HTTP base endpoint")
-	statusEndpoint := flags.String("status-endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
+	statusEndpoint := flags.String("status-endpoint", defaultOperationalEndpoint, "Telescope base URL or ingestion status endpoint")
 	timeout := flags.Duration("timeout", 45*time.Second, "time to wait for each confirmed ScopeDB append")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -301,53 +296,4 @@ func validateProbeResponse(signal string, body []byte) error {
 		return fmt.Errorf("unsupported probe signal %q", signal)
 	}
 	return nil
-}
-
-func readIngestionStatus(ctx context.Context, client *http.Client, endpoint string) (statusapi.IngestionStatusResponse, error) {
-	var status statusapi.IngestionStatusResponse
-	parsed, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return status, fmt.Errorf("invalid status endpoint %q", endpoint)
-	}
-	if parsed.Path == "" || parsed.Path == "/" {
-		parsed.Path = "/v1/ingestion/status"
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return status, err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return status, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return status, fmt.Errorf("%s: %s", response.Status, strings.TrimSpace(string(body)))
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&status); err != nil {
-		return status, fmt.Errorf("decode response: %w", err)
-	}
-	return status, nil
-}
-
-func findSignalStatus(status statusapi.IngestionStatusResponse, signal string) (statusapi.IngestionSignalStatus, bool) {
-	for _, current := range status.Signals {
-		if current.Signal == signal {
-			return current, true
-		}
-	}
-	return statusapi.IngestionSignalStatus{}, false
-}
-
-func appendEndpointPath(base string, path string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(base))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("endpoint must include scheme and host")
-	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("endpoint must not include a query or fragment")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + path
-	return parsed.String(), nil
 }
