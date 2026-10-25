@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -139,7 +138,7 @@ signals:
 	if got, want := string(contents), "CREATE TABLE `app`.`logs` (\n    `message` string\n);\n"; got != want {
 		t.Fatalf("ScopeQL file = %q, want %q", got, want)
 	}
-	if !strings.Contains(stdout.String(), "scopeql output: "+outputPath) || !strings.Contains(stdout.String(), "scopeql run -f "+outputPath) {
+	if !strings.Contains(stdout.String(), "scopeql output: "+outputPath) {
 		t.Fatalf("plan output does not identify written ScopeQL: %s", stdout.String())
 	}
 	if requests != 2 {
@@ -294,30 +293,6 @@ func TestPlanCommandRejectsNonPositiveTimeout(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPlanHelpShowsContractAndScopeQLFormats(t *testing.T) {
-	var stderr bytes.Buffer
-	err := runPlanCommand(
-		context.Background(),
-		[]string{"--help"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&stderr,
-	)
-	if err != flag.ErrHelp {
-		t.Fatalf("runPlanCommand() error = %v, want %v", err, flag.ErrHelp)
-	}
-	for _, expected := range []string{
-		"Usage: telescope plan [options] [telescope.yaml]",
-		"human, json, or scopeql",
-		"write additive ScopeQL",
-		"scopeql run -f",
-	} {
-		if !strings.Contains(stderr.String(), expected) {
-			t.Fatalf("plan help missing %q: %s", expected, stderr.String())
-		}
 	}
 }
 

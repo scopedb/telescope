@@ -26,7 +26,7 @@ Tests live beside the behavior they exercise. `scopedbexporter/testdata/golden/`
 
 ## Local checks
 
-Install Go 1.26.10 and HawkEye 7, then run:
+Install Go 1.27.3 and HawkEye 7, then run:
 
 ```bash
 make fmt
@@ -50,4 +50,6 @@ Use a non-production workspace. The tests create uniquely named temporary tables
 
 `make build` produces `bin/telescope`. `make artifacts VERSION=v0.3.0` builds macOS arm64 and Linux amd64/arm64 archives plus `dist/SHA256SUMS`; it does not publish them. Override `PLATFORMS` to restrict a local build.
 
-Pull requests run Go and runtime checks. Changes to release inputs also run the multi-platform image dry run. The release workflow publishes only on version tags; manual dispatch validates builds without publishing. Review `docs/releases/<tag>.md` and verify CI before creating a release tag.
+Pull requests run Go and runtime checks. Changes to release inputs also run the multi-platform image dry run. The release workflow publishes only on version tags; manual dispatch validates builds without publishing.
+
+Record user-visible changes in [CHANGELOG.md](CHANGELOG.md), compared with the latest release. Keep `Unreleased` first, followed by `Breaking changes`, `New features`, `Bug fixes`, and `Improvements`, omitting empty categories. Fold corrections to unreleased features into their existing entries. Before tagging, rename the section to `vX.Y.Z (YYYY-MM-DD)` and prepend a new `Unreleased` section. The release workflow uses the matching version section as its notes and fails if that section is missing.

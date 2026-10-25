@@ -26,7 +26,7 @@ root = Path(__file__).resolve().parent.parent
 dist = Path(sys.argv[1]).resolve()
 version, ldflags = sys.argv[2:4]
 files = subprocess.check_output(
-    ["git", "ls-files", "--", "LICENSE", "README.md", "CONTRIBUTING.md", "docs", "deploy"],
+    ["git", "ls-files", "--", "LICENSE", "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs", "deploy"],
     cwd=root, text=True,
 ).splitlines()
 

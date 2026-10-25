@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 230" role="img" aria-labelledby="title desc">
+  <title id="title">From OpenTelemetry to ScopeDB</title>
+  <desc id="desc">Applications or an existing Collector send OTLP to Telescope. Telescope receives, batches, buffers, and maps telemetry into ScopeDB tables, where it can be queried with ScopeQL.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/></marker></defs>
+  <rect width="960" height="230" rx="16" fill="#f5f7fa"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+    <g fill="#64748b" font-size="12" font-weight="600" letter-spacing="1.5">
+      <text x="40" y="38">INSTRUMENT</text><text x="370" y="38">COLLECT &amp; MAP</text><text x="720" y="38">STORE &amp; QUERY</text>
+    </g>
+    <rect x="24" y="55" width="255" height="145" rx="12" fill="#fff" stroke="#dbe2eb"/>
+    <rect x="350" y="55" width="280" height="145" rx="12" fill="#e8efff" stroke="#7d9fe5"/>
+    <rect x="700" y="55" width="236" height="145" rx="12" fill="#fff" stroke="#dbe2eb"/>
+    <g stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"><path d="M 289 127 H 339"/><path d="M 640 127 H 689"/></g>
+    <g fill="#475569" font-size="12" text-anchor="middle"><text x="314" y="114">OTLP</text><text x="665" y="114">Append</text></g>
+    <g font-size="23" font-weight="650" fill="#17243c"><text x="43" y="96">Your applications</text><text x="370" y="96">Telescope</text><text x="720" y="96">ScopeDB</text></g>
+    <g font-size="16" fill="#475569">
+      <text x="43" y="130">OpenTelemetry SDKs</text><text x="43" y="155">or your existing Collector</text>
+      <text x="370" y="130">Receive · batch · disk queue</text><text x="370" y="155">Map fields to your columns</text>
+      <text x="720" y="130">Your tables and schema</text><text x="720" y="155">Query with ScopeQL</text>
+    </g>
+    <g font-size="12" fill="#526278"><text x="43" y="183">Logs · traces · metrics</text><text x="370" y="183">OpenTelemetry Collector distribution</text><text x="720" y="183">Telemetry alongside your data</text></g>
+  </g>
+</svg>

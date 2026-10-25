@@ -70,6 +70,23 @@ func TestRunCommandWritesUsageToStderr(t *testing.T) {
 	}
 }
 
+func TestCommandHelpNeedsNoConfiguration(t *testing.T) {
+	clearBootstrapEnv(t)
+	t.Chdir(t.TempDir())
+	for _, command := range []string{"run", "validate", "preview", "inspect", "plan", "capture", "verify", "status", "query"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runCommand(t.Context(), []string{command, "--help"}, strings.NewReader(""), &stdout, &stderr)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("help: %v", err)
+			}
+			if stdout.Len() != 0 || stderr.Len() == 0 {
+				t.Fatalf("help must go only to stderr: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunCommandReportsOutputFailure(t *testing.T) {
 	err := runCommand(
 		context.Background(),

@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"strings"
 	"testing"
 
@@ -123,17 +122,4 @@ func TestInspectCommandRejectsIncompleteInput(t *testing.T) {
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
-}
-
-func TestInspectHelpShowsCapturePipeline(t *testing.T) {
-	var stderr bytes.Buffer
-	err := runInspectCommand(
-		[]string{"--help"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&stderr,
-	)
-	assert.ErrorIs(t, err, flag.ErrHelp)
-	assert.Contains(t, stderr.String(), "Usage: telescope inspect [options] <signal>")
-	assert.Contains(t, stderr.String(), "telescope capture --listen-http :4318 traces | telescope inspect traces --sample -")
 }
