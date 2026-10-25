@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sync"
 )
 
 func runCommand(
@@ -102,12 +103,15 @@ func dispatchCommand(
 }
 
 type checkedWriter struct {
+	mu     sync.Mutex
 	name   string
 	target io.Writer
 	err    error
 }
 
 func (w *checkedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.err != nil {
 		return 0, w.err
 	}
@@ -123,6 +127,8 @@ func (w *checkedWriter) Write(p []byte) (int, error) {
 }
 
 func (w *checkedWriter) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.err
 }
 

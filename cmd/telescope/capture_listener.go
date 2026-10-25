@@ -92,6 +92,7 @@ func captureStandaloneHTTP(
 	server := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return captureCtx },
 	}
 	serveErrCh := make(chan error, 1)
 	go func() {
@@ -125,7 +126,9 @@ func captureStandaloneHTTP(
 func shutdownCaptureServer(server *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_ = server.Shutdown(ctx)
+	if err := server.Shutdown(ctx); err != nil {
+		_ = server.Close()
+	}
 }
 
 func standaloneCaptureHandler(registry *scopedbexporter.CaptureRegistry, signal string) http.HandlerFunc {

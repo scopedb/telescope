@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -71,13 +72,15 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	}
 	operationalServer := statusapi.NewWithRegistries(version, configDigest, statuses, captures)
 	operationalServer.SetCollectorRunning(func() bool { return otelCollector.GetState() == otelcol.StateRunning })
-	httpServer := &http.Server{
-		Addr:    listenAddr,
-		Handler: operationalServer,
-	}
-
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	httpServer := &http.Server{
+		Addr:              listenAddr,
+		Handler:           operationalServer,
+		ReadHeaderTimeout: 5 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+	defer httpServer.Close()
 
 	fmt.Fprintf(stderr, "telescope starting: version=%s config=%s digest=%s signals=%s\n",
 		version,
@@ -126,6 +129,10 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 		runErr = fmt.Errorf("shutdown http: %w", err)
 	}
 	services.Wait()
+	close(errCh)
+	for err := range errCh {
+		runErr = errors.Join(runErr, err)
+	}
 	<-readinessDone
 	if runErr == nil {
 		fmt.Fprintln(stderr, "telescope stopped")

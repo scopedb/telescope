@@ -20,8 +20,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -267,5 +269,29 @@ func waitStandaloneCaptureResult(t *testing.T, result <-chan standaloneCaptureRe
 	case <-time.After(2 * time.Second):
 		t.Fatal("standalone capture did not finish")
 		return standaloneCaptureResult{}
+	}
+}
+
+func TestCaptureShutdownClosesIncompleteRequests(t *testing.T) {
+	started := make(chan struct{})
+	finished := make(chan struct{})
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(finished)
+	}))
+	server.Start()
+	defer server.Close()
+	connection, err := net.Dial("tcp", server.Listener.Addr().String())
+	require.NoError(t, err)
+	defer connection.Close()
+	_, err = io.WriteString(connection, "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\nx")
+	require.NoError(t, err)
+	<-started
+	shutdownCaptureServer(server.Config)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request body reader survived shutdown")
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -333,4 +334,28 @@ func writeEnvFile(t *testing.T, content string) string {
 		t.Fatalf("write env file: %v", err)
 	}
 	return path
+}
+
+func TestCheckedWriterSerializesConcurrentOutput(t *testing.T) {
+	var output bytes.Buffer
+	writer := &checkedWriter{name: "stderr", target: &output}
+	var writers sync.WaitGroup
+	start := make(chan struct{})
+	for range 16 {
+		writers.Go(func() {
+			<-start
+			for range 100 {
+				_, _ = writer.Write([]byte("ready\n"))
+				_ = writer.Err()
+			}
+		})
+	}
+	close(start)
+	writers.Wait()
+	if err := writer.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(output.String(), "ready\n"); got != 1600 {
+		t.Fatalf("lost concurrent output: got %d lines", got)
+	}
 }
