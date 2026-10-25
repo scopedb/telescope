@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
 	"github.com/scopedb/telescope/internal/httpclient"
@@ -64,12 +63,10 @@ func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 		return nil, err
 	}
 	sdkClient, err := httpclient.NewScopeDB(scopedb.Config{
-		Endpoint:    cfg.Endpoint,
-		APIKey:      string(cfg.APIKey),
-		Compression: sdkCompression(cfg.compressionMode()),
-		// The exporter's attempt context owns the timeout, including mapping
-		// and all chunks. Do not add the SDK's independent 30-second deadline.
-		WriteTimeout: new(time.Duration(0)),
+		Endpoint:     cfg.Endpoint,
+		APIKey:       string(cfg.APIKey),
+		Compression:  sdkCompression(cfg.compressionMode()),
+		WriteTimeout: new(cfg.Timeout.Timeout),
 	})
 	if err != nil {
 		return nil, err
@@ -88,7 +85,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 	}, nil
 }
 
-func (c *appendClient) send(ctx, attemptCtx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
+func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
 	if payload == nil {
 		return sendOutcome{err: consumererror.NewPermanent(errors.New("nil append payload"))}
 	}
@@ -119,88 +116,58 @@ func (c *appendClient) send(ctx, attemptCtx context.Context, signal string, payl
 		outcome.uncommitted = append(outcome.uncommitted, recordIndexes(remainingFrom, len(payload.Records))...)
 		outcome.err = err
 	}
-	appendChunk := func(ctx context.Context, chunkBody []byte, rows int) error {
+	appendChunk := func(ctx context.Context, chunkBody []byte) error {
 		result, err := table.AppendNDJSON(ctx, chunkBody)
 		if err != nil {
 			return err
-		}
-		if result.Status != scopedb.AppendStateCommitted || result.NumRowsInserted != int64(rows) {
-			return &scopedb.Error{
-				Kind:          scopedb.ErrorKindAppendRowsFailed,
-				Message:       fmt.Sprintf("append to %s did not confirm all rows committed: status=%s inserted=%d expected=%d", plan.table.String(), result.Status, result.NumRowsInserted, rows),
-				AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendStateUnknown},
-			}
 		}
 		c.logger.Debug(
 			"Appended rows to ScopeDB",
 			zap.String("signal", signal),
 			zap.String("table", plan.table.String()),
-			zap.Int("records", rows),
+			zap.Int64("records", result.NumRowsInserted),
 			zap.Int("uncompressed_bytes", len(chunkBody)),
 		)
 		return nil
 	}
-	settleUnknown := func(err error) bool {
-		if !isUnknownAppend(err) {
-			return false
-		}
+	settleUnknown := func(err error) {
 		for _, index := range chunkIndexes {
 			outcome.unknown = append(outcome.unknown, recordFailure{index: index, err: err})
 		}
-		resetChunk()
-		return true
 	}
 	flush := func(remainingFrom int) bool {
 		if len(chunkIndexes) == 0 {
 			return true
 		}
-		err := appendChunk(attemptCtx, body, len(chunkIndexes))
-		if err == nil {
-			outcome.committed = append(outcome.committed, chunkIndexes...)
-			resetChunk()
-			return true
-		}
-		if replay.retain(ctx, body, len(chunkIndexes), err) {
-			setDeliveryError(unknownRetryError(err), remainingFrom)
-			return false
-		}
-		if settleUnknown(err) {
-			return true
-		}
-
-		rowErrors, ok := completeRejectedRows(err, len(chunkIndexes))
-		if !ok {
-			setDeliveryError(classifyAppendError(err), remainingFrom)
-			return false
-		}
-
-		badRows := make(map[int]struct{}, len(rowErrors))
-		for _, rowErr := range rowErrors {
-			position := int(rowErr.RowIndex)
-			badRows[position] = struct{}{}
-			outcome.rejected = append(outcome.rejected, recordFailure{
-				index: chunkIndexes[position],
-				err:   formatRejectedRowError(plan.table.String(), chunkIndexes[position], rowErr),
-			})
-		}
-		body, chunkIndexes, chunkStarts = removeChunkRows(body, chunkIndexes, chunkStarts, badRows)
-		if len(chunkIndexes) == 0 {
-			resetChunk()
-			return true
-		}
-		if err := appendChunk(attemptCtx, body, len(chunkIndexes)); err != nil {
-			if replay.retain(ctx, body, len(chunkIndexes), err) {
-				setDeliveryError(unknownRetryError(err), remainingFrom)
-				return false
+		defer resetChunk()
+		err := appendChunk(ctx, body)
+		if rowErrors := completeRejectedRows(err, len(chunkIndexes)); len(rowErrors) > 0 {
+			for _, rowErr := range rowErrors {
+				index := chunkIndexes[rowErr.RowIndex]
+				outcome.rejected = append(outcome.rejected, recordFailure{
+					index: index,
+					err:   fmt.Errorf("ScopeDB rejected mapped row %d for %s: column=%s reason=%s", index, plan.table, rowErr.Column, rowErr.Message),
+				})
 			}
-			if settleUnknown(err) {
+			body, chunkIndexes = removeChunkRows(body, chunkIndexes, chunkStarts, rowErrors)
+			if len(chunkIndexes) == 0 {
 				return true
 			}
+			// Isolate invalid rows once; classify the remaining append normally.
+			err = appendChunk(ctx, body)
+		}
+		switch {
+		case err == nil:
+			outcome.committed = append(outcome.committed, chunkIndexes...)
+		case replay.retain(ctx, body, len(chunkIndexes), err):
+			setDeliveryError(unknownRetryError(err), remainingFrom)
+			return false
+		case isUnknownAppend(err):
+			settleUnknown(err)
+		default:
 			setDeliveryError(classifyAppendError(err), remainingFrom)
 			return false
 		}
-		outcome.committed = append(outcome.committed, chunkIndexes...)
-		resetChunk()
 		return true
 	}
 	reject := func(index int, err error) {
@@ -215,8 +182,8 @@ func (c *appendClient) send(ctx, attemptCtx context.Context, signal string, payl
 		// Shutdown ends scheduling; an unresolved file entry must remain recoverable.
 		if replay.canReplay(ctx) && !replay.exporter.stopping.Load() {
 			replay.recordReplay()
-			replayCtx, cancel := context.WithDeadline(attemptCtx, replay.started.Add(replay.config.MaxElapsedTime))
-			err = appendChunk(replayCtx, pending.body, pending.rows)
+			replayCtx, cancel := context.WithDeadline(ctx, replay.started.Add(replay.config.MaxElapsedTime))
+			err = appendChunk(replayCtx, pending.body)
 			cancel()
 		}
 		if err == nil {
@@ -272,61 +239,50 @@ func (c *appendClient) send(ctx, attemptCtx context.Context, signal string, payl
 	return outcome
 }
 
-func completeRejectedRows(err error, rowCount int) ([]scopedb.AppendRowError, bool) {
+func completeRejectedRows(err error, rowCount int) []scopedb.AppendRowError {
 	scopeErr, ok := errors.AsType[*scopedb.Error](err)
 	if !ok || scopeErr.Retryable || scopeErr.AppendDetails == nil {
-		return nil, false
+		return nil
 	}
 	details := scopeErr.AppendDetails
 	if details.Status != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
-		return nil, false
+		return nil
 	}
 	rows := slices.Clone(details.RowErrors)
 	slices.SortStableFunc(rows, func(left, right scopedb.AppendRowError) int { return cmp.Compare(left.RowIndex, right.RowIndex) })
 	unique := rows[:0]
 	for _, row := range rows {
 		if row.RowIndex >= uint64(rowCount) {
-			return nil, false
+			return nil
 		}
 		if len(unique) == 0 || row.RowIndex != unique[len(unique)-1].RowIndex {
 			unique = append(unique, row)
 		}
 	}
-	return unique, true
+	return unique
 }
 
 func removeChunkRows(
 	body []byte,
 	indexes []int,
 	starts []int,
-	rejected map[int]struct{},
-) ([]byte, []int, []int) {
+	rejected []scopedb.AppendRowError,
+) ([]byte, []int) {
 	filteredBody := make([]byte, 0, len(body))
 	filteredIndexes := make([]int, 0, len(indexes)-len(rejected))
-	filteredStarts := make([]int, 0, cap(filteredIndexes))
 	for position, recordIndex := range indexes {
-		if _, found := rejected[position]; found {
+		if len(rejected) > 0 && uint64(position) == rejected[0].RowIndex {
+			rejected = rejected[1:]
 			continue
 		}
 		end := len(body)
 		if position+1 < len(starts) {
 			end = starts[position+1]
 		}
-		filteredStarts = append(filteredStarts, len(filteredBody))
 		filteredBody = append(filteredBody, body[starts[position]:end]...)
 		filteredIndexes = append(filteredIndexes, recordIndex)
 	}
-	return filteredBody, filteredIndexes, filteredStarts
-}
-
-func formatRejectedRowError(table string, recordIndex int, row scopedb.AppendRowError) error {
-	return fmt.Errorf(
-		"ScopeDB rejected mapped row %d for %s: column=%s reason=%s",
-		recordIndex,
-		table,
-		row.Column,
-		row.Message,
-	)
+	return filteredBody, filteredIndexes
 }
 
 func recordIndexes(from int, to int) []int {

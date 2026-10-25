@@ -127,19 +127,13 @@ func pushSignal[T any](
 	exporter := request.exporter
 	signal := exporter.signal
 	started := time.Now().UTC()
-	attemptCtx := ctx
-	if timeout := exporter.cfg.Timeout.Timeout; timeout > 0 {
-		var cancel context.CancelFunc
-		attemptCtx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
 	payload, err := mapData(data)
 	if err != nil {
 		permanentErr := consumererror.NewPermanent(err)
 		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
 		return wrapSubset(permanentErr, recordIndexes(0, records))
 	}
-	outcome := exporter.client.send(ctx, attemptCtx, signal, payload, &request.replay)
+	outcome := exporter.client.send(ctx, signal, payload, &request.replay)
 	if len(outcome.committed) > 0 {
 		exporter.statuses.recordWrite(signal, len(outcome.committed), started, nil, false)
 		exporter.statuses.recordProbeSuccess(signal, probeIDsFromRecords(payload, outcome.committed))

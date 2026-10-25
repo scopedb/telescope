@@ -60,7 +60,7 @@ A complete, non-truncated row-error list in a permanent ScopeDB rejection allows
 
 Collector's sending queue owns persistence and retry scheduling. It honors `Retry-After` as a minimum delay, even above the configured backoff interval. The default is one consumer per signal and unlimited elapsed retries; set `retry_on_failure.max_elapsed_time` to expire safely retryable records. A full queue reports enqueue failures. Consumers and replicas share the destination's request quota, so added concurrency can increase throttling.
 
-The exporter `timeout` covers mapping and all chunks in an attempt; the SDK's independent write deadline is disabled. Defaults are 10 seconds for `NewFactory()` and 30 seconds for `telescope run`. Cancellation and certificate verification failures are terminal. A timeout after connection acquisition is unknown; work not dispatched can still retry. `compression` accepts `zstd` (default) or `gzip`. SDK clients refuse HTTPS-to-HTTP redirects.
+The exporter `timeout` configures the SDK deadline for each HTTP append, including reading the response. Mapping, encoding, and compression are outside this deadline; each chunk and retry gets a fresh timeout. Defaults are 10 seconds for `NewFactory()` and 30 seconds for `telescope run`; zero disables it. Caller cancellation and deadlines still stop delivery. A timeout after connection acquisition is unknown; work not dispatched can still retry. `compression` accepts `zstd` (default) or `gzip`. Certificate verification failures are terminal, and SDK clients refuse HTTPS-to-HTTP redirects.
 
 ### Opt-in unknown replay
 
@@ -73,11 +73,11 @@ unknown_retry:
   max_elapsed_time: 5m
 ```
 
-This defaults to disabled, with limits of 20 retries and five minutes when enabled. Eligible outcomes include unstructured HTTP 5xx, connection loss, attempt timeouts, and malformed success acknowledgements. Cancellation and permanent HTTP errors remain terminal. A new attempt gets a fresh attempt timeout but shares the remaining replay budget. The policy preserves the SDK classification and certificate verification.
+This defaults to disabled, with limits of 20 retries and five minutes when enabled. Eligible outcomes include unstructured HTTP 5xx, connection loss, request timeouts, and malformed success acknowledgements. Cancellation and permanent HTTP errors remain terminal. The policy preserves the SDK classification and certificate verification.
 
 Telescope retains the pending chunk's exact mapped bytes while Collector schedules retries. Both limits must be positive: `max_retries` counts additional attempts for previously unknown chunks, including safe rejections during replay; elapsed time starts at the first replayable unknown. Both budgets are shared across one dequeued request's chunks, and the first exhausted limit stops replay. Waiting in the queue consumes neither budget. With one consumer, queued requests wait behind the request being retried.
 
-A replay cannot start after expiry, and an in-flight replay is bounded by the remaining budget and normal attempt timeout. If `Retry-After` cannot fit, replay ends without resending. Otherwise final accounting may wait for Collector's next backoff wakeup. The ordinary retry horizon starts earlier, at the first delivery attempt, and can stop replay even when both elapsed limits are equal. Its default of zero removes that outer elapsed limit; cancellation and shutdown still stop retries.
+A replay cannot start after expiry, and an in-flight replay is bounded by the remaining budget and HTTP request timeout. If `Retry-After` cannot fit, replay ends without resending. Otherwise final accounting may wait for Collector's next backoff wakeup. The ordinary retry horizon starts earlier, at the first delivery attempt, and can stop replay even when both elapsed limits are equal. Its default of zero removes that outer elapsed limit; cancellation and shutdown still stop retries.
 
 A later success confirms at least one copy was written. A later rejection cannot resolve the earlier uncertainty. If delivery ends without confirmation, the ambiguous chunk counts as unknown, while an unsent suffix exhausting ordinary retries counts as dropped. Pending replay has no final outcome yet.
 

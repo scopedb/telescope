@@ -80,7 +80,7 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 			require.NoError(t, validationErr)
 			payload, err := mapOTLPSample(signal, readGoldenFile(t, signal+".otlp.json"))
 			require.NoError(t, err)
-			outcome := exporter.send(ctx, ctx, signal, payload, nil)
+			outcome := exporter.send(ctx, signal, payload, nil)
 			require.NoError(t, outcome.err)
 			require.Len(t, outcome.committed, len(payload.Records))
 			result, err := client.Query(ctx, "FROM "+table.Identifier())

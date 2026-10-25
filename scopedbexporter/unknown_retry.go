@@ -90,7 +90,7 @@ func (s *unknownRetryState) retain(ctx context.Context, body []byte, rows int, e
 	return true
 }
 
-// Attempt timeouts may be replayed, but cancellation remains terminal. The
+// Request timeouts may be replayed, but cancellation remains terminal. The
 // delivery context and replay budget are checked separately from this error.
 func replayableUnknown(err error) bool {
 	e, ok := errors.AsType[*scopedb.Error](err)

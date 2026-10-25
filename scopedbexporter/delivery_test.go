@@ -27,6 +27,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
@@ -199,18 +200,28 @@ func TestMemoryQueueDrainsAtShutdownWithoutRetrying(t *testing.T) {
 	}
 }
 
-func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
-	// Inspect the HTTP context so the SDK deadline regression needs no 30-second wait.
-	cfg := testExporterConfig("https://scopedb.invalid")
-	cfg.Timeout.Timeout = time.Minute
-	exp, _ := startTestLogsExporter(t, cfg)
-	exp.(*capturingLogsExporter).exp.client.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		deadline, ok := r.Context().Deadline()
-		require.True(t, ok)
-		require.Greater(t, time.Until(deadline), 50*time.Second)
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"committed","num_rows_inserted":1}`))}, nil
-	})
-	require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("ok")))
+func TestEachAppendGetsItsOwnTimeout(t *testing.T) {
+	for _, timeout := range []time.Duration{time.Minute, 0} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				cfg := testExporterConfig("https://scopedb.invalid")
+				cfg.Timeout.Timeout = timeout
+				cfg.AppendBatch.MaxRows = 1
+				exp, statuses := startTestLogsExporter(t, cfg)
+				exp.(*capturingLogsExporter).exp.client.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					// Each chunk exceeds the SDK default; together they exceed one minute.
+					select {
+					case <-r.Context().Done():
+						return nil, r.Context().Err()
+					case <-time.After(40 * time.Second):
+						return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"status":"committed","num_rows_inserted":1}`))}, nil
+					}
+				})
+				require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("first", "second")))
+				require.Equal(t, uint64(2), statuses.Snapshot().Signals[signalLogs].ConfirmedWrittenRecords)
+			})
+		})
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -305,18 +316,22 @@ func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
 		indexes   []uint64
 		truncated bool
 		permanent bool
+		retryCode int
 		want      []string
 	}{
-		{"one invalid row", []uint64{1}, false, false, []string{"before", "after"}},
-		{"duplicate row errors", []uint64{2, 0, 2}, false, false, []string{"invalid"}},
-		{"all rejected", []uint64{0, 1, 2}, false, false, nil},
-		{"truncated", []uint64{1}, true, true, nil},
-		{"out of range", []uint64{3}, false, true, nil},
-		{"missing", nil, false, true, nil},
+		{"one invalid row", []uint64{1}, false, false, 0, []string{"before", "after"}},
+		{"duplicate row errors", []uint64{2, 0, 2}, false, false, 0, []string{"invalid"}},
+		{"retry remaining rows", []uint64{1}, false, false, 429, []string{"before", "after"}},
+		{"replay remaining rows", []uint64{1}, false, false, 503, []string{"before", "after"}},
+		{"all rejected", []uint64{0, 1, 2}, false, false, 0, nil},
+		{"truncated", []uint64{1}, true, true, 0, nil},
+		{"out of range", []uint64{3}, false, true, 0, nil},
+		{"missing", nil, false, true, 0, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls int
 			var accepted []string
+			var retriedBody []byte
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				if calls == 1 {
@@ -330,6 +345,14 @@ func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
 				}
 				body, err := decodeSDKRequestBody(r)
 				require.NoError(t, err)
+				if calls == 2 && tc.retryCode != 0 {
+					retriedBody = body
+					http.Error(w, "unavailable", tc.retryCode)
+					return
+				}
+				if retriedBody != nil {
+					require.Equal(t, retriedBody, body)
+				}
 				for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
 					var row map[string]string
 					require.NoError(t, json.Unmarshal([]byte(line), &row))
@@ -338,7 +361,7 @@ func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
 				writeAppendCommitted(t, w, int64(len(accepted)))
 			}))
 			t.Cleanup(backend.Close)
-			exp, statuses := startTestLogsExporter(t, testExporterConfig(backend.URL))
+			exp, statuses := startTestLogsExporter(t, replayTestConfig(backend.URL))
 			err := exp.ConsumeLogs(t.Context(), testLogs("before", "invalid", "after"))
 			if tc.permanent {
 				require.True(t, consumererror.IsPermanent(err), "%v", err)
@@ -347,7 +370,9 @@ func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
 			}
 			backend.Close()
 			require.Equal(t, tc.want, accepted)
-			if len(tc.want) > 0 {
+			if tc.retryCode != 0 {
+				require.Equal(t, 3, calls)
+			} else if len(tc.want) > 0 {
 				require.Equal(t, 2, calls)
 			} else {
 				require.Equal(t, 1, calls)
