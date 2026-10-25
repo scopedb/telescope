@@ -54,7 +54,7 @@ func runPlanCommand(
 		flags.PrintDefaults()
 		fmt.Fprintln(stderr, "\nExample:")
 		fmt.Fprintln(stderr, "  telescope plan --sample traces=deploy/samples/traces.otlp.json --out tables.scopeql telescope.yaml")
-		fmt.Fprintln(stderr, "\nReview the generated SQL and run it in the intended ScopeDB workspace.")
+		fmt.Fprintln(stderr, "\nReview the generated ScopeQL and run it in the intended ScopeDB workspace.")
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
