@@ -20,66 +20,112 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/scopedb/telescope/scopedbexporter"
 	"go.yaml.in/yaml/v3"
 )
 
-func LoadConfig(path string) (scopedbexporter.IngestionConfig, error) {
+func LoadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("read Telescope config %s: %w", path, err)
+		return Config{}, fmt.Errorf("read Telescope config %s: %w", path, err)
 	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
-	var config scopedbexporter.IngestionConfig
+	config := defaultConfig()
 	if err := decoder.Decode(&config); err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
+		return Config{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: multiple YAML documents are not supported", path)
+			return Config{}, fmt.Errorf("decode Telescope config %s: multiple YAML documents are not supported", path)
 		}
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
+		return Config{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
+	}
+	if err := config.applyEnvironment(); err != nil {
+		return Config{}, err
 	}
 	if err := config.Validate(); err != nil {
-		return scopedbexporter.IngestionConfig{}, fmt.Errorf("validate Telescope config %s: %w", path, err)
+		return Config{}, fmt.Errorf("validate Telescope config %s: %w", path, err)
 	}
 	return config, nil
 }
 
-func ConfigURI(config scopedbexporter.IngestionConfig) (string, error) {
+func ConfigURI(config Config) (string, error) {
 	if err := config.Validate(); err != nil {
 		return "", err
 	}
-
-	var rendered map[string]any
-	if err := yaml.Unmarshal([]byte(defaultConfig), &rendered); err != nil {
-		return "", fmt.Errorf("decode embedded collector config: %w", err)
-	}
-	scopeDB := rendered["exporters"].(map[string]any)["scopedb"].(map[string]any)
-	pipelines := rendered["service"].(map[string]any)["pipelines"].(map[string]any)
 	tables := make(map[string]string, 3)
 	mappings := make(map[string]scopedbexporter.MappingConfig, 3)
-	for _, signal := range []string{"logs", "traces", "metrics"} {
-		signalConfig, enabled := config.Signal(signal)
-		if !enabled {
-			delete(pipelines, signal)
-			continue
-		}
+	pipelines := make(map[string]any, 3)
+	for _, signal := range config.EnabledSignals() {
+		signalConfig, _ := config.Signal(signal)
 		tables[signal] = signalConfig.Table
 		mappings[signal] = signalConfig.Mapping
+		pipelines[signal] = map[string]any{"receivers": []string{"otlp"}, "processors": []string{"memory_limiter", "batch"}, "exporters": []string{"scopedb"}}
 	}
-	scopeDB["tables"] = tables
-	scopeDB["mappings"] = mappings
-
+	q := config.Delivery.Queue
+	queue := map[string]any{"enabled": true, "sizer": "bytes", "queue_size": q.MaxBytes, "num_consumers": q.Consumers}
+	extensions := map[string]any{}
+	enabledExtensions := []string{}
+	if q.Type == "file" {
+		queue["storage"] = "file_storage"
+		extensions["file_storage"] = map[string]any{"directory": q.Directory, "create_directory": true, "fsync": true}
+		enabledExtensions = append(enabledExtensions, "file_storage")
+	}
+	host, port, _ := net.SplitHostPort(config.Telemetry.MetricsAddr)
+	portNumber, _ := strconv.Atoi(port)
+	readers := []any{map[string]any{"pull": map[string]any{"exporter": map[string]any{"prometheus": map[string]any{"host": host, "port": portNumber}}}}}
+	m := config.Telemetry.OTLP
+	if m.Endpoint != "" {
+		headers := []map[string]string{}
+		names := make([]string, 0, len(m.Headers))
+		for name := range m.Headers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			headers = append(headers, map[string]string{"name": name, "value": m.Headers[name]})
+		}
+		readers = append(readers, map[string]any{"periodic": map[string]any{
+			"interval": m.Interval.Milliseconds(), "timeout": m.Timeout.Milliseconds(),
+			"exporter": map[string]any{"otlp": map[string]any{"endpoint": m.Endpoint, "protocol": m.Protocol, "headers": headers, "timeout": m.Timeout.Milliseconds()}},
+		}})
+	}
+	r := config.Delivery.Retry
+	rendered := map[string]any{
+		"extensions": extensions,
+		"receivers": map[string]any{"otlp": map[string]any{"protocols": map[string]any{
+			"grpc": map[string]any{"endpoint": config.Receivers.GRPCAddr}, "http": map[string]any{"endpoint": config.Receivers.HTTPAddr},
+		}}},
+		"processors": map[string]any{
+			"memory_limiter": map[string]any{"check_interval": "1s", "limit_mib": config.Resources.MemoryLimitMiB, "spike_limit_mib": config.Resources.MemorySpikeMiB},
+			"batch":          map[string]any{"timeout": config.Batch.Timeout.String(), "send_batch_size": config.Batch.Size, "send_batch_max_size": config.Batch.MaxSize},
+		},
+		"exporters": map[string]any{"scopedb": map[string]any{
+			"endpoint": config.Destination.Endpoint, "api_key": config.Destination.APIKey, "compression": "zstd", "timeout": config.Delivery.Timeout.String(),
+			"append_batch":     map[string]any{"max_rows": config.Delivery.MaxRows, "max_bytes": config.Delivery.MaxBytes},
+			"sending_queue":    queue,
+			"retry_on_failure": map[string]any{"enabled": true, "initial_interval": r.InitialInterval.String(), "max_interval": r.MaxInterval.String(), "max_elapsed_time": r.MaxElapsedTime.String()},
+			"tables":           tables, "mappings": mappings,
+		}},
+		"service": map[string]any{
+			"extensions": enabledExtensions, "pipelines": pipelines,
+			"telemetry": map[string]any{"resource": map[string]any{"service.name": "telescope"}, "logs": map[string]any{"level": "warn"}, "metrics": map[string]any{"readers": readers}},
+		},
+	}
 	data, err := yaml.Marshal(rendered)
 	if err != nil {
 		return "", fmt.Errorf("encode collector config: %w", err)
 	}
-	return "yaml:" + strings.TrimSpace(string(data)) + "\n", nil
+	// Values have already been resolved. Escape dollars so Collector's resolver
+	// cannot reinterpret credentials or literal mapping values as providers.
+	return "yaml:" + strings.ReplaceAll(strings.TrimSpace(string(data)), "$", "$$") + "\n", nil
 }

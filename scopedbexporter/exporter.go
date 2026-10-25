@@ -28,10 +28,14 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
 type dbExporter struct {
+	meter        metric.Meter
+	metrics      metric.Registration
+	exporterID   string
 	stopping     atomic.Bool
 	persistent   bool
 	queueEnabled bool
@@ -55,7 +59,7 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 	}
 	statuses.configure(signal, cfg)
 
-	return &dbExporter{
+	exp := &dbExporter{
 		persistent:   cfg.SendingQueue.HasValue() && cfg.SendingQueue.Get().StorageID != nil,
 		queueEnabled: cfg.SendingQueue.HasValue(),
 		cfg:          cfg,
@@ -63,10 +67,22 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 		logger:       set.Logger.Named("scopedbexporter"),
 		signal:       signal,
 		statuses:     statuses,
-	}, nil
+	}
+	if set.MeterProvider != nil {
+		exp.meter = set.MeterProvider.Meter("github.com/scopedb/telescope/scopedbexporter")
+	}
+	exp.exporterID = set.ID.String()
+	return exp, nil
 }
 
 func (e *dbExporter) start(_ context.Context, _ component.Host) error {
+	if e.meter != nil {
+		registration, err := e.registerDeliveryMetrics()
+		if err != nil {
+			return fmt.Errorf("register delivery metrics: %w", err)
+		}
+		e.metrics = registration
+	}
 	signalConfig, _ := e.cfg.signal(e.signal)
 	e.logger.Info(
 		"Starting scopedb exporter",
@@ -85,6 +101,9 @@ func (e *dbExporter) start(_ context.Context, _ component.Host) error {
 func (e *dbExporter) shutdown(_ context.Context) error {
 	e.statuses.markStopped(e.signal)
 	e.client.Close()
+	if e.metrics != nil {
+		return e.metrics.Unregister()
+	}
 	return nil
 }
 

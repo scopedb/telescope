@@ -226,21 +226,23 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	runtime := s.ingestionRuntime.Snapshot()
 	metrics, metricsErr := s.ingestionMetrics.Read(ctx)
 	metricsAvailable := metricsErr == nil
-	storageBytes, storageErr := s.queueStorage.AllocatedBytes()
+	var storageBytes int64
+	var storageErr error
+	if s.queueStorageType != "memory" {
+		storageBytes, storageErr = s.queueStorage.AllocatedBytes()
+	}
 	response := IngestionStatusResponse{
 		Version:      s.version,
 		ConfigDigest: s.configDigest,
 		GeneratedAt:  s.now(),
-		Listeners: IngestionListeners{
-			GRPC: listenerAddress("TELESCOPE_OTLP_GRPC_ADDR", "0.0.0.0:4317"),
-			HTTP: listenerAddress("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318"),
-		},
+		Listeners:    s.listeners,
 		InternalTelemetry: IngestionInternalTelemetry{
 			Available: metricsAvailable,
 			Endpoint:  s.ingestionMetrics.Endpoint(),
 		},
 		QueueStorage: IngestionQueueStorage{
-			Available:      storageErr == nil,
+			Type:           s.queueStorageType,
+			Available:      storageErr == nil && s.queueStorageType != "memory",
 			AllocatedBytes: storageBytes,
 		},
 		Signals: make([]IngestionSignalStatus, 0, len(runtime.Signals)),

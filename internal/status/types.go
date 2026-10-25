@@ -47,6 +47,7 @@ type IngestionInternalTelemetry struct {
 }
 
 type IngestionQueueStorage struct {
+	Type           string `json:"type,omitempty"`
 	Available      bool   `json:"available"`
 	AllocatedBytes int64  `json:"allocated_bytes"`
 	Error          string `json:"error,omitempty"`

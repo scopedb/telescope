@@ -75,11 +75,11 @@ func runConfigCommand(
 	if _, err := collector.ConfigURI(ingestion); err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)
 	}
-	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion)
+	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion.IngestionConfig)
 	if err != nil {
 		return err
 	}
-	previews, err := loadMappingSamples(samples.paths, ingestion, stdin)
+	previews, err := loadMappingSamples(samples.paths, ingestion.IngestionConfig, stdin)
 	if err != nil {
 		return err
 	}
@@ -94,12 +94,12 @@ func runConfigCommand(
 	} else {
 		validationCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		endpoint, apiKey := scopeDBCredentials()
+		endpoint, apiKey := ingestion.Destination.Endpoint, ingestion.Destination.APIKey
 		destinations, err = scopedbexporter.InspectIngestionDestinations(
 			validationCtx,
 			endpoint,
 			apiKey,
-			ingestion,
+			ingestion.IngestionConfig,
 		)
 		if err != nil {
 			fmt.Fprintln(stdout, "destination: check failed")
@@ -120,13 +120,13 @@ func runConfigCommand(
 func loadTelescopeConfig(
 	flags *flag.FlagSet,
 	bootstrap bootstrapFlags,
-) (string, scopedbexporter.IngestionConfig, error) {
+) (string, collector.Config, error) {
 	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return "", scopedbexporter.IngestionConfig{}, err
+		return "", collector.Config{}, err
 	}
 	path, err := telescopeConfigPath(flags)
 	if err != nil {
-		return "", scopedbexporter.IngestionConfig{}, err
+		return "", collector.Config{}, err
 	}
 	config, err := collector.LoadConfig(path)
 	return path, config, err

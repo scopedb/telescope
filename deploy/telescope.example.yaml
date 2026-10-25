@@ -12,6 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Runtime options share this document with mappings. See docs/deployment.md.
+# resources:
+#   memory_limit_mib: 1500
+# delivery:
+#   queue:
+#     type: file
+#     directory: /var/lib/telescope/queue
+# telemetry:
+#   otlp:
+#     endpoint: https://metrics.example.com/v1/metrics
+#     headers:
+#       Authorization: ${env:METRICS_AUTHORIZATION}
+
 signals:
   # Remove this block to disable traces, or add logs/metrics blocks as needed.
   traces:

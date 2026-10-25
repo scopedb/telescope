@@ -52,6 +52,7 @@ type SignalRuntimeStatus struct {
 	UnknownRecords          uint64
 	PermanentFailedRecords  uint64
 	RetryExhaustedRecords   uint64
+	EnqueueFailedRecords    uint64
 	InvalidItemsByReason    map[string]uint64
 }
 

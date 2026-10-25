@@ -101,8 +101,6 @@ func testScopeDBTelescopeIntegration(t *testing.T, protocol string) {
 		},
 	}}
 	require.NoError(t, scopedbexporter.CheckIngestionDestinations(ctx, requestEndpoint, requestAPIKey, ingestion))
-	configURI, err := ConfigURI(ingestion)
-	require.NoError(t, err)
 
 	otlpHTTPAddress := freeTCPAddress(t)
 	otlpGRPCAddress := freeTCPAddress(t)
@@ -114,6 +112,11 @@ func testScopeDBTelescopeIntegration(t *testing.T, protocol string) {
 	t.Setenv("TELESCOPE_OTEL_BATCH_TIMEOUT", "10ms")
 	t.Setenv("TELESCOPE_OTEL_BATCH_SIZE", "1")
 	t.Setenv("TELESCOPE_OTEL_BATCH_MAX_SIZE", "1")
+	config := defaultConfig()
+	config.IngestionConfig = ingestion
+	require.NoError(t, config.applyEnvironment())
+	configURI, err := ConfigURI(config)
+	require.NoError(t, err)
 	runtime := startCollectorFromURI(t, configURI)
 	defer runtime.stop(t)
 
