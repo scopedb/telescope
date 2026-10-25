@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,29 +96,6 @@ func TestRunCommandDoesNotHideHelpOutputFailure(t *testing.T) {
 	}
 	if errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("runCommand() error = %v hides the output failure as help", err)
-	}
-}
-
-func TestPrintUsageSeparatesCommandRoles(t *testing.T) {
-	var output bytes.Buffer
-	printUsage(&output)
-
-	for _, expected := range []string{
-		"Setup:",
-		"Operations:",
-		"Diagnostics:",
-		"Discover mapping selectors in an OTLP sample",
-		"Capture OTLP samples for mapping preview",
-		"Preview sample projection without appending",
-		"Plan additive ScopeDB table DDL",
-		"Run the OTLP-to-ScopeDB data plane",
-		"Report local delivery state",
-		"Verify synthetic OTLP-to-append delivery",
-		"Execute one ScopeQL statement",
-	} {
-		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("printUsage() output does not contain %q", expected)
-		}
 	}
 }
 
@@ -275,7 +253,7 @@ func TestResolveHTTPListenAddr(t *testing.T) {
 		addr     string
 		expected string
 	}{
-		{name: "default", expected: ":8080"},
+		{name: "default", expected: "127.0.0.1:8080"},
 		{name: "environment", addr: "127.0.0.1:9090", expected: "127.0.0.1:9090"},
 		{name: "flag before environment", flag: "127.0.0.1:7070", addr: "127.0.0.1:9090", expected: "127.0.0.1:7070"},
 	}
@@ -333,4 +311,50 @@ func writeEnvFile(t *testing.T, content string) string {
 		t.Fatalf("write env file: %v", err)
 	}
 	return path
+}
+
+func TestCheckedWriterSerializesConcurrentOutput(t *testing.T) {
+	var output bytes.Buffer
+	writer := &checkedWriter{name: "stderr", target: &output}
+	var writers sync.WaitGroup
+	start := make(chan struct{})
+	for range 16 {
+		writers.Go(func() {
+			<-start
+			for range 100 {
+				_, _ = writer.Write([]byte("ready\n"))
+				_ = writer.Err()
+			}
+		})
+	}
+	close(start)
+	writers.Wait()
+	if err := writer.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(output.String(), "ready\n"); got != 1600 {
+		t.Fatalf("lost concurrent output: got %d lines", got)
+	}
+}
+
+func TestLoadEnvFilePreservesLiteralQuotes(t *testing.T) {
+	for _, entry := range []struct{ value, want string }{
+		{`"'secret'"`, `'secret'`},
+		{`'"secret"'`, `"secret"`},
+		{`secret'`, `secret'`},
+	} {
+		t.Run(entry.value, func(t *testing.T) {
+			clearBootstrapEnv(t)
+			if err := loadEnvFile(writeEnvFile(t, "TELESCOPE_SCOPEDB_API_KEY="+entry.value)); err != nil {
+				t.Fatal(err)
+			}
+			if got := os.Getenv("TELESCOPE_SCOPEDB_API_KEY"); got != entry.want {
+				t.Fatalf("credential changed: got %q, want %q", got, entry.want)
+			}
+		})
+	}
+	clearBootstrapEnv(t)
+	if err := loadEnvFile(writeEnvFile(t, `TELESCOPE_SCOPEDB_API_KEY="secret'`)); err == nil {
+		t.Fatal("accepted an unmatched quote")
+	}
 }

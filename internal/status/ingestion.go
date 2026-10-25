@@ -29,7 +29,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 const defaultInternalMetricsURL = "http://127.0.0.1:8888/metrics"

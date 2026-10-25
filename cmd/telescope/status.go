@@ -39,7 +39,7 @@ func runStatusCommand(ctx context.Context, args []string, stdout io.Writer, stde
 		fmt.Fprintln(stderr, "\nOptions:")
 		flags.PrintDefaults()
 	}
-	endpoint := flags.String("endpoint", defaultStatusEndpoint, "Telescope base URL or ingestion status endpoint")
+	endpoint := flags.String("endpoint", defaultOperationalEndpoint, "Telescope base URL or ingestion status endpoint")
 	timeout := flags.Duration("timeout", 5*time.Second, "status request timeout")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -159,4 +159,13 @@ func formatBytes(value int64) string {
 		return fmt.Sprintf("%d %s", value/divisor, units[unit])
 	}
 	return fmt.Sprintf("%.1f %s", float64(value)/float64(divisor), units[unit])
+}
+
+func findSignalStatus(status statusapi.IngestionStatusResponse, signal string) (statusapi.IngestionSignalStatus, bool) {
+	for _, current := range status.Signals {
+		if current.Signal == signal {
+			return current, true
+		}
+	}
+	return statusapi.IngestionSignalStatus{}, false
 }

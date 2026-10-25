@@ -28,7 +28,7 @@ import (
 
 	"github.com/prometheus/common/expfmt"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 const (

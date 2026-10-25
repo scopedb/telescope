@@ -1,0 +1,194 @@
+/*
+ * Copyright 2026 ScopeDB, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package scopedbexporter
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+)
+
+func TestMapMetrics(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	resourceMetrics := metrics.ResourceMetrics().AppendEmpty()
+	resourceMetrics.Resource().Attributes().PutStr("service.name", "checkout")
+	resourceMetrics.Resource().Attributes().PutStr("service.instance.id", "checkout-1")
+	resourceMetrics.Resource().Attributes().PutStr("k8s.pod.name", "checkout-pod")
+	resourceMetrics.Resource().Attributes().PutStr("host.name", "checkout-node")
+	resourceMetrics.Resource().Attributes().PutEmptySlice("host.ip").AppendEmpty().SetStr("10.0.0.10")
+
+	scopeMetrics := resourceMetrics.ScopeMetrics().AppendEmpty()
+	scopeMetrics.Scope().SetName("test-scope")
+	scopeMetrics.Scope().SetVersion("1.0.0")
+
+	gaugeMetric := scopeMetrics.Metrics().AppendEmpty()
+	gaugeMetric.SetName("cpu.utilization")
+	gaugeMetric.SetDescription("CPU utilization")
+	gaugeMetric.SetUnit("1")
+	gaugePoint := gaugeMetric.SetEmptyGauge().DataPoints().AppendEmpty()
+	gaugePoint.SetTimestamp(pcommon.Timestamp(100))
+	gaugePoint.SetDoubleValue(0.75)
+	gaugePoint.Attributes().PutStr("host", "api-1")
+
+	sumMetric := scopeMetrics.Metrics().AppendEmpty()
+	sumMetric.SetName("http.requests")
+	sumMetric.SetUnit("1")
+	sum := sumMetric.SetEmptySum()
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	sum.SetIsMonotonic(true)
+	sumPoint := sum.DataPoints().AppendEmpty()
+	sumPoint.SetTimestamp(pcommon.Timestamp(200))
+	sumPoint.SetStartTimestamp(pcommon.Timestamp(150))
+	sumPoint.SetIntValue(42)
+
+	histMetric := scopeMetrics.Metrics().AppendEmpty()
+	histMetric.SetName("request.duration")
+	hist := histMetric.SetEmptyHistogram()
+	hist.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	histPoint := hist.DataPoints().AppendEmpty()
+	histPoint.SetTimestamp(pcommon.Timestamp(300))
+	histPoint.SetCount(3)
+	histPoint.SetSum(12.5)
+	histPoint.ExplicitBounds().FromRaw([]float64{0.5, 1.0})
+	histPoint.BucketCounts().FromRaw([]uint64{1, 2, 0})
+
+	payload, err := mapMetrics(metrics)
+	require.NoError(t, err)
+	require.Len(t, payload.Records, 3)
+
+	gaugeRecord := findMetricRecord(t, payload.Records, "cpu.utilization")
+	assert.Equal(t, "gauge", gaugeRecord["type"])
+	assert.Equal(t, 0.75, gaugeRecord["value"])
+	assert.Equal(t, 0.75, gaugeRecord["double_value"])
+	assert.NotContains(t, gaugeRecord, "int_value")
+	assert.Equal(t, 0.75, gaugeRecord["number_value"])
+	assert.Equal(t, map[string]any{"host": "api-1"}, gaugeRecord["attributes"])
+	assert.Equal(t, map[string]any{
+		"service.name":        "checkout",
+		"service.instance.id": "checkout-1",
+		"k8s.pod.name":        "checkout-pod",
+		"host.name":           "checkout-node",
+		"host.ip":             []any{"10.0.0.10"},
+	}, gaugeRecord["resource"])
+
+	sumRecord := findMetricRecord(t, payload.Records, "http.requests")
+	assert.Equal(t, "sum", sumRecord["type"])
+	assert.Equal(t, "cumulative", sumRecord["temporality"])
+	assert.Equal(t, true, sumRecord["is_monotonic"])
+	assert.Equal(t, int64(42), sumRecord["value"])
+	assert.Equal(t, int64(42), sumRecord["int_value"])
+	assert.NotContains(t, sumRecord, "double_value")
+	assert.Equal(t, 42.0, sumRecord["number_value"])
+
+	histRecord := findMetricRecord(t, payload.Records, "request.duration")
+	assert.Equal(t, "histogram", histRecord["type"])
+	assert.Equal(t, "delta", histRecord["temporality"])
+	histogram := histRecord["histogram"].(map[string]any)
+	distribution := histRecord["distribution"].(map[string]any)
+	assert.Equal(t, uint64(3), histogram["count"])
+	assert.Equal(t, 12.5, histogram["sum"])
+	assert.Equal(t, []float64{0.5, 1.0}, histogram["explicit_bounds"])
+	assert.Equal(t, []uint64{1, 2, 0}, histogram["bucket_counts"])
+	assert.Equal(t, histogram, distribution)
+}
+
+func TestMapMetricsPreservesLargeIntValue(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	metric.SetName("large.counter")
+	point := metric.SetEmptySum().DataPoints().AppendEmpty()
+	const value int64 = 9_007_199_254_740_993
+	point.SetIntValue(value)
+
+	payload, err := mapMetrics(metrics)
+	require.NoError(t, err)
+	require.Len(t, payload.Records, 1)
+	assert.Equal(t, value, payload.Records[0]["int_value"])
+	assert.NotEqual(t, value, int64(payload.Records[0]["number_value"].(float64)))
+}
+
+func TestMapMetricsRejectsEmptyMetricType(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	metric.SetName("empty.metric")
+
+	payload, err := mapMetrics(metrics)
+
+	require.Nil(t, payload)
+	require.EqualError(t, err, "map metric at resource 0 scope 0 metric 0: metric \"empty.metric\" has unsupported type Empty")
+	reason, ok := mappingErrorReason(err)
+	require.True(t, ok)
+	require.Equal(t, mappingReasonUnsupportedMetricType, reason)
+}
+
+func TestMapMetricsRejectsNumberPointWithoutValue(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	metric.SetName("empty.point")
+	metric.SetEmptyGauge().DataPoints().AppendEmpty()
+
+	payload, err := mapMetrics(metrics)
+
+	require.Nil(t, payload)
+	require.EqualError(t, err, "map metric at resource 0 scope 0 metric 0: gauge data point 0: unsupported number value type Empty")
+	reason, ok := mappingErrorReason(err)
+	require.True(t, ok)
+	require.Equal(t, mappingReasonUnsupportedNumberValueType, reason)
+}
+
+func TestFilterInvalidMetricsPreservesValidMetrics(t *testing.T) {
+	metrics := pmetric.NewMetrics()
+	metricSlice := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+
+	valid := metricSlice.AppendEmpty()
+	valid.SetName("valid.metric")
+	valid.SetEmptyGauge().DataPoints().AppendEmpty().SetIntValue(1)
+
+	invalid := metricSlice.AppendEmpty()
+	invalid.SetName("invalid.metric")
+	invalidPoints := invalid.SetEmptyGauge().DataPoints()
+	invalidPoints.AppendEmpty().SetIntValue(2)
+	invalidPoints.AppendEmpty()
+
+	filtered, failures := filterInvalidMetrics(metrics)
+
+	require.Len(t, failures, 1)
+	assert.Equal(t, 2, failures[0].dataPoints)
+	reason, ok := mappingErrorReason(failures[0].err)
+	require.True(t, ok)
+	assert.Equal(t, mappingReasonUnsupportedNumberValueType, reason)
+	assert.Equal(t, 1, filtered.DataPointCount())
+	filteredMetrics := filtered.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	require.Equal(t, 1, filteredMetrics.Len())
+	assert.Equal(t, "valid.metric", filteredMetrics.At(0).Name())
+	assert.Equal(t, 3, metrics.DataPointCount(), "filter must not mutate its input")
+}
+
+func findMetricRecord(t *testing.T, records []telemetryRecord, metricName string) telemetryRecord {
+	t.Helper()
+	for _, record := range records {
+		if record["metric_name"] == metricName {
+			return record
+		}
+	}
+	t.Fatalf("metric %q not found", metricName)
+	return nil
+}

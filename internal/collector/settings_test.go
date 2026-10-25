@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 func TestSettingsConfigURI(t *testing.T) {

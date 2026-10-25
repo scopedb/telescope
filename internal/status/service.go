@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 const serviceName = "telescope"

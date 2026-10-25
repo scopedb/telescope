@@ -19,7 +19,7 @@ package collector
 import (
 	"strings"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/provider/envprovider"
@@ -71,7 +71,7 @@ func newSettings(
 			Version:     version,
 		},
 		Factories: func() (otelcol.Factories, error) {
-			return factories(statuses, captures)
+			return factories(version, statuses, captures)
 		},
 		DisableGracefulShutdown: disableGracefulShutdown,
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{

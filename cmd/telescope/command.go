@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sync"
 )
 
 func runCommand(
@@ -102,12 +103,15 @@ func dispatchCommand(
 }
 
 type checkedWriter struct {
+	mu     sync.Mutex
 	name   string
 	target io.Writer
 	err    error
 }
 
 func (w *checkedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.err != nil {
 		return 0, w.err
 	}
@@ -123,6 +127,8 @@ func (w *checkedWriter) Write(p []byte) (int, error) {
 }
 
 func (w *checkedWriter) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.err
 }
 
@@ -152,52 +158,7 @@ Usage:
   Other:
     telescope version                              Print the build version
 
-Connection options:
-  --env-file                 Load KEY=VALUE bootstrap config file
-  --scopedb-endpoint         ScopeDB physical region endpoint
-  --scopedb-api-key          ScopeDB API key
-
-Validate options:
-  --offline                  Skip ScopeDB destination checks
-
-Preview options:
-  --offline                  Skip ScopeDB destination checks
-  --sample signal=path       Preview OTLP JSON or protobuf; repeat per signal
-  --strict                   Fail on unobserved, partial, or default-only columns
-
-Inspect options:
-  --sample path              Read one OTLP JSON or protobuf sample; use - for stdin
-  --format                   Output human or json, default human
-
-Plan options:
-  --sample signal=path       Add representative mapping evidence; repeat per signal
-  --format                   Output human, json, or scopeql, default human
-  --out                      Write ScopeQL while retaining the human plan on stdout
-
-Capture options:
-  --endpoint                 Telescope operational HTTP base URL
-  --listen-http              Standalone OTLP/HTTP address; no config or ScopeDB required
-  --limit                    Maximum records to capture, default 100
-  --timeout                  Time to wait for telemetry, default 45s
-
-Query options:
-  --file                     Read one ScopeQL statement from a file; use - for stdin
-  --format                   Output table, json, or jsonl, default table
-  --timeout                  Maximum ScopeDB execution time, default 30s
-
-Run options:
-  --http-addr                Operational HTTP listen address, overrides TELESCOPE_HTTP_ADDR
-
-Environment:
-  TELESCOPE_SCOPEDB_ENDPOINT   ScopeDB physical region endpoint
-  TELESCOPE_SCOPEDB_API_KEY    ScopeDB API key
-  SCOPEDB_ENDPOINT             Shared fallback for TELESCOPE_SCOPEDB_ENDPOINT
-  SCOPEDB_API_KEY              Shared fallback for TELESCOPE_SCOPEDB_API_KEY
-  TELESCOPE_HTTP_ADDR          Operational HTTP listen address, default :8080
-  TELESCOPE_OTLP_GRPC_ADDR     OTLP gRPC listen address, default 0.0.0.0:4317
-  TELESCOPE_OTLP_HTTP_ADDR     OTLP HTTP listen address, default 0.0.0.0:4318
-  TELESCOPE_QUEUE_DIR          Persistent queue directory, default $HOME/.telescope/queue
-  TELESCOPE_QUEUE_MAX_BYTES    Logical queued telemetry byte capacity, default 536870912 (512 MiB)
+Use telescope <command> --help for command options and examples.
 
 Advanced:
   telescope advanced collector <otelcol command>

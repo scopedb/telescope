@@ -29,7 +29,7 @@ import (
 	"time"
 
 	statusapi "github.com/scopedb/telescope/internal/status"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog"

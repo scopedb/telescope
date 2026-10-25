@@ -18,6 +18,8 @@ builtin = "Apache-2.0"
 [files]
 includes = [
   "**/*.go",
+  "**/*.py",
+  "**/*.sh",
   "**/*.toml",
   "**/*.yaml",
   "**/*.yml",

@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/otelcol"
@@ -87,7 +87,7 @@ signals:
 	provider, err := otelcol.NewConfigProvider(settings.ConfigProviderSettings)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
-	factories, err := factories(scopedbexporter.NewStatusRegistry(), scopedbexporter.NewCaptureRegistry())
+	factories, err := factories("test", scopedbexporter.NewStatusRegistry(), scopedbexporter.NewCaptureRegistry())
 	require.NoError(t, err)
 	resolved, err := provider.Get(context.Background(), factories)
 	require.NoError(t, err)

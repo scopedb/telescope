@@ -28,6 +28,7 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /out/telescope /usr/local/bin/telescope
+COPY LICENSE /usr/share/licenses/telescope/LICENSE
 
 VOLUME ["/var/lib/telescope/queue"]
 

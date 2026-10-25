@@ -23,16 +23,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	statusapi "github.com/scopedb/telescope/internal/status"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
-
-const defaultCaptureEndpoint = "http://127.0.0.1:8080"
 
 func runCaptureCommand(
 	ctx context.Context,
@@ -52,7 +48,7 @@ func runCaptureCommand(
 		fmt.Fprintln(stderr, "  telescope capture --listen-http 127.0.0.1:4318 traces > traces.otlp.json")
 		fmt.Fprintln(stderr, "  telescope capture traces | telescope preview --offline --sample traces=- telescope.yaml")
 	}
-	endpoint := flags.String("endpoint", defaultCaptureEndpoint, "Telescope operational HTTP base URL")
+	endpoint := flags.String("endpoint", defaultOperationalEndpoint, "Telescope operational HTTP base URL")
 	listenHTTP := flags.String("listen-http", "", "standalone OTLP/HTTP listen address; does not require a running Telescope")
 	limit := flags.Int("limit", statusapi.DefaultCaptureLimit, "maximum records to capture")
 	timeout := flags.Duration("timeout", statusapi.DefaultCaptureTimeout, "time to wait for telemetry")
@@ -127,57 +123,4 @@ func runCaptureCommand(
 		fmt.Fprintf(stderr, "captured %s\n", signal)
 	}
 	return nil
-}
-
-func requestCapture(
-	ctx context.Context,
-	client *http.Client,
-	endpoint string,
-	signal string,
-	limit int,
-	timeout time.Duration,
-) ([]byte, int, error) {
-	captureURL, err := appendEndpointPath(endpoint, "/v1/ingestion/capture")
-	if err != nil {
-		return nil, 0, fmt.Errorf("invalid capture endpoint %q: %w", endpoint, err)
-	}
-	parsed, err := url.Parse(captureURL)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parse capture endpoint: %w", err)
-	}
-	query := parsed.Query()
-	query.Set("signal", signal)
-	query.Set("limit", strconv.Itoa(limit))
-	query.Set("timeout", timeout.String())
-	parsed.RawQuery = query.Encode()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("build capture request: %w", err)
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return nil, 0, fmt.Errorf("capture %s: %w", signal, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		if response.StatusCode == http.StatusRequestTimeout {
-			return nil, 0, fmt.Errorf(
-				"capture %s: no new exporter input observed within %s; start capture before generating traffic and allow for Collector batch delay",
-				signal,
-				timeout,
-			)
-		}
-		return nil, 0, fmt.Errorf("capture %s: %s: %s", signal, response.Status, strings.TrimSpace(string(body)))
-	}
-	payload, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read captured %s sample: %w", signal, err)
-	}
-	if len(payload) == 0 {
-		return nil, 0, fmt.Errorf("capture %s returned an empty sample", signal)
-	}
-	records, _ := strconv.Atoi(response.Header.Get("X-Telescope-Records"))
-	return payload, records, nil
 }

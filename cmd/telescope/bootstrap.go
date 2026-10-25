@@ -97,7 +97,12 @@ func loadEnvFile(path string) error {
 			return fmt.Errorf("load env file %s: line %d has an empty key", path, index+1)
 		}
 		value = strings.TrimSpace(value)
-		value = strings.Trim(value, `"'`)
+		if len(value) > 0 && (value[0] == '\'' || value[0] == '"') {
+			if len(value) < 2 || value[len(value)-1] != value[0] {
+				return fmt.Errorf("load env file %s: line %d has an unmatched quote", path, index+1)
+			}
+			value = value[1 : len(value)-1]
+		}
 		if strings.TrimSpace(os.Getenv(key)) == "" {
 			if err := os.Setenv(key, value); err != nil {
 				return fmt.Errorf("load env file %s: line %d: set %q: %w", path, index+1, key, err)
@@ -131,5 +136,5 @@ func resolveHTTPListenAddr(flagValue string) string {
 	if value := strings.TrimSpace(os.Getenv("TELESCOPE_HTTP_ADDR")); value != "" {
 		return value
 	}
-	return ":8080"
+	return "127.0.0.1:8080"
 }

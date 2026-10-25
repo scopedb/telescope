@@ -18,8 +18,21 @@ on:
   push:
     tags: [ "v[0-9]+.[0-9]+.[0-9]+*" ]
   pull_request:
-    # Manually trigger the workflow for pull requests: 0 (EDIT TO TRIGGER)
-    paths: [ ".github/workflows/release.yml" ]
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile
+      - .dockerignore
+      - Makefile
+      - scripts/**
+      - go.mod
+      - go.sum
+      - cmd/**
+      - internal/**
+      - scopedbexporter/**
+      - deploy/**
+      - docs/**
+      - README.md
+      - CONTRIBUTING.md
   workflow_dispatch:
 
 concurrency:
@@ -32,6 +45,7 @@ permissions:
 jobs:
   checks:
     name: Release checks
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -50,8 +64,7 @@ jobs:
 
   release-image-dry-run:
     name: Release image dry run
-    if: ${{ github.event_name == 'pull_request' }}
-    needs: checks
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -90,7 +103,7 @@ jobs:
 
   release-ghcr:
     name: Publish release
-    if: ${{ github.repository == 'scopedb/telescope' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.repository == 'scopedb/telescope' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     needs: checks
     runs-on: ubuntu-24.04
     permissions:

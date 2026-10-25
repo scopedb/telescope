@@ -25,7 +25,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 func runInspectCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
