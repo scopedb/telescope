@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/xpdata/pref"
 	pdatareq "go.opentelemetry.io/collector/pdata/xpdata/request"
+	"go.uber.org/zap"
 )
 
 // deliveryRequest tracks remaining items until Collector finishes its retries.
@@ -113,14 +114,18 @@ func (r *deliveryRequest) finish() {
 		if r.err == nil {
 			return
 		}
-		// Persistent shutdown keeps the original entry for recovery.
-		if consumererror.IsPermanent(r.err) || (r.exporter.persistent && r.exporter.stopping.Load()) {
+		if consumererror.IsPermanent(r.err) {
 			return
 		}
 		r.OnError(r.err)
 		remaining := r.ItemsCount()
+		if r.exporter.persistent && r.exporter.stopping.Load() {
+			r.exporter.logger.Warn("ScopeDB delivery interrupted; original request retained in file queue",
+				zap.String("signal", r.exporter.signal), zap.Int("remaining_records", remaining))
+			return
+		}
 		if pending := r.replay.pending; pending != nil {
-			r.exporter.statuses.recordUnknown(r.exporter.signal, pending.rows, time.Now(), unresolvedUnknown(pending.err))
+			r.exporter.recordUnknown(pending.rows, time.Now(), unresolvedUnknown(pending.err))
 			remaining -= pending.rows
 			r.replay.pending = nil
 		}

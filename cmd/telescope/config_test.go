@@ -87,6 +87,20 @@ func TestTelescopeConfigPath(t *testing.T) {
 	}
 }
 
+func TestValidateAndRunRejectRetryBudgetBelowBackoff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "telescope.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+delivery:
+  retry: {max_elapsed_time: 30s}
+signals:
+  logs: {table: logs, mapping: {message: log.message}}
+`), 0o600))
+	err := runConfigCommand(t.Context(), "validate", []string{"--offline", path}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	require.ErrorContains(t, err, "'max_elapsed_time' must not be less than 'max_interval'")
+	err = runTelescopeCommand(t.Context(), []string{path}, &bytes.Buffer{})
+	require.ErrorContains(t, err, "'max_elapsed_time' must not be less than 'max_interval'")
+}
+
 func TestPreviewUsesStdinSampleWithoutWriting(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "telescope.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(`

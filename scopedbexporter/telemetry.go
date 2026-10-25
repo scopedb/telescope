@@ -26,7 +26,7 @@ import (
 // Delivery counters use the same registry as the operational API. Collector
 // readers export them alongside receiver and queue metrics, including when no
 // Prometheus scraper is deployed.
-func (e *dbExporter) registerDeliveryMetrics() (metric.Registration, error) {
+func (e *dbExporter) registerDeliveryMetrics() error {
 	counters := []struct {
 		name        string
 		description string
@@ -43,23 +43,26 @@ func (e *dbExporter) registerDeliveryMetrics() (metric.Registration, error) {
 	for i := range counters {
 		counter, err := e.meter.Int64ObservableCounter(counters[i].name, metric.WithDescription(counters[i].description))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		counters[i].instrument = counter
 		instruments = append(instruments, counter)
 	}
 	lastSuccess, err := e.meter.Float64ObservableGauge("telescope_ingestion_last_success_timestamp_seconds", metric.WithDescription("Unix timestamp of the latest confirmed append, or zero before the first success."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	verified, err := e.meter.Int64ObservableGauge("telescope_ingestion_destination_verified", metric.WithDescription("Whether a successful append or validation has verified the destination."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	instruments = append(instruments, lastSuccess, verified)
-	return e.meter.RegisterCallback(func(_ context.Context, observer metric.Observer) error {
-		s := e.statuses.Snapshot().Signals[e.signal]
-		attributes := metric.WithAttributes(attribute.String("signal", e.signal), attribute.String("table", s.Table), attribute.String("exporter", e.exporterID))
+	// Keep final drain counters collectable until the provider shuts down after
+	// the pipelines. Retain observation state, not the exporter's queue or client.
+	statuses, signal, exporterID := e.statuses, e.signal, e.exporterID
+	_, err = e.meter.RegisterCallback(func(_ context.Context, observer metric.Observer) error {
+		s := statuses.Snapshot().Signals[signal]
+		attributes := metric.WithAttributes(attribute.String("signal", signal), attribute.String("table", s.Table), attribute.String("exporter", exporterID))
 		observer.ObserveInt64(counters[0].instrument, int64(s.ConfirmedWrittenRecords), attributes)
 		observer.ObserveInt64(counters[1].instrument, int64(s.UnknownRecords), attributes)
 		observer.ObserveInt64(counters[4].instrument, int64(s.UnknownReplayAttempts), attributes)
@@ -86,4 +89,5 @@ func (e *dbExporter) registerDeliveryMetrics() (metric.Registration, error) {
 		}
 		return nil
 	}, instruments...)
+	return err
 }

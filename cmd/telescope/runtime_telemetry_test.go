@@ -73,6 +73,7 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 		resources := request.Metrics().ResourceMetrics()
 		mu.Lock()
 		defer mu.Unlock()
+		observed = map[string]int64{}
 		for i := 0; i < resources.Len(); i++ {
 			resource := resources.At(i)
 			name, _ := resource.Resource().Attributes().Get("service.name")
@@ -108,10 +109,17 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 	}))
 	t.Cleanup(gateway.Close)
 	var calls atomic.Int64
+	var throttled atomic.Bool
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		switch calls.Add(1) {
+		attempt := calls.Add(1)
+		if throttled.Load() {
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		switch attempt {
 		case 1:
 			w.WriteHeader(503)
 			_, _ = io.WriteString(w, `{"code":"commit_unknown","message":"unknown","details":{"status":"unknown"}}`)
@@ -171,7 +179,10 @@ signals:
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	var stderr bytes.Buffer
-	go func() { done <- runTelescopeCommand(ctx, []string{path}, &stderr) }()
+	go func() {
+		done <- runTelescopeCommand(ctx, []string{path}, &stderr)
+		close(done)
+	}()
 	t.Cleanup(func() {
 		gatewayUnavailable.Store(false)
 		cancel()
@@ -193,7 +204,7 @@ signals:
 		return response.StatusCode == 200
 	}
 	require.Eventually(t, ready, 5*time.Second, 10*time.Millisecond)
-	for range 3 {
+	send := func() {
 		request := plogotlp.NewExportRequest()
 		request.Logs().ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("record")
 		body, err := request.MarshalProto()
@@ -203,6 +214,9 @@ signals:
 		_, _ = io.Copy(io.Discard, response.Body)
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 200, response.StatusCode)
+	}
+	for range 3 {
+		send()
 	}
 	require.Eventually(t, func() bool {
 		mu.Lock()
@@ -237,6 +251,27 @@ signals:
 	gatewayUnavailable.Store(true)
 	require.Eventually(t, failedPush.Load, 3*time.Second, 10*time.Millisecond)
 	require.True(t, ready())
+
+	// Only shutdown can settle these queued records: Retry-After prevents a
+	// periodic retry from consuming them before the final metrics collection.
+	gatewayUnavailable.Store(false)
+	throttled.Store(true)
+	for range 3 {
+		send()
+	}
+	require.Eventually(t, func() bool { return calls.Load() > 4 }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err, stderr.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not stop")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, int64(3), observed["telescope_ingestion_dropped_total/retry_exhausted"])
+	require.Equal(t, int64(1), observed["telescope_ingestion_written_total"])
+	require.Equal(t, int64(1), observed["telescope_ingestion_unknown_total"])
 }
 
 func runtimeTestAddress(t *testing.T) string {

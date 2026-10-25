@@ -31,7 +31,6 @@ import (
 
 type dbExporter struct {
 	meter        metric.Meter
-	metrics      metric.Registration
 	exporterID   string
 	stopping     atomic.Bool
 	persistent   bool
@@ -74,11 +73,9 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 
 func (e *dbExporter) start(_ context.Context, _ component.Host) error {
 	if e.meter != nil {
-		registration, err := e.registerDeliveryMetrics()
-		if err != nil {
+		if err := e.registerDeliveryMetrics(); err != nil {
 			return fmt.Errorf("register delivery metrics: %w", err)
 		}
-		e.metrics = registration
 	}
 	signalConfig, _ := e.cfg.signal(e.signal)
 	e.logger.Info(
@@ -98,10 +95,25 @@ func (e *dbExporter) start(_ context.Context, _ component.Host) error {
 func (e *dbExporter) shutdown(_ context.Context) error {
 	e.statuses.markStopped(e.signal)
 	e.client.Close()
-	if e.metrics != nil {
-		return e.metrics.Unregister()
+	s := e.statuses.Snapshot().Signals[e.signal]
+	log := e.logger.Info
+	if s.UnknownRecords+s.PermanentFailedRecords+s.RetryExhaustedRecords+s.EnqueueFailedRecords > 0 {
+		log = e.logger.Warn
 	}
+	log("ScopeDB delivery summary",
+		zap.String("signal", e.signal), zap.Uint64("written_records", s.ConfirmedWrittenRecords),
+		zap.Uint64("unknown_records", s.UnknownRecords), zap.Uint64("permanent_rejected_records", s.PermanentFailedRecords),
+		zap.Uint64("retry_exhausted_records", s.RetryExhaustedRecords), zap.Uint64("enqueue_failed_records", s.EnqueueFailedRecords),
+		zap.Bool("persistent_queue", e.persistent))
 	return nil
+}
+
+func (e *dbExporter) recordUnknown(records int, started time.Time, err error) {
+	e.statuses.recordUnknown(e.signal, records, started, err)
+	if e.logger != nil {
+		e.logger.Warn("ScopeDB append outcome is unknown; these records will not be retried",
+			zap.String("signal", e.signal), zap.Int("unknown_records", records), zap.Error(err))
+	}
 }
 
 func pushSignal[T any](
@@ -146,11 +158,7 @@ func pushSignal[T any](
 		}
 	}
 	if len(outcome.unknown) > 0 {
-		exporter.statuses.recordUnknown(signal, len(outcome.unknown), started, outcome.unknown[0].err)
-		if exporter.logger != nil {
-			exporter.logger.Warn("ScopeDB append outcome is unknown; these records will not be retried",
-				zap.String("signal", signal), zap.Int("unknown_records", len(outcome.unknown)), zap.Error(outcome.unknown[0].err))
-		}
+		exporter.recordUnknown(len(outcome.unknown), started, outcome.unknown[0].err)
 	}
 	if outcome.err == nil {
 		if len(outcome.unknown) > 0 {
