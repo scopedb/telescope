@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/consumer/consumererror"
+	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -67,7 +68,7 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
@@ -136,7 +137,7 @@ func TestExporterStartsWithoutContactingDestination(t *testing.T) {
 	defer server.Close()
 	cfg := testExporterConfig(server.URL)
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
@@ -169,7 +170,7 @@ func TestExporterDropsCompleteScopeDBRowRejection(t *testing.T) {
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
@@ -485,7 +486,7 @@ func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {
 	cfg := testExporterConfig(server.URL)
 	cfg.Mappings.Metrics = shorthandMapping(map[string]string{"value": "metric.name"})
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateMetrics(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithRegistries(statuses, nil).CreateMetrics(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
@@ -544,4 +545,32 @@ func writeAppendCommitted(t *testing.T, w http.ResponseWriter, rows int64) {
 		"status":            "committed",
 		"num_rows_inserted": rows,
 	}))
+}
+
+func TestDefaultFactoryIsolatesNamedExporters(t *testing.T) {
+	factory := NewFactory()
+	create := func(factory exporter.Factory, table string) *capturingLogsExporter {
+		cfg := testExporterConfig("https://scopedb.invalid")
+		cfg.Tables.Logs = table
+		exp, err := factory.CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+		require.NoError(t, err)
+		require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
+		t.Cleanup(func() { require.NoError(t, exp.Shutdown(context.Background())) })
+		return exp.(*capturingLogsExporter)
+	}
+	first := create(factory, "first")
+	second := create(factory, "second")
+	third := create(NewFactory(), "third")
+	first.exp.statuses.recordWrite(signalLogs, 3, time.Now(), nil, false)
+	for _, entry := range []struct {
+		exp     *capturingLogsExporter
+		table   string
+		written uint64
+	}{
+		{first, "first", 3}, {second, "second", 0}, {third, "third", 0},
+	} {
+		snapshot := entry.exp.exp.statuses.Snapshot().Signals[signalLogs]
+		require.Equal(t, entry.table, snapshot.Table)
+		require.Equal(t, entry.written, snapshot.ConfirmedWrittenRecords)
+	}
 }

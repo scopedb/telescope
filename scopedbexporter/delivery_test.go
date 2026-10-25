@@ -113,7 +113,7 @@ func TestWriteTimeoutAndConnectionLossAreTerminalUnknown(t *testing.T) {
 			cfg.RetryOnFailure.MaxInterval = time.Millisecond
 			cfg.RetryOnFailure.MaxElapsedTime = 0
 			statuses := NewStatusRegistry()
-			exp, err := NewFactoryWithStatus(statuses).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+			exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
 			require.NoError(t, err)
 			require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
 			defer exp.Shutdown(context.Background())
@@ -152,7 +152,7 @@ func TestCollectorRespectsRetryAfter(t *testing.T) {
 	cfg.RetryOnFailure.MaxInterval = time.Millisecond
 	cfg.RetryOnFailure.MaxElapsedTime = 5 * time.Second
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
 	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())

@@ -50,6 +50,9 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 	if err != nil {
 		return nil, err
 	}
+	if statuses == nil {
+		statuses = NewStatusRegistry()
+	}
 	statuses.configure(signal, cfg)
 
 	return &dbExporter{

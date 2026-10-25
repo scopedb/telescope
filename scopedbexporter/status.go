@@ -21,11 +21,6 @@ import (
 	"time"
 )
 
-// DefaultStatusRegistry is used by NewFactory. Callers that need isolated or
-// observable runtime state should use NewFactoryWithStatus or
-// NewFactoryWithRegistries.
-var DefaultStatusRegistry = NewStatusRegistry()
-
 type StatusRegistry struct {
 	mu      sync.RWMutex
 	now     func() time.Time

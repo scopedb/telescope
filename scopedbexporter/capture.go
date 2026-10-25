@@ -37,10 +37,6 @@ var (
 	ErrNoCapturedData    = errors.New("capture completed without data")
 )
 
-// DefaultCaptureRegistry is used by NewFactory. Callers that expose captured
-// samples should provide an explicit registry through NewFactoryWithRegistries.
-var DefaultCaptureRegistry = NewCaptureRegistry()
-
 type CapturedSample struct {
 	Signal  string
 	Records int

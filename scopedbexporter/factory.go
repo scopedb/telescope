@@ -32,27 +32,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// NewFactory creates a Collector component with private observation state for
+// each exporter instance.
 func NewFactory() exporter.Factory {
-	return newFactory(DefaultStatusRegistry, DefaultCaptureRegistry)
+	return NewFactoryWithRegistries(nil, nil)
 }
 
-func NewFactoryWithStatus(statuses *StatusRegistry) exporter.Factory {
-	return NewFactoryWithRegistries(statuses, NewCaptureRegistry())
-}
-
-// NewFactoryWithRegistries creates an exporter factory whose runtime status and
-// bounded capture data are visible through the supplied registries.
+// NewFactoryWithRegistries exposes delivery status and bounded captures through
+// caller-owned registries. Use a separate pair for each named exporter component;
+// its logs, traces, and metrics pipelines share that pair. A nil status registry
+// keeps status private to each instance; a nil capture registry disables capture.
 func NewFactoryWithRegistries(statuses *StatusRegistry, captures *CaptureRegistry) exporter.Factory {
-	return newFactory(statuses, captures)
-}
-
-func newFactory(statuses *StatusRegistry, captures *CaptureRegistry) exporter.Factory {
-	if statuses == nil {
-		statuses = NewStatusRegistry()
-	}
-	if captures == nil {
-		captures = NewCaptureRegistry()
-	}
 	return exporter.NewFactory(
 		typeStr,
 		createDefaultConfig,
@@ -87,6 +77,7 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
+		exp.client.Close()
 		return nil, err
 	}
 	return &capturingLogsExporter{Logs: logsExporter, captures: captures, exp: exp}, nil
@@ -111,6 +102,7 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
+		exp.client.Close()
 		return nil, err
 	}
 	return &capturingTracesExporter{Traces: tracesExporter, captures: captures, exp: exp}, nil
@@ -135,11 +127,12 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
+		exp.client.Close()
 		return nil, err
 	}
 	return &metricFilteringExporter{
 		Metrics:  metricsExporter,
-		statuses: statuses,
+		statuses: exp.statuses,
 		captures: captures,
 		logger:   set.Logger.Named("scopedbexporter"),
 		exp:      exp,
