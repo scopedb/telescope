@@ -62,6 +62,7 @@ type IngestionSignalStatus struct {
 	ReceiverFailed       uint64               `json:"receiver_failed"`
 	ReceiverRefused      uint64               `json:"receiver_refused"`
 	Written              uint64               `json:"written"`
+	Unknown              uint64               `json:"unknown"`
 	Dropped              uint64               `json:"dropped"`
 	RetryExhausted       uint64               `json:"retry_exhausted"`
 	EnqueueFailed        uint64               `json:"enqueue_failed"`

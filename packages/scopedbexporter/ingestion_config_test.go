@@ -34,18 +34,17 @@ func TestCheckIngestionDestinationsChecksOnlyEnabledSignals(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		name := strings.TrimPrefix(r.URL.Path, "/v1/databases/scopedb/schemas/public/tables/")
+		name := strings.TrimPrefix(r.URL.Path, "/v1/catalog/databases/scopedb/schemas/public/tables/")
 		column := map[string]string{"check_traces": "name"}[name]
 		require.NotEmpty(t, column)
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", `"1"`)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"database":     "scopedb",
-			"schema":       "public",
 			"name":         name,
 			"columns":      []map[string]any{{"name": column, "data_type": "string"}},
 			"partition_by": []string{},
 			"cluster_by":   []string{},
-			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+			"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 		}))
 	}))
 	defer server.Close()

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-GOTOOLCHAIN ?= go1.25.13
+GOTOOLCHAIN ?= go1.26.10
 HAWKEYE ?= hawkeye
 KUBECTL ?= kubectl
 DIST_DIR ?= dist
@@ -120,6 +120,8 @@ checksums:
 .PHONY: validate
 validate: build
 	$(abspath $(TELESCOPE)) validate --offline deploy/telescope.example.yaml
+	$(abspath $(TELESCOPE)) validate --offline deploy/telescope.v0.2-compatible.yaml
+	$(abspath $(TELESCOPE)) preview --offline --sample traces=deploy/samples/traces.otlp.json deploy/telescope.v0.2-compatible.yaml
 
 .PHONY: docker-build
 docker-build:

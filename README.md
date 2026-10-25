@@ -19,8 +19,8 @@ Telescope focuses on transparent, operator-controlled ingestion. `telescope plan
 
 - [Mapping and Table Management](docs/table-management.md) explains mapping rules, schema ownership, table planning, and safe configuration changes.
 - [Ingestion Compatibility](docs/ingestion-compatibility.md) documents supported OTLP signals, mapping sources, rejection behavior, and current limitations.
+- [Migrate from v0.2](docs/migration-v0.2.md) preserves existing tables and covers rolling deployments and queue ownership.
 - [ScopeDB Exporter](packages/scopedbexporter/README.md) covers the reusable OpenTelemetry Collector exporter module and its configuration.
-- [Migrate v0.2 to Append](docs/migrate-v0.2-to-append.md) provides a trace/log mapping, explicit table definitions, and a queue-safe cutover from the legacy endpoint.
 
 ## Prerequisites
 
@@ -272,7 +272,9 @@ curl -sS http://127.0.0.1:8080/v1/ingestion/status
 curl -sS http://127.0.0.1:8080/metrics
 ```
 
-The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These facts are observed by the running Telescope process; Telescope does not query destination tables. The exporter queue does not include telemetry still waiting in the Collector batch processor or an in-flight export; human-readable `telescope status` calls out accepted items that do not yet have a final outcome when the queue is empty. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. An identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
+The ingestion status reports only configured signals, including received, ScopeDB-confirmed written, unknown, and dropped counts; exhausted retries, isolated or batch-level permanent rejections, and queue refusals; queue utilization and allocated queue storage; table routes; destination validation; and the latest write result. These facts are observed by the running Telescope process; Telescope does not query destination tables. The exporter queue does not include telemetry still waiting in the Collector batch processor or an in-flight export; human-readable `telescope status` calls out accepted items that do not yet have a final outcome when the queue is empty. Collector owns retries. Retryable requests have no elapsed-time expiry by default and remain in the bounded persistent queue across restarts. An identifiable bad record is dropped without blocking valid neighbors; an unisolated permanent chunk failure stops immediately.
+
+Unknown append outcomes are not automatically replayed and do not count as written or dropped. Monitor `telescope_ingestion_unknown_total` independently. Counters reset with the process; the [exporter delivery contract](packages/scopedbexporter/README.md#append-and-retry-semantics) describes the persistent queue crash boundary. `/readyz` waits for Collector receivers to start and internal telemetry to be available; it does not wait for ScopeDB. Destination verification and failures remain visible in ingestion status.
 
 `/metrics` is the stable Prometheus surface for Telescope delivery and queue alerts. The bundled [Prometheus rules](deploy/prometheus-rules.yaml) cover queue saturation, final drops, stalled delivery, and unverified destinations, and record the queue directory's 24-hour disk high-water mark. Prometheus should also alert on its standard `up` metric: `/metrics` returns `503` instead of publishing false zeroes when Collector's internal telemetry is unavailable.
 
@@ -331,17 +333,13 @@ The queue retains OTLP before destination mapping. Do not start a changed table 
 
 #### Migrate from v0.2 to v0.3
 
-`v0.3.0` is a breaking ingestion-contract release, not a binary-only upgrade. Use this rollout sequence:
-
-1. Stop routing new OTLP traffic to the v0.2 instance and let its persistent queue drain under the v0.2 configuration.
-2. Create an explicit v0.3 `signals.<signal>.table` and `signals.<signal>.mapping` contract from representative samples.
-3. Run `telescope preview --offline --strict`, generate and review DDL with `telescope plan`, apply it with ScopeQL, and run `telescope validate`.
-4. Deploy v0.3 with a new persistent queue volume, verify delivery, and then route OTLP traffic to it.
-5. Retire the v0.2 instance only after its queue is empty. An in-place binary replacement is safe only when the old queue is already empty.
+The upcoming v0.3 release changes configuration and queue compatibility. Use the [v0.2-compatible mapping](deploy/telescope.v0.2-compatible.yaml) to keep existing `otel.logs`, `otel.traces`, and `otel.metrics` tables and nested `record` queries. Start a parallel deployment with its own queue, validate delivery, then switch OTLP traffic and retire the old deployment after draining. See the [migration procedure](docs/migration-v0.2.md) for ECS, memory queues, and filesystem acceptance checks.
 
 The old `path`, `schema_version`, and `create_tables_if_not_exist` exporter fields are no longer supported. Tables and mappings are explicit, and Telescope never applies DDL. The `daemon` command is now `run`; the raw Collector escape hatch moved from `collector` to `advanced collector`. The previous application-layer server is not included in v0.3; the operational health, status, capture, and query surfaces described above remain. Code importing the pre-v1 `packages/scopedbexporter` API must update to the v0.3 configuration types.
 
 ## Build from Source
+
+Build with Go 1.26.10 or later. The Dockerfile pins the same toolchain. Until v0.3 is released, build from a reviewed commit.
 
 Build and run the embedded Collector:
 

@@ -19,7 +19,6 @@ package scopedbexporter
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
@@ -52,13 +51,12 @@ func scopeDBIntegrationClient(t *testing.T) (*scopedb.Client, string, string) {
 	if tenantID != "" {
 		target, err := url.Parse(endpoint)
 		require.NoError(t, err)
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		director := proxy.Director
-		proxy.Director = func(request *http.Request) {
-			director(request)
-			request.Host = target.Host
-			request.Header.Del("Authorization")
-			request.Header.Set("X-ScopeDB-Tenant-Id", tenantID)
+		proxy := &httputil.ReverseProxy{
+			Rewrite: func(request *httputil.ProxyRequest) {
+				request.SetURL(target)
+				request.Out.Header.Del("Authorization")
+				request.Out.Header.Set("X-ScopeDB-Tenant-Id", tenantID)
+			},
 		}
 		proxyServer := httptest.NewServer(proxy)
 		t.Cleanup(proxyServer.Close)
@@ -94,7 +92,8 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		assert.NoError(t, table.Drop(cleanupCtx))
+		_, cleanupErr := table.Catalog().Delete(cleanupCtx, scopedb.CatalogOptions{AllowDestructive: true})
+		assert.NoError(t, cleanupErr)
 	}()
 
 	cfg := testClientConfig(requestEndpoint)
@@ -176,6 +175,9 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 	require.NoError(t, err)
 	metrics, err := (&pmetric.JSONUnmarshaler{}).UnmarshalMetrics(readGoldenFile(t, "metrics.otlp.json"))
 	require.NoError(t, err)
+	// An integer beyond float64's exact range must retain its value in an int column.
+	const integerValue int64 = 1<<53 + 1
+	metrics.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(1).Sum().DataPoints().At(0).SetIntValue(integerValue)
 	metricPayload, err := mapMetrics(metrics)
 	require.NoError(t, err)
 
@@ -211,7 +213,8 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 			t.Cleanup(func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
-				assert.NoError(t, table.Drop(ctx))
+				_, err := table.Catalog().Delete(ctx, scopedb.CatalogOptions{AllowDestructive: true})
+				assert.NoError(t, err)
 			})
 			client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
 			require.NoError(t, err)
@@ -245,7 +248,8 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 				assert.Equal(t, time.Unix(0, 2000).UTC(), rows[0]["event_time"])
 				assert.Equal(t, "system.load", rows[0]["name"])
 				assert.Equal(t, 0.75, rows[0]["double_value"])
-				assert.Equal(t, int64(42), rows[1]["int_value"])
+				assert.Nil(t, rows[0]["int_value"])
+				assert.Equal(t, integerValue, rows[1]["int_value"])
 				assert.Nil(t, rows[1]["double_value"])
 				assert.Equal(t, int64(3), rows[2]["count"])
 				assert.Equal(t, int64(4), rows[3]["count"])

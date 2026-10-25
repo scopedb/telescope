@@ -19,6 +19,7 @@ package scopedbexporter
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -31,11 +32,14 @@ import (
 )
 
 type dbExporter struct {
-	cfg      *Config
-	client   *Client
-	logger   *zap.Logger
-	signal   string
-	statuses *StatusRegistry
+	stopping     atomic.Bool
+	persistent   bool
+	queueEnabled bool
+	cfg          *Config
+	client       *Client
+	logger       *zap.Logger
+	signal       string
+	statuses     *StatusRegistry
 }
 
 func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *StatusRegistry) (*dbExporter, error) {
@@ -49,15 +53,17 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 	statuses.configure(signal, cfg)
 
 	return &dbExporter{
-		cfg:      cfg,
-		client:   client,
-		logger:   set.Logger.Named("scopedbexporter"),
-		signal:   signal,
-		statuses: statuses,
+		persistent:   cfg.SendingQueue.HasValue() && cfg.SendingQueue.Get().StorageID != nil,
+		queueEnabled: cfg.SendingQueue.HasValue(),
+		cfg:          cfg,
+		client:       client,
+		logger:       set.Logger.Named("scopedbexporter"),
+		signal:       signal,
+		statuses:     statuses,
 	}, nil
 }
 
-func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
+func (e *dbExporter) start(_ context.Context, _ component.Host) error {
 	signalConfig, _ := e.cfg.signal(e.signal)
 	e.logger.Info(
 		"Starting scopedb exporter",
@@ -67,19 +73,9 @@ func (e *dbExporter) start(ctx context.Context, _ component.Host) error {
 		zap.String("compression", e.cfg.compressionMode()),
 	)
 
-	if err := e.validateDestination(ctx); err != nil {
-		if isTransientDestinationError(err) {
-			e.logger.Warn(
-				"ScopeDB destination is temporarily unavailable; starting exporter with destination unverified",
-				zap.Error(err),
-			)
-			e.statuses.markReadyDegraded(e.signal, err)
-			return nil
-		}
-		e.statuses.recordStartFailure(e.signal, err)
-		return err
-	}
-	e.statuses.markReady(e.signal)
+	// Destination checks belong to `telescope validate`. Runtime admission must
+	// not depend on the downstream service being available during a restart.
+	e.statuses.update(e.signal, func(status *SignalRuntimeStatus) { status.Ready = true })
 	return nil
 }
 
@@ -121,7 +117,6 @@ func pushSignal[T any](
 	if err != nil {
 		permanentErr := consumererror.NewPermanent(err)
 		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
-		exporter.statuses.recordPermanentExport(signal, records)
 		return wrapSubset(permanentErr, recordIndexes(0, records))
 	}
 	outcome := exporter.client.send(ctx, signal, payload)
@@ -148,13 +143,24 @@ func pushSignal[T any](
 			)
 		}
 	}
+	if len(outcome.unknown) > 0 {
+		exporter.statuses.recordUnknown(signal, len(outcome.unknown), started, outcome.unknown[0].err)
+		if exporter.logger != nil {
+			exporter.logger.Warn("ScopeDB append outcome is unknown; these records will not be retried",
+				zap.String("signal", signal), zap.Int("unknown_records", len(outcome.unknown)), zap.Error(outcome.unknown[0].err))
+		}
+	}
 	if outcome.err == nil {
+		if len(outcome.unknown) > 0 {
+			indexes := make([]int, 0, len(outcome.unknown))
+			for _, failure := range outcome.unknown {
+				indexes = append(indexes, failure.index)
+			}
+			return wrapSubset(consumererror.NewPermanent(outcome.unknown[0].err), indexes)
+		}
 		return nil
 	}
 	err = wrapSubset(outcome.err, outcome.uncommitted)
 	exporter.statuses.recordWrite(signal, len(outcome.uncommitted), started, err, consumererror.IsPermanent(err))
-	if consumererror.IsPermanent(outcome.err) {
-		exporter.statuses.recordPermanentExport(signal, records)
-	}
 	return err
 }

@@ -269,6 +269,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			ReceiverFailed:       metricStatus.ReceiverFailed,
 			ReceiverRefused:      metricStatus.ReceiverRefused,
 			Written:              runtimeStatus.ConfirmedWrittenRecords,
+			Unknown:              runtimeStatus.UnknownRecords,
 			Dropped:              dropped,
 			RetryExhausted:       retryExhausted,
 			EnqueueFailed:        metricStatus.EnqueueFailed,
@@ -308,12 +309,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 }
 
 func signalDropCounts(runtime scopedbexporter.SignalRuntimeStatus, metrics collectorSignalMetrics) (uint64, uint64) {
-	retryExhausted := metrics.ExportFailed
-	if runtime.PermanentExportRecords >= retryExhausted {
-		retryExhausted = 0
-	} else {
-		retryExhausted -= runtime.PermanentExportRecords
-	}
+	retryExhausted := runtime.RetryExhaustedRecords
 	return retryExhausted + metrics.EnqueueFailed + runtime.PermanentFailedRecords, retryExhausted
 }
 

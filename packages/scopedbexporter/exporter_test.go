@@ -129,63 +129,21 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 	assert.Equal(t, 1, request.Logs().LogRecordCount())
 }
 
-func TestExporterFailsStartWhenMappedColumnIsMissing(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeTableDescription(t, w, "vendor_otel_logs_test", []string{"other"})
+func TestExporterStartsWithoutContactingDestination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("startup must not contact ScopeDB")
 	}))
 	defer server.Close()
-
-	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	err = exp.Start(context.Background(), componenttest.NewNopHost())
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "missing mapped columns: message")
-	assert.False(t, statuses.Snapshot().Signals[signalLogs].Ready)
-}
-
-func TestExporterStartsWhenDestinationIsTemporarilyUnavailable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"message":   "temporary outage",
-			"retryable": true,
-		}))
-	}))
-	defer server.Close()
-
 	cfg := testExporterConfig(server.URL)
 	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
+	exp, err := NewFactoryWithStatus(statuses).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
 	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
 	defer exp.Shutdown(context.Background())
-
 	status := statuses.Snapshot().Signals[signalLogs]
 	assert.True(t, status.Ready)
 	assert.False(t, status.DestinationVerified)
-	assert.Contains(t, status.LastError, "temporary outage")
-}
-
-func TestExporterStartsWhenDestinationConnectionIsRefused(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	endpoint := server.URL
-	server.Close()
-
-	cfg := testExporterConfig(endpoint)
-	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithStatus(statuses).CreateLogs(context.Background(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-
-	status := statuses.Snapshot().Signals[signalLogs]
-	assert.True(t, status.Ready)
-	assert.False(t, status.DestinationVerified)
-	assert.Contains(t, status.LastError, "connection refused")
+	assert.Empty(t, status.LastError)
 }
 
 func TestExporterDropsCompleteScopeDBRowRejection(t *testing.T) {
@@ -197,14 +155,13 @@ func TestExporterDropsCompleteScopeDBRowRejection(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"message":      "invalid row",
-			"append_state": "rejected",
-			"retryable":    false,
-			"row_errors": []map[string]any{{
+			"message":   "invalid row",
+			"retryable": false,
+			"details": map[string]any{"status": "rejected", "row_errors": []map[string]any{{
 				"row_index": 0,
 				"column":    "message",
 				"message":   "wrong type",
-			}},
+			}}},
 		}))
 	}))
 	defer server.Close()
@@ -242,7 +199,7 @@ func TestExporterRetriesGoodRowsOnceAfterCompleteScopeDBRowErrors(t *testing.T) 
 				Kind:    scopedb.ErrorKindAppendRowsFailed,
 				Message: "invalid row",
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateRejected,
+					Status: scopedb.AppendStateRejected,
 					RowErrors: []scopedb.AppendRowError{{
 						RowIndex: 1,
 						Column:   "message",
@@ -257,7 +214,7 @@ func TestExporterRetriesGoodRowsOnceAfterCompleteScopeDBRowErrors(t *testing.T) 
 			retried = append(retried, row)
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -293,7 +250,7 @@ func TestExporterDoesNotSplitTruncatedScopeDBRowErrors(t *testing.T) {
 			Kind:    scopedb.ErrorKindAppendRowsFailed,
 			Message: "invalid rows",
 			AppendDetails: &scopedb.AppendErrorDetails{
-				AppendState:        scopedb.AppendStateRejected,
+				Status:             scopedb.AppendStateRejected,
 				RowErrors:          []scopedb.AppendRowError{{RowIndex: 1, Column: "message", Message: "wrong type"}},
 				RowErrorsTruncated: true,
 			},
@@ -331,7 +288,7 @@ func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 			return scopedb.AppendRowsResult{}, errors.New("temporary append failure")
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -368,12 +325,12 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 				Kind:    scopedb.ErrorKindAppendRowsFailed,
 				Message: "invalid row",
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateRejected,
+					Status: scopedb.AppendStateRejected,
 				},
 			}
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -395,7 +352,7 @@ func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	status := statuses.Snapshot().Signals[signalLogs]
 	assert.Equal(t, uint64(1), status.ConfirmedWrittenRecords)
 	assert.Equal(t, uint64(2), status.PermanentFailedRecords)
-	assert.Equal(t, uint64(3), status.PermanentExportRecords)
+	assert.Zero(t, status.RetryExhaustedRecords, "completion accounting belongs to the Collector request")
 }
 
 func TestExporterReportsMappingCastFailure(t *testing.T) {
@@ -442,7 +399,7 @@ func TestExporterDropsOnlyInvalidMappedLogRecord(t *testing.T) {
 			appended = append(appended, row)
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -551,7 +508,7 @@ func TestMetricExporterDropsOnlyTheInvalidMetric(t *testing.T) {
 	mu.Unlock()
 	status := statuses.Snapshot().Signals[signalMetrics]
 	assert.Equal(t, uint64(2), status.PermanentFailedRecords)
-	assert.Zero(t, status.PermanentExportRecords)
+	assert.Zero(t, status.RetryExhaustedRecords)
 	assert.Equal(t, uint64(1), status.InvalidItemsByReason[mappingReasonUnsupportedNumberValueType])
 }
 
@@ -570,14 +527,13 @@ func writeTableDescription(t *testing.T, w http.ResponseWriter, name string, col
 		items = append(items, map[string]any{"name": column, "data_type": "any"})
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", `"1"`)
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"database":     "scopedb",
-		"schema":       "public",
 		"name":         name,
 		"columns":      items,
 		"partition_by": []string{},
 		"cluster_by":   []string{},
-		"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+		"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 	}))
 }
 
@@ -585,7 +541,7 @@ func writeAppendCommitted(t *testing.T, w http.ResponseWriter, rows int64) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"append_state":      "committed",
+		"status":            "committed",
 		"num_rows_inserted": rows,
 	}))
 }

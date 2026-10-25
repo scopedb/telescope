@@ -43,7 +43,7 @@ func TestClientSendAppendsMappedNDJSON(t *testing.T) {
 	var received []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/v1/databases/scopedb/schemas/public/tables/vendor_otel_logs_test/rows", r.URL.Path)
+		require.Equal(t, "/v1/catalog/databases/scopedb/schemas/public/tables/vendor_otel_logs_test/ingest", r.URL.Path)
 		assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
 		body, err := decodeSDKRequestBody(r)
@@ -55,7 +55,7 @@ func TestClientSendAppendsMappedNDJSON(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(len(received)),
 		}))
 	}))
@@ -119,7 +119,7 @@ func TestClientSendRoutesAllSignals(t *testing.T) {
 		var row map[string]any
 		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
 		rows = append(rows, row)
-		return scopedb.AppendRowsResult{AppendState: scopedb.AppendStateCommitted, NumRowsInserted: 1}, nil
+		return scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: 1}, nil
 	}
 
 	require.NoError(t, client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "log"}}}))
@@ -133,16 +133,15 @@ func TestClientSendRoutesAllSignals(t *testing.T) {
 func TestClientValidateDestination(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/v1/databases/scopedb/schemas/public/tables/vendor_otel_logs_test", r.URL.Path)
+		require.Equal(t, "/v1/catalog/databases/scopedb/schemas/public/tables/vendor_otel_logs_test", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", `"1"`)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"database":     "scopedb",
-			"schema":       "public",
 			"name":         "vendor_otel_logs_test",
 			"columns":      []map[string]any{{"name": "message", "data_type": "string"}},
 			"partition_by": []string{},
 			"cluster_by":   []string{},
-			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+			"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 		}))
 	}))
 	defer server.Close()
@@ -171,17 +170,16 @@ func TestClientValidateDestination(t *testing.T) {
 func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", `"1"`)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"database": "scopedb",
-			"schema":   "public",
-			"name":     "vendor_otel_logs_test",
+			"name": "vendor_otel_logs_test",
 			"columns": []map[string]any{
 				{"name": "severity", "data_type": "string"},
 				{"name": "tenant", "data_type": "string"},
 			},
 			"partition_by": []string{},
 			"cluster_by":   []string{},
-			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+			"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 		}))
 	}))
 	defer server.Close()
@@ -242,12 +240,12 @@ func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
 				Message:   "temporary",
 				Retryable: true,
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateRejected,
+					Status: scopedb.AppendStateRejected,
 				},
 			}
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -260,18 +258,18 @@ func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
 	assert.False(t, consumererror.IsPermanent(err))
 }
 
-func TestClientSendRetriesUnconfirmedAppendResult(t *testing.T) {
+func TestClientSendDoesNotRetryUnconfirmedAppendResult(t *testing.T) {
 	tests := []struct {
 		name   string
 		result scopedb.AppendRowsResult
 	}{
 		{
 			name:   "unknown outcome",
-			result: scopedb.AppendRowsResult{AppendState: scopedb.AppendStateUnknown},
+			result: scopedb.AppendRowsResult{Status: scopedb.AppendStateUnknown},
 		},
 		{
 			name:   "committed row count mismatch",
-			result: scopedb.AppendRowsResult{AppendState: scopedb.AppendStateCommitted, NumRowsInserted: 0},
+			result: scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: 0},
 		},
 	}
 
@@ -288,7 +286,7 @@ func TestClientSendRetriesUnconfirmedAppendResult(t *testing.T) {
 
 			err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "hello"}}})
 			require.Error(t, err)
-			assert.False(t, consumererror.IsPermanent(err))
+			assert.True(t, consumererror.IsPermanent(err))
 		})
 	}
 }
@@ -308,7 +306,7 @@ func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) 
 			appended = append(appended, row)
 		}
 		return scopedb.AppendRowsResult{
-			AppendState:     scopedb.AppendStateCommitted,
+			Status:          scopedb.AppendStateCommitted,
 			NumRowsInserted: int64(bytes.Count(body, []byte{'\n'})),
 		}, nil
 	}
@@ -363,8 +361,8 @@ func TestClassifyAppendError(t *testing.T) {
 				Message:   "invalid row",
 				RequestID: "req-1",
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateRejected,
-					RowErrors:   []scopedb.AppendRowError{{RowIndex: 3, Column: "ts", Message: "invalid timestamp"}},
+					Status:    scopedb.AppendStateRejected,
+					RowErrors: []scopedb.AppendRowError{{RowIndex: 3, Column: "ts", Message: "invalid timestamp"}},
 				},
 			},
 			permanent: true,
@@ -378,18 +376,19 @@ func TestClassifyAppendError(t *testing.T) {
 				Retryable:  true,
 				RetryAfter: time.Second,
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateRejected,
+					Status: scopedb.AppendStateRejected,
 				},
 			},
 			contains: "Throttle",
 		},
 		{
-			name: "unknown is retried by gateway",
+			name:      "unknown is terminal",
+			permanent: true,
 			err: &scopedb.Error{
 				Kind:    scopedb.ErrorKindAppendRowsFailed,
 				Message: "outcome unknown",
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState: scopedb.AppendStateUnknown,
+					Status: scopedb.AppendStateUnknown,
 				},
 			},
 			contains: "state=unknown",
@@ -446,7 +445,7 @@ func TestCompleteRejectedRowsRequiresAnExactRowSet(t *testing.T) {
 			err := &scopedb.Error{
 				Retryable: tt.retryable,
 				AppendDetails: &scopedb.AppendErrorDetails{
-					AppendState:        scopedb.AppendStateRejected,
+					Status:             scopedb.AppendStateRejected,
 					RowErrors:          tt.rows,
 					RowErrorsTruncated: tt.truncated,
 				},

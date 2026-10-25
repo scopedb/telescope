@@ -1,0 +1,234 @@
+# Copyright 2026 ScopeDB, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Preserve the v0.2 table columns and nested record paths.
+# ingest_ts is intentionally omitted; row_id is a deterministic content hash.
+signals:
+  logs:
+    table: scopedb.otel.logs
+    mapping:
+      schema_version:
+        value: v1
+      env:
+        sources:
+          - resource.attributes["deployment.environment.name"]
+          - resource.attributes["deployment.environment"]
+          - resource.attributes["env"]
+          - log.attributes["deployment.environment.name"]
+          - log.attributes["deployment.environment"]
+          - log.attributes["env"]
+        default: default
+        cast: string
+      row_id: record.id
+      service:
+        source: resource.attributes["service.name"]
+        cast: string
+      version:
+        source: resource.attributes["service.version"]
+        cast: string
+      instance_id:
+        source: resource.attributes["service.instance.id"]
+        cast: string
+      k8s_pod:
+        source: resource.attributes["k8s.pod.name"]
+        cast: string
+      k8s_namespace:
+        source: resource.attributes["k8s.namespace.name"]
+        cast: string
+      k8s_cluster:
+        source: resource.attributes["k8s.cluster.name"]
+        cast: string
+      container_name:
+        source: resource.attributes["container.name"]
+        cast: string
+      host:
+        source: resource.attributes["host.name"]
+        cast: string
+      host_ip:
+        sources:
+          - resource.attributes["host.ip"][0]
+          - resource.attributes["host.ip"]
+        cast: string
+      record_timestamp: log.timestamp
+      observed_timestamp: log.observed_timestamp
+      trace_id: log.trace_id
+      span_id: log.span_id
+      status: log.severity_text
+      severity_number: log.severity_number
+      message: log.message
+      source:
+        sources:
+          - log.attributes["source"]
+          - log.attributes["event.source"]
+          - log.attributes["log.source"]
+          - resource.attributes["telemetry.sdk.language"]
+          - resource.attributes["telemetry.sdk.name"]
+          - scope.name
+        cast: string
+      exception_type:
+        source: log.attributes["exception.type"]
+        cast: string
+      exception_message:
+        source: log.attributes["exception.message"]
+        cast: string
+      record: record
+  traces:
+    table: scopedb.otel.traces
+    mapping:
+      schema_version:
+        value: v1
+      env:
+        sources:
+          - resource.attributes["deployment.environment.name"]
+          - resource.attributes["deployment.environment"]
+          - resource.attributes["env"]
+          - span.attributes["deployment.environment.name"]
+          - span.attributes["deployment.environment"]
+          - span.attributes["env"]
+        default: default
+        cast: string
+      row_id: record.id
+      service:
+        source: resource.attributes["service.name"]
+        cast: string
+      version:
+        source: resource.attributes["service.version"]
+        cast: string
+      instance_id:
+        source: resource.attributes["service.instance.id"]
+        cast: string
+      k8s_pod:
+        source: resource.attributes["k8s.pod.name"]
+        cast: string
+      k8s_namespace:
+        source: resource.attributes["k8s.namespace.name"]
+        cast: string
+      k8s_cluster:
+        source: resource.attributes["k8s.cluster.name"]
+        cast: string
+      container_name:
+        source: resource.attributes["container.name"]
+        cast: string
+      host:
+        source: resource.attributes["host.name"]
+        cast: string
+      host_ip:
+        sources:
+          - resource.attributes["host.ip"][0]
+          - resource.attributes["host.ip"]
+        cast: string
+      start_timestamp: span.start_time
+      end_timestamp: span.end_time
+      duration_ns: span.duration_ns
+      trace_id: span.trace_id
+      span_id: span.span_id
+      parent_span_id: span.parent_span_id
+      span_name: span.name
+      span_kind: span.kind
+      status_code: span.status.code
+      http_method:
+        sources:
+          - span.attributes["http.request.method"]
+          - span.attributes["http.method"]
+        cast: string
+      http_status_code:
+        sources:
+          - span.attributes["http.response.status_code"]
+          - span.attributes["http.status_code"]
+        cast: int
+      url_path:
+        sources:
+          - span.attributes["url.path"]
+          - span.attributes["http.target"]
+        cast: string
+      http_route:
+        source: span.attributes["http.route"]
+        cast: string
+      peer_service:
+        sources:
+          - span.attributes["peer.service"]
+          - span.attributes["server.address"]
+          - span.attributes["net.peer.name"]
+        cast: string
+      db_system:
+        sources:
+          - span.attributes["db.system.name"]
+          - span.attributes["db.system"]
+        cast: string
+      db_operation:
+        sources:
+          - span.attributes["db.operation.name"]
+          - span.attributes["db.operation"]
+        cast: string
+      rpc_method:
+        source: span.attributes["rpc.method"]
+        cast: string
+      error_type:
+        source: span.attributes["error.type"]
+        cast: string
+      record: record
+  metrics:
+    table: scopedb.otel.metrics
+    mapping:
+      schema_version:
+        value: v1
+      env:
+        sources:
+          - resource.attributes["deployment.environment.name"]
+          - resource.attributes["deployment.environment"]
+          - resource.attributes["env"]
+          - datapoint.attributes["deployment.environment.name"]
+          - datapoint.attributes["deployment.environment"]
+          - datapoint.attributes["env"]
+        default: default
+        cast: string
+      row_id: record.id
+      service:
+        source: resource.attributes["service.name"]
+        cast: string
+      version:
+        source: resource.attributes["service.version"]
+        cast: string
+      instance_id:
+        source: resource.attributes["service.instance.id"]
+        cast: string
+      k8s_pod:
+        source: resource.attributes["k8s.pod.name"]
+        cast: string
+      k8s_namespace:
+        source: resource.attributes["k8s.namespace.name"]
+        cast: string
+      k8s_cluster:
+        source: resource.attributes["k8s.cluster.name"]
+        cast: string
+      container_name:
+        source: resource.attributes["container.name"]
+        cast: string
+      host:
+        source: resource.attributes["host.name"]
+        cast: string
+      host_ip:
+        sources:
+          - resource.attributes["host.ip"][0]
+          - resource.attributes["host.ip"]
+        cast: string
+      record_timestamp: datapoint.timestamp
+      start_timestamp: datapoint.start_time
+      metric_name: metric.name
+      metric_type: metric.type
+      temporality: metric.temporality
+      unit: metric.unit
+      number_value: datapoint.number_value
+      distribution: datapoint.distribution
+      record: record

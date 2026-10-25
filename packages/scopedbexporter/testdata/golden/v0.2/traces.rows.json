@@ -1,0 +1,65 @@
+[
+  {
+    "duration_ns": 500,
+    "end_timestamp": "1970-01-01T00:00:00.0000025Z",
+    "env": "production",
+    "http_method": "POST",
+    "parent_span_id": "0807060504030201",
+    "record": {
+      "attributes": {
+        "http.request.method": "POST"
+      },
+      "duration_ns": 500,
+      "end_time_unix_nano": "2500",
+      "events": [
+        {
+          "attributes": {
+            "valid": true
+          },
+          "dropped_attributes_count": 4,
+          "name": "validation.complete",
+          "timestamp_unix_nano": "2200"
+        }
+      ],
+      "kind": "server",
+      "links": [
+        {
+          "attributes": {
+            "link.kind": "follows_from"
+          },
+          "dropped_attributes_count": 6,
+          "flags": 1,
+          "span_id": "1112131415161718",
+          "trace_id": "1112131415161718191a1b1c1d1e1f20",
+          "trace_state": "link=state"
+        }
+      ],
+      "name": "POST /checkout",
+      "parent_span_id": "0807060504030201",
+      "resource": {
+        "deployment.environment.name": "production",
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.sequence": 7
+        },
+        "name": "golden.tracer",
+        "version": "1.0.0"
+      },
+      "span_id": "0102030405060708",
+      "start_time_unix_nano": "2000",
+      "status_code": "error",
+      "status_message": "boom",
+      "trace_id": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "schema_version": "v1",
+    "service": "checkout",
+    "span_id": "0102030405060708",
+    "span_kind": "server",
+    "span_name": "POST /checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000002Z",
+    "status_code": "error",
+    "trace_id": "0102030405060708090a0b0c0d0e0f10"
+  }
+]
