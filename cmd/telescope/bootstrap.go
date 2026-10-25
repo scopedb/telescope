@@ -136,5 +136,5 @@ func resolveHTTPListenAddr(flagValue string) string {
 	if value := strings.TrimSpace(os.Getenv("TELESCOPE_HTTP_ADDR")); value != "" {
 		return value
 	}
-	return ":8080"
+	return "127.0.0.1:8080"
 }

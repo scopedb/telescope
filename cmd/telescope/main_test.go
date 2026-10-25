@@ -253,7 +253,7 @@ func TestResolveHTTPListenAddr(t *testing.T) {
 		addr     string
 		expected string
 	}{
-		{name: "default", expected: ":8080"},
+		{name: "default", expected: "127.0.0.1:8080"},
 		{name: "environment", addr: "127.0.0.1:9090", expected: "127.0.0.1:9090"},
 		{name: "flag before environment", flag: "127.0.0.1:7070", addr: "127.0.0.1:9090", expected: "127.0.0.1:7070"},
 	}

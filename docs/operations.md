@@ -69,7 +69,7 @@ telescope capture \
 
 ## Inspect Delivery Status
 
-Telescope exposes its operational HTTP surface on `127.0.0.1:8080` in the Docker deployment:
+Native `telescope run` binds operational HTTP to `127.0.0.1:8080` by default. `--http-addr` overrides `TELESCOPE_HTTP_ADDR` when remote access is needed. These endpoints have no authentication and capture can return application telemetry, so expose them only through a trusted network or authenticated proxy. Docker Compose publishes them on host loopback; the Kubernetes baseline exposes only OTLP through its Service.
 
 ```bash
 curl -sS http://127.0.0.1:8080/healthz
