@@ -4,7 +4,7 @@ Compatibility contract: `v1` source mapping
 
 This reference documents the OTLP data Telescope accepts and the fields available to mappings. The executable source contract is the versioned corpus under `scopedbexporter/testdata/golden/v1`.
 
-This is not a mandatory ScopeDB row schema. Only sources selected in a configured signal's `mapping` are serialized into its destination columns. See [Mapping and Table Management](table-management.md).
+Only fields selected in a signal's [mapping](table-management.md) become ScopeDB columns.
 
 ## Protocol and Signal Support
 
@@ -34,9 +34,7 @@ The following shared context is available to every signal mapping:
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
-Any object or array source can be followed by chained `["key"]` and `[index]` path segments. Mapping rules can select the first present source, apply a default when all sources are absent, emit a constant, and cast the output to `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Structured casts validate the runtime shape, and `any` is never selected implicitly. These operations shape only the destination row; they do not mutate the OpenTelemetry input.
-
-`telescope validate` checks every selected destination column before deployment. `telescope run` validates locally without a catalog request, allowing listeners and the persistent queue to start during a destination outage. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the same mapper as `run`, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
+Use the [mapping guide](table-management.md#mapping-model) for paths, fallback, casts, and validation. `telescope inspect <signal> --sample <file>` lists the exact selectors populated in your input.
 
 ## Logs
 
@@ -107,15 +105,4 @@ See the [append and retry contract](exporter.md#append-and-retry-semantics) for 
 - Exemplar records with no value are retained without a `value` or `value_type`; they do not yet produce a reason-labelled diagnostic.
 - Telescope does not normalize semantic-convention aliases globally. Use an ordered `sources` rule when aliases should feed one destination column, or normalize them upstream when other consumers also need the canonical field.
 
-These gaps require an additive source-selector extension. They must be added to the golden corpus before their behavior changes.
-
-## Compatibility Checks for Upgrades
-
-Any OpenTelemetry Collector dependency update must pass:
-
-```bash
-go test ./scopedbexporter -run TestGoldenMappingContractV1
-go test ./internal/collector -run TestPersistentQueueV1FixtureRemainsReadable
-```
-
-A changed golden result is a source-mapping contract change. Update it only after deciding whether existing selectors keep their meaning and documenting any required mapping change. Do not replace the queue fixture: it is the compatibility input that a candidate Collector version must continue to drain.
+For dependency upgrade checks and fixture policy, see [Contributing](../CONTRIBUTING.md).

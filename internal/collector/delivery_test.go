@@ -133,11 +133,11 @@ func TestPersistentQueueRecoversUnderSharedRateLimit(t *testing.T) {
 	config = strings.Replace(config, "create_directory: true", "create_directory: true\n    fsync: true", 1)
 	runtime := startRecoveryCollector(t, config)
 	defer runtime.stop(t)
-	for batch := 0; batch < batches; batch++ {
+	for batch := range batches {
 		logs := plog.NewLogs()
 		records := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
 		records.EnsureCapacity(batchRows)
-		for row := 0; row < batchRows; row++ {
+		for row := range batchRows {
 			records.AppendEmpty().Body().SetStr(strconv.Itoa(batch*batchRows + row))
 		}
 		body, err := plogotlp.NewExportRequestFromLogs(logs).MarshalProto()

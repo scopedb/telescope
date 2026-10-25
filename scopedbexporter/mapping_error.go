@@ -40,8 +40,8 @@ func (e *mappingError) Unwrap() error {
 }
 
 func mappingErrorReason(err error) (string, bool) {
-	var target *mappingError
-	if !errors.As(err, &target) {
+	target, ok := errors.AsType[*mappingError](err)
+	if !ok {
 		return "", false
 	}
 	return target.reason, true

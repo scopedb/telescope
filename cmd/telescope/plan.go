@@ -54,8 +54,7 @@ func runPlanCommand(
 		flags.PrintDefaults()
 		fmt.Fprintln(stderr, "\nExample:")
 		fmt.Fprintln(stderr, "  telescope plan --sample traces=deploy/samples/traces.otlp.json --out tables.scopeql telescope.yaml")
-		fmt.Fprintln(stderr, "  scopeql config get-connections")
-		fmt.Fprintln(stderr, "  scopeql run -f tables.scopeql")
+		fmt.Fprintln(stderr, "\nReview the generated ScopeQL and run it in the intended ScopeDB workspace.")
 	}
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -201,12 +200,12 @@ func printTablePlan(
 	case outputPath != "":
 		fmt.Fprintln(w, "scopeql output: "+outputPath)
 		if counts[scopedbexporter.TableActionCreate]+counts[scopedbexporter.TableActionAlter] > 0 {
-			fmt.Fprintln(w, "next: review it, confirm the intended connection with scopeql config get-connections, then run scopeql run -f "+outputPath)
+			fmt.Fprintln(w, "next: review the script and run it in the intended ScopeDB workspace")
 		} else {
 			fmt.Fprintln(w, "next: run telescope validate, then start Telescope")
 		}
 	case counts[scopedbexporter.TableActionCreate]+counts[scopedbexporter.TableActionAlter] > 0:
-		fmt.Fprintln(w, "next: rerun with --out <file>, review the script, confirm the intended ScopeQL connection, then apply it with scopeql run -f <file>")
+		fmt.Fprintln(w, "next: rerun with --out <file>, review the script, and run it in the intended ScopeDB workspace")
 	default:
 		fmt.Fprintln(w, "next: run telescope validate, then start Telescope")
 	}

@@ -20,7 +20,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
@@ -180,11 +181,7 @@ func PreviewMapping(signal string, config SignalIngestionConfig, sample []byte) 
 		}
 	}
 	for index, column := range plan.columns {
-		types := make([]string, 0, len(observed[index]))
-		for valueType := range observed[index] {
-			types = append(types, valueType)
-		}
-		sort.Strings(types)
+		types := slices.Sorted(maps.Keys(observed[index]))
 		selections := make([]MappingSelectionPreview, 0, len(column.resolutions))
 		for resolutionIndex, count := range resolutionCounts[index] {
 			if count == 0 {

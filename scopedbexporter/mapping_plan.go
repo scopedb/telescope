@@ -19,8 +19,9 @@ package scopedbexporter
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -150,11 +151,7 @@ func compileMappingPlan(signal string, table string, columns MappingConfig) (*ma
 		errs = append(errs, fmt.Errorf("at least one destination column is required"))
 	}
 
-	names := make([]string, 0, len(columns))
-	for name := range columns {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(columns))
 
 	plan := &mappingPlan{signal: signal, table: ref, columns: make([]mappedColumn, 0, len(names))}
 	for _, name := range names {

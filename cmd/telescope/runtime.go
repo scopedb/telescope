@@ -91,23 +91,20 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 
 	errCh := make(chan error, 2)
 	var services sync.WaitGroup
-	services.Add(2)
-	go func() {
-		defer services.Done()
+	services.Go(func() {
 		if err := otelCollector.Run(ctx); err != nil {
 			errCh <- fmt.Errorf("collector: %w", err)
 			return
 		}
 		errCh <- nil
-	}()
-	go func() {
-		defer services.Done()
+	})
+	services.Go(func() {
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("http: %w", err)
 			return
 		}
 		errCh <- nil
-	}()
+	})
 
 	readinessDone := make(chan struct{})
 	go func() {

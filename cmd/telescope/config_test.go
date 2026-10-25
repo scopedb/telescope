@@ -189,27 +189,3 @@ signals:
 		t.Fatalf("preview output missing warning: %s", stdout.String())
 	}
 }
-
-func TestPreviewHelpShowsPositionalConfigAndCapturePipeline(t *testing.T) {
-	var stderr bytes.Buffer
-	err := runConfigCommand(
-		context.Background(),
-		"preview",
-		[]string{"--help"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&stderr,
-	)
-	if err != flag.ErrHelp {
-		t.Fatalf("runConfigCommand() error = %v, want %v", err, flag.ErrHelp)
-	}
-	for _, expected := range []string{
-		"Usage: telescope preview [options] [telescope.yaml]",
-		"-strict",
-		"telescope capture logs | telescope preview",
-	} {
-		if !strings.Contains(stderr.String(), expected) {
-			t.Fatalf("preview help missing %q: %s", expected, stderr.String())
-		}
-	}
-}

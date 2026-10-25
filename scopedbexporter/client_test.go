@@ -48,7 +48,7 @@ func TestClientSendAppendsMappedNDJSON(t *testing.T) {
 		assert.Equal(t, "zstd", r.Header.Get("Content-Encoding"))
 		body, err := decodeSDKRequestBody(r)
 		require.NoError(t, err)
-		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+		for line := range bytes.SplitSeq(bytes.TrimSpace(body), []byte{'\n'}) {
 			var row map[string]any
 			require.NoError(t, json.Unmarshal(line, &row))
 			received = append(received, row)
@@ -306,7 +306,7 @@ func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) 
 
 	var appended []map[string]any
 	client.appendFn = func(_ context.Context, _ *scopedb.Table, body []byte) (scopedb.AppendRowsResult, error) {
-		for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+		for line := range bytes.SplitSeq(bytes.TrimSpace(body), []byte{'\n'}) {
 			var row map[string]any
 			require.NoError(t, json.Unmarshal(line, &row))
 			appended = append(appended, row)

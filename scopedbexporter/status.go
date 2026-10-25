@@ -17,6 +17,8 @@
 package scopedbexporter
 
 import (
+	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -173,18 +175,10 @@ func (r *StatusRegistry) Snapshot() StatusSnapshot {
 	}
 	r.mu.RLock()
 	for signal, status := range r.signals {
-		status.LastProbeIDs = append([]string(nil), status.LastProbeIDs...)
-		status.InvalidItemsByReason = cloneReasonCounts(status.InvalidItemsByReason)
+		status.LastProbeIDs = slices.Clone(status.LastProbeIDs)
+		status.InvalidItemsByReason = maps.Clone(status.InvalidItemsByReason)
 		snapshot.Signals[signal] = status
 	}
 	r.mu.RUnlock()
 	return snapshot
-}
-
-func cloneReasonCounts(counts map[string]uint64) map[string]uint64 {
-	cloned := make(map[string]uint64, len(counts))
-	for reason, count := range counts {
-		cloned[reason] = count
-	}
-	return cloned
 }

@@ -2,8 +2,6 @@
 
 `scopedbexporter` is the ScopeDB exporter used by Telescope and is available to custom OpenTelemetry Collector distributions through `scopedbexporter.NewFactory()`. The component is named `scopedb`. It converts Collector `pdata` into user-selected ScopeDB columns and writes NDJSON with the ScopeDB Go SDK `Table.AppendNDJSON` API.
 
-The exporter does not impose a fixed telemetry schema. Each mapping entry projects one destination column from OpenTelemetry input, and only mapped columns are serialized and stored.
-
 For custom distributions, import `github.com/scopedb/telescope/scopedbexporter` and register `NewFactory()`. It keeps observation state private to each exporter instance. Telescope uses `NewFactoryWithRegistries` to share status and capture with its operational server; callers using that constructor must supply a separate registry pair for each named exporter component. There are no process-global registries.
 
 ## Configuration
@@ -14,37 +12,17 @@ exporters:
     endpoint: ${env:TELESCOPE_SCOPEDB_ENDPOINT}
     api_key: ${env:TELESCOPE_SCOPEDB_API_KEY}
     tables:
-      logs: observability.events
       traces: observability.spans
-      metrics: observability.metric_points
     mappings:
-      logs:
-        ts: log.timestamp
-        service_name:
-          sources:
-            - resource.attributes["service.name"]
-            - resource.attributes["service"]
-          default: unknown
-          cast: string
-        level: log.severity_text
-        message: log.message
-        labels: log.attributes
       traces:
         ts: span.start_time
         trace_id: span.trace_id
         span_id: span.span_id
-        service_name: resource.attributes["service.name"]
+        service_name:
+          source: resource.attributes["service.name"]
+          cast: string
         operation: span.name
         duration_ns: span.duration_ns
-        labels: span.attributes
-      metrics:
-        ts: datapoint.timestamp
-        service_name: resource.attributes["service.name"]
-        metric: metric.name
-        int_value: datapoint.int_value
-        double_value: datapoint.double_value
-        distribution: datapoint.distribution
-        labels: datapoint.attributes
     compression: zstd
     timeout: 30s
     append_batch:

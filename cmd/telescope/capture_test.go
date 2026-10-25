@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"flag"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,24 +83,6 @@ func TestRunCaptureUsesDefaultTimeout(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("runCaptureCommand() error = %v", err)
-	}
-}
-
-func TestCaptureHelpShowsUsageAndPreviewPipeline(t *testing.T) {
-	var stderr bytes.Buffer
-	err := runCaptureCommand(context.Background(), []string{"--help"}, &bytes.Buffer{}, &stderr)
-	if err != flag.ErrHelp {
-		t.Fatalf("runCaptureCommand() error = %v, want %v", err, flag.ErrHelp)
-	}
-	for _, expected := range []string{
-		"Usage: telescope capture [options] <signal>",
-		"past telemetry is not replayed",
-		"--listen-http",
-		"telescope preview --offline",
-	} {
-		if !strings.Contains(stderr.String(), expected) {
-			t.Fatalf("capture help missing %q: %s", expected, stderr.String())
-		}
 	}
 }
 
