@@ -47,7 +47,7 @@ jobs:
       - run: make ci-go
 
   tests:
-    name: Tests
+    name: Runtime and distribution
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -71,8 +71,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      # The ScopeDB-backed tests skip when the endpoint and credentials are
-      # absent, so a repository without these secrets still reports success.
       - name: Run ScopeDB integration tests
         env:
           TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT: ${{ secrets.TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT }}

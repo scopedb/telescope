@@ -56,11 +56,11 @@ tidy-check:
 
 .PHONY: vet
 vet:
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go vet ./...
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go vet -tags=integration ./...
 
 .PHONY: lint
 lint:
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go tool staticcheck ./...
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go tool staticcheck -tags=integration ./...
 
 .PHONY: vuln-check
 vuln-check:
@@ -72,14 +72,19 @@ test:
 
 .PHONY: test-integration
 test-integration:
-	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -tags=integration ./...
+	@test -n "$$TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT" && test -n "$$TELESCOPE_SCOPEDB_INTEGRATION_API_KEY" || { echo "Set TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT and TELESCOPE_SCOPEDB_INTEGRATION_API_KEY" >&2; exit 1; }
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race -tags=integration ./... -count=1 -timeout=5m
 
 .PHONY: test-race
 test-race:
 	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -race ./...
 
+.PHONY: integration-compile
+integration-compile:
+	GOTOOLCHAIN=$(GOTOOLCHAIN) go test -tags=integration ./... -run '^$$'
+
 .PHONY: check
-check: fmt-check tidy-check vet lint vuln-check test-race
+check: fmt-check tidy-check vet lint vuln-check test-race integration-compile
 
 .PHONY: ci-go
 ci-go: check
@@ -96,20 +101,9 @@ dist-clean:
 .PHONY: artifacts
 artifacts: dist-clean
 	mkdir -p $(DIST_DIR)
-	@set -eu; \
-	for platform in $(PLATFORMS); do \
-		os="$${platform%/*}"; \
-		arch="$${platform#*/}"; \
-		name="telescope_$(VERSION)_$${os}_$${arch}"; \
-		out_dir="$(DIST_DIR)/$${name}"; \
-		echo "building artifact $${name}"; \
-		mkdir -p "$${out_dir}"; \
-		GOOS="$${os}" GOARCH="$${arch}" CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go build -trimpath -ldflags "$(LD_FLAGS)" -o "$${out_dir}/telescope" ./cmd/telescope; \
-		cp LICENSE README.md "$${out_dir}/"; \
-		tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$${name}.tar.gz" "$${name}"; \
-		rm -rf "$${out_dir}"; \
-	done
+	GOTOOLCHAIN=$(GOTOOLCHAIN) python3 scripts/build-archives.py "$(DIST_DIR)" "$(VERSION)" "$(LD_FLAGS)" $(PLATFORMS)
 	$(MAKE) checksums
+	python3 scripts/check-archives.py "$(DIST_DIR)" "$(VERSION)"
 
 .PHONY: checksums
 checksums:
@@ -129,67 +123,11 @@ docker-build:
 
 .PHONY: docker-smoke
 docker-smoke: docker-build
-	@set -eu; \
-	test "$$(docker run --rm scopedb-telescope:ci version)" = "$(VERSION)"; \
-	cid="$$(docker run -d \
-		-p 127.0.0.1::8080 \
-		-v "$(abspath deploy/telescope.example.yaml):/etc/telescope/telescope.yaml:ro" \
-		-e TELESCOPE_SCOPEDB_ENDPOINT=http://127.0.0.1:1 \
-		-e TELESCOPE_SCOPEDB_API_KEY=container-smoke \
-		-e TELESCOPE_HTTP_ADDR=0.0.0.0:8080 \
-		-e TELESCOPE_OTLP_GRPC_ADDR=0.0.0.0:4317 \
-		-e TELESCOPE_OTLP_HTTP_ADDR=0.0.0.0:4318 \
-		-e TELESCOPE_QUEUE_DIR=/tmp/telescope-queue \
-		scopedb-telescope:ci)"; \
-	cleanup() { docker rm --force "$$cid" >/dev/null 2>&1 || true; }; \
-	trap cleanup EXIT INT TERM; \
-	address="$$(docker port "$$cid" 8080/tcp | head -n 1)"; \
-	ready=false; \
-	for attempt in $$(seq 1 100); do \
-		if curl --fail --silent --show-error "http://$$address/readyz" >/dev/null 2>&1; then \
-			ready=true; \
-			break; \
-		fi; \
-		if [ "$$(docker inspect --format '{{.State.Running}}' "$$cid")" != true ]; then \
-			break; \
-		fi; \
-		sleep 0.1; \
-	done; \
-	if [ "$$ready" != true ]; then \
-		docker logs "$$cid"; \
-		exit 1; \
-	fi; \
-	health=false; \
-	for attempt in $$(seq 1 600); do \
-		case "$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$$cid")" in \
-			healthy) health=true; break ;; \
-			unhealthy) break ;; \
-		esac; \
-		sleep 0.1; \
-	done; \
-	if [ "$$health" != true ]; then \
-		echo "container health check did not report healthy"; \
-		docker inspect --format '{{json .State.Health}}' "$$cid"; \
-		docker logs "$$cid"; \
-		exit 1; \
-	fi; \
-	status="$$(curl --fail --silent --show-error "http://$$address/v1/ingestion/status")"; \
-	printf '%s' "$$status" | grep --quiet '"version":"$(VERSION)"'; \
-	printf '%s' "$$status" | grep --quiet '"config_digest":"sha256:[0-9a-f]\{64\}"'; \
-	docker exec "$$cid" telescope status --endpoint http://127.0.0.1:8080 >/dev/null; \
-	curl --fail --silent --show-error "http://$$address/metrics" \
-		| grep --quiet '^telescope_ingestion_queue_capacity_bytes'
+	sh scripts/smoke-container.sh "$(VERSION)"
 
 .PHONY: kubernetes-validate
 kubernetes-validate:
-	@set -eu; \
-	rendered="$$(mktemp)"; \
-	trap 'rm -f "$$rendered"' EXIT; \
-	$(KUBECTL) kustomize deploy/kubernetes/example > "$$rendered"; \
-	config_name="$$(sed -n '/^kind: ConfigMap$$/,/^---$$/s/^  name: //p' "$$rendered")"; \
-	test -n "$$config_name"; \
-	sed -n '/^kind: ConfigMap$$/,/^---$$/p' "$$rendered" | grep --quiet '^  namespace: telescope$$'; \
-	test "$$(grep -c "name: $$config_name$$" "$$rendered")" -eq 2
+	KUBECTL="$(KUBECTL)" sh scripts/check-kubernetes.sh
 
 .PHONY: compose-validate
 compose-validate:
@@ -197,9 +135,3 @@ compose-validate:
 
 .PHONY: ci-runtime
 ci-runtime: validate compose-validate kubernetes-validate docker-smoke artifacts
-
-.PHONY: demo
-demo:
-	@echo "Copy deploy/telescope.example.yaml to deploy/telescope.yaml, configure its mappings, then run:"
-	@echo "  ./bin/telescope run --env-file deploy/.env deploy/telescope.yaml"
-	@echo "Use telemetrygen to send logs, traces, and metrics to the configured OTLP ports."

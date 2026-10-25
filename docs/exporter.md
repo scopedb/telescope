@@ -81,4 +81,4 @@ The OpenTelemetry Collector `exporterhelper` sending queue is the only persisten
 
 The exporter `timeout` owns each attempt's context, including mapping and all append chunks. Telescope explicitly disables the SDK's independent `WriteTimeout`, so a configured 60-second attempt is not cut short at the SDK's default 30 seconds. The embedded profile defaults to 30 seconds; the reusable exporter's default is 10 seconds. A timeout after dispatch is unknown; work not yet dispatched remains eligible for retry.
 
-`compression` accepts `zstd` (default) or `gzip`. ScopeDB Go SDK `v0.7.0` applies it to direct append requests and supplies outcome classification and `Retry-After` parsing. Telescope's HTTP clients refuse HTTPS-to-HTTP redirects.
+`compression` accepts `zstd` (default) or `gzip`. ScopeDB Go SDK `v0.7.0` applies it to direct append requests and supplies outcome classification and `Retry-After` parsing. Telescope's ScopeDB SDK clients refuse HTTPS-to-HTTP redirects.
