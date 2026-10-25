@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -119,7 +119,7 @@ func formatInvalidReasons(counts map[string]uint64) string {
 			reasons = append(reasons, fmt.Sprintf("%s=%d", reason, count))
 		}
 	}
-	sort.Strings(reasons)
+	slices.Sort(reasons)
 	return strings.Join(reasons, ", ")
 }
 

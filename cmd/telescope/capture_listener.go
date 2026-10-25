@@ -176,8 +176,7 @@ func readStandaloneCaptureBody(w http.ResponseWriter, request *http.Request) ([]
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, maxStandaloneCaptureRequestBytes+1))
 	if err != nil {
-		var sizeErr *http.MaxBytesError
-		if errors.As(err, &sizeErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			return nil, errCaptureRequestTooLarge
 		}
 		return nil, fmt.Errorf("read OTLP request: %w", err)

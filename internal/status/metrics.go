@@ -18,23 +18,12 @@ package status
 
 import (
 	"io"
-	"sort"
+	"maps"
+	"slices"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 )
-
-type prometheusLabel struct {
-	name  string
-	value string
-}
-
-type prometheusMetricFamily struct {
-	name    string
-	help    string
-	typeOf  dto.MetricType
-	metrics []*dto.Metric
-}
 
 func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error {
 	var received []*dto.Metric
@@ -49,26 +38,21 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 	var destinationVerified []*dto.Metric
 
 	for _, signal := range snapshot.Signals {
-		labels := []prometheusLabel{{name: "signal", value: signal.Signal}, {name: "table", value: signal.Table}}
+		labels := []*dto.LabelPair{{Name: new("signal"), Value: new(signal.Signal)}, {Name: new("table"), Value: new(signal.Table)}}
 		received = append(received, prometheusCounter(float64(signal.Received), labels...))
 		written = append(written, prometheusCounter(float64(signal.Written), labels...))
 		unknown = append(unknown, prometheusCounter(float64(signal.Unknown), labels...))
 		dropped = append(dropped,
-			prometheusCounter(float64(signal.RetryExhausted), append(labels, prometheusLabel{name: "reason", value: "retry_exhausted"})...),
-			prometheusCounter(float64(signal.EnqueueFailed), append(labels, prometheusLabel{name: "reason", value: "enqueue_failed"})...),
-			prometheusCounter(float64(signal.PermanentRejected), append(labels, prometheusLabel{name: "reason", value: "permanent_rejected"})...),
+			prometheusCounter(float64(signal.RetryExhausted), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("retry_exhausted")})...),
+			prometheusCounter(float64(signal.EnqueueFailed), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("enqueue_failed")})...),
+			prometheusCounter(float64(signal.PermanentRejected), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("permanent_rejected")})...),
 		)
 
-		reasons := make([]string, 0, len(signal.InvalidItemsByReason))
-		for reason := range signal.InvalidItemsByReason {
-			reasons = append(reasons, reason)
-		}
-		sort.Strings(reasons)
-		for _, reason := range reasons {
+		for _, reason := range slices.Sorted(maps.Keys(signal.InvalidItemsByReason)) {
 			invalid = append(invalid, prometheusCounter(
 				float64(signal.InvalidItemsByReason[reason]),
-				prometheusLabel{name: "signal", value: signal.Signal},
-				prometheusLabel{name: "reason", value: reason},
+				&dto.LabelPair{Name: new("signal"), Value: new(signal.Signal)},
+				&dto.LabelPair{Name: new("reason"), Value: new(reason)},
 			))
 		}
 
@@ -96,110 +80,92 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 		destinationVerified = append(destinationVerified, prometheusGauge(destinationValue, labels...))
 	}
 
-	families := []prometheusMetricFamily{
+	families := []*dto.MetricFamily{
 		{
-			name:    "telescope_ingestion_unknown_total",
-			help:    "Telemetry items with an unknown append outcome, excluded from written and dropped items.",
-			typeOf:  dto.MetricType_COUNTER,
-			metrics: unknown,
+			Name:   new("telescope_ingestion_unknown_total"),
+			Help:   new("Telemetry items with an unknown append outcome, excluded from written and dropped items."),
+			Type:   new(dto.MetricType_COUNTER),
+			Metric: unknown,
 		},
 		{
-			name:    "telescope_ingestion_received_total",
-			help:    "Telemetry items accepted by Telescope, in each signal's native unit.",
-			typeOf:  dto.MetricType_COUNTER,
-			metrics: received,
+			Name:   new("telescope_ingestion_received_total"),
+			Help:   new("Telemetry items accepted by Telescope, in each signal's native unit."),
+			Type:   new(dto.MetricType_COUNTER),
+			Metric: received,
 		},
 		{
-			name:    "telescope_ingestion_written_total",
-			help:    "Telemetry items confirmed written to ScopeDB, in each signal's native unit.",
-			typeOf:  dto.MetricType_COUNTER,
-			metrics: written,
+			Name:   new("telescope_ingestion_written_total"),
+			Help:   new("Telemetry items confirmed written to ScopeDB, in each signal's native unit."),
+			Type:   new(dto.MetricType_COUNTER),
+			Metric: written,
 		},
 		{
-			name:    "telescope_ingestion_dropped_total",
-			help:    "Telemetry items ultimately dropped, partitioned by final reason.",
-			typeOf:  dto.MetricType_COUNTER,
-			metrics: dropped,
+			Name:   new("telescope_ingestion_dropped_total"),
+			Help:   new("Telemetry items ultimately dropped, partitioned by final reason."),
+			Type:   new(dto.MetricType_COUNTER),
+			Metric: dropped,
 		},
 		{
-			name:    "telescope_ingestion_invalid_items_total",
-			help:    "Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason.",
-			typeOf:  dto.MetricType_COUNTER,
-			metrics: invalid,
+			Name:   new("telescope_ingestion_invalid_items_total"),
+			Help:   new("Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason."),
+			Type:   new(dto.MetricType_COUNTER),
+			Metric: invalid,
 		},
 		{
-			name:    "telescope_ingestion_queue_bytes",
-			help:    "Logical serialized bytes currently retained in the exporter queue.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: queueBytes,
+			Name:   new("telescope_ingestion_queue_bytes"),
+			Help:   new("Logical serialized bytes currently retained in the exporter queue."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: queueBytes,
 		},
 		{
-			name:    "telescope_ingestion_queue_capacity_bytes",
-			help:    "Configured logical byte capacity of the exporter queue.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: queueCapacity,
+			Name:   new("telescope_ingestion_queue_capacity_bytes"),
+			Help:   new("Configured logical byte capacity of the exporter queue."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: queueCapacity,
 		},
 		{
-			name:    "telescope_ingestion_queue_utilization",
-			help:    "Fraction of the configured exporter queue capacity currently retained, for every queue sizer.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: queueUtilization,
+			Name:   new("telescope_ingestion_queue_utilization"),
+			Help:   new("Fraction of the configured exporter queue capacity currently retained, for every queue sizer."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: queueUtilization,
 		},
 		{
-			name:    "telescope_ingestion_last_success_timestamp_seconds",
-			help:    "Unix timestamp of the latest ScopeDB append success, or zero before the first success.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: lastSuccess,
+			Name:   new("telescope_ingestion_last_success_timestamp_seconds"),
+			Help:   new("Unix timestamp of the latest ScopeDB append success, or zero before the first success."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: lastSuccess,
 		},
 		{
-			name:    "telescope_ingestion_destination_verified",
-			help:    "Whether the ScopeDB destination has been verified by validation or a successful append.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: destinationVerified,
+			Name:   new("telescope_ingestion_destination_verified"),
+			Help:   new("Whether the ScopeDB destination has been verified by validation or a successful append."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: destinationVerified,
 		},
 	}
 	if snapshot.QueueStorage.Available {
-		families = append(families, prometheusMetricFamily{
-			name:    "telescope_queue_storage_allocated_bytes",
-			help:    "Filesystem blocks currently allocated to files in the Telescope queue directory.",
-			typeOf:  dto.MetricType_GAUGE,
-			metrics: []*dto.Metric{prometheusGauge(float64(snapshot.QueueStorage.AllocatedBytes))},
+		families = append(families, &dto.MetricFamily{
+			Name:   new("telescope_queue_storage_allocated_bytes"),
+			Help:   new("Filesystem blocks currently allocated to files in the Telescope queue directory."),
+			Type:   new(dto.MetricType_GAUGE),
+			Metric: []*dto.Metric{prometheusGauge(float64(snapshot.QueueStorage.AllocatedBytes))},
 		})
 	}
 
 	for _, family := range families {
-		if len(family.metrics) == 0 {
+		if len(family.Metric) == 0 {
 			continue
 		}
-		name := family.name
-		help := family.help
-		typeOf := family.typeOf
-		if _, err := expfmt.MetricFamilyToText(w, &dto.MetricFamily{
-			Name:   &name,
-			Help:   &help,
-			Type:   &typeOf,
-			Metric: family.metrics,
-		}); err != nil {
+		if _, err := expfmt.MetricFamilyToText(w, family); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func prometheusCounter(value float64, labels ...prometheusLabel) *dto.Metric {
-	return &dto.Metric{Label: prometheusLabels(labels), Counter: &dto.Counter{Value: &value}}
+func prometheusCounter(value float64, labels ...*dto.LabelPair) *dto.Metric {
+	return &dto.Metric{Label: labels, Counter: &dto.Counter{Value: &value}}
 }
 
-func prometheusGauge(value float64, labels ...prometheusLabel) *dto.Metric {
-	return &dto.Metric{Label: prometheusLabels(labels), Gauge: &dto.Gauge{Value: &value}}
-}
-
-func prometheusLabels(labels []prometheusLabel) []*dto.LabelPair {
-	pairs := make([]*dto.LabelPair, 0, len(labels))
-	for _, label := range labels {
-		name := label.name
-		value := label.value
-		pairs = append(pairs, &dto.LabelPair{Name: &name, Value: &value})
-	}
-	return pairs
+func prometheusGauge(value float64, labels ...*dto.LabelPair) *dto.Metric {
+	return &dto.Metric{Label: labels, Gauge: &dto.Gauge{Value: &value}}
 }

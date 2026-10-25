@@ -17,12 +17,13 @@
 package scopedbexporter
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -315,16 +316,16 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 }
 
 func completeRejectedRows(err error, rowCount int) ([]scopedb.AppendRowError, bool) {
-	var scopeErr *scopedb.Error
-	if !errors.As(err, &scopeErr) || scopeErr.Retryable || scopeErr.AppendDetails == nil {
+	scopeErr, ok := errors.AsType[*scopedb.Error](err)
+	if !ok || scopeErr.Retryable || scopeErr.AppendDetails == nil {
 		return nil, false
 	}
 	details := scopeErr.AppendDetails
 	if details.Status != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
 		return nil, false
 	}
-	rows := append([]scopedb.AppendRowError(nil), details.RowErrors...)
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].RowIndex < rows[j].RowIndex })
+	rows := slices.Clone(details.RowErrors)
+	slices.SortStableFunc(rows, func(left, right scopedb.AppendRowError) int { return cmp.Compare(left.RowIndex, right.RowIndex) })
 	unique := rows[:0]
 	for _, row := range rows {
 		if row.RowIndex >= uint64(rowCount) {
@@ -394,8 +395,8 @@ func classifyAppendError(err error) error {
 		return err
 	}
 
-	var scopeErr *scopedb.Error
-	if !errors.As(err, &scopeErr) {
+	scopeErr, ok := errors.AsType[*scopedb.Error](err)
+	if !ok {
 		return consumererror.NewRetryableError(err)
 	}
 	formatted := formatAppendError(scopeErr)
@@ -411,8 +412,8 @@ func classifyAppendError(err error) error {
 }
 
 func isUnknownAppend(err error) bool {
-	var scopeErr *scopedb.Error
-	return errors.As(err, &scopeErr) && scopeErr.AppendDetails != nil && scopeErr.AppendDetails.Status == scopedb.AppendStateUnknown
+	scopeErr, ok := errors.AsType[*scopedb.Error](err)
+	return ok && scopeErr.AppendDetails != nil && scopeErr.AppendDetails.Status == scopedb.AppendStateUnknown
 }
 
 func formatAppendError(err *scopedb.Error) error {

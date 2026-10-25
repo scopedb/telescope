@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -46,7 +46,7 @@ func (samples *sampleFlags) String() string {
 	for signal, path := range samples.paths {
 		values = append(values, signal+"="+path)
 	}
-	sort.Strings(values)
+	slices.Sort(values)
 	return strings.Join(values, ",")
 }
 
@@ -74,12 +74,9 @@ func loadMappingSamples(paths map[string]string, ingestion scopedbexporter.Inges
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	enabled := make(map[string]bool, len(ingestion.EnabledSignals()))
-	for _, signal := range ingestion.EnabledSignals() {
-		enabled[signal] = true
-	}
+	enabled := ingestion.EnabledSignals()
 	for signal := range paths {
-		if !enabled[signal] {
+		if !slices.Contains(enabled, signal) {
 			return nil, fmt.Errorf("sample provided for disabled signal %q", signal)
 		}
 	}
@@ -129,7 +126,7 @@ func printMappingPreview(
 	preview := sample.preview
 	fmt.Fprintf(w, "sample %s <- %s (%d records)\n", preview.Signal, sample.path, preview.Records)
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	hasDestination := hasDestinationValidation(destinations, preview.Signal)
+	hasDestination := slices.ContainsFunc(destinations, func(v scopedbexporter.SignalDestinationValidation) bool { return v.Signal == preview.Signal })
 	if hasDestination {
 		fmt.Fprintln(table, "COLUMN\tTARGET\tOBSERVED\tCOVERAGE\tSELECTED\tRESULT")
 	} else {
@@ -225,15 +222,6 @@ func printMappingPreview(
 		resultErrors = append(resultErrors, fmt.Errorf("%s sample has warnings under --strict: %s", preview.Signal, strings.Join(warnings, ", ")))
 	}
 	return errors.Join(resultErrors...)
-}
-
-func hasDestinationValidation(validations []scopedbexporter.SignalDestinationValidation, signal string) bool {
-	for _, validation := range validations {
-		if validation.Signal == signal {
-			return true
-		}
-	}
-	return false
 }
 
 func findDestinationColumn(

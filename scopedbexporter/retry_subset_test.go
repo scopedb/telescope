@@ -29,7 +29,7 @@ import (
 func TestRetrySubsetsDropCommittedPrefix(t *testing.T) {
 	logs := plog.NewLogs()
 	logRecords := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		logRecords.AppendEmpty().Body().SetInt(int64(i))
 	}
 	logSuffix := logsFromRecords(logs, []int{1, 2})
@@ -38,7 +38,7 @@ func TestRetrySubsetsDropCommittedPrefix(t *testing.T) {
 
 	traces := ptrace.NewTraces()
 	spans := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		spans.AppendEmpty().SetName(string(rune('a' + i)))
 	}
 	traceSuffix := tracesFromRecords(traces, []int{2})
@@ -48,7 +48,7 @@ func TestRetrySubsetsDropCommittedPrefix(t *testing.T) {
 	metrics := pmetric.NewMetrics()
 	metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 	points := metric.SetEmptyGauge().DataPoints()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		points.AppendEmpty().SetIntValue(int64(i))
 	}
 	metricSuffix := metricsFromRecords(metrics, []int{1, 2})
@@ -59,7 +59,7 @@ func TestRetrySubsetsDropCommittedPrefix(t *testing.T) {
 func TestRetrySubsetsSelectNonContiguousRecords(t *testing.T) {
 	logs := plog.NewLogs()
 	logRecords := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		logRecords.AppendEmpty().Body().SetInt(int64(i))
 	}
 	selectedLogs := logsFromRecords(logs, []int{0, 2})
@@ -69,7 +69,7 @@ func TestRetrySubsetsSelectNonContiguousRecords(t *testing.T) {
 
 	traces := ptrace.NewTraces()
 	spans := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		spans.AppendEmpty().SetName(string(rune('a' + i)))
 	}
 	selectedTraces := tracesFromRecords(traces, []int{1, 3})
@@ -80,7 +80,7 @@ func TestRetrySubsetsSelectNonContiguousRecords(t *testing.T) {
 	metrics := pmetric.NewMetrics()
 	metric := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 	points := metric.SetEmptyGauge().DataPoints()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		points.AppendEmpty().SetIntValue(int64(i))
 	}
 	selectedMetrics := metricsFromRecords(metrics, []int{0, 2})

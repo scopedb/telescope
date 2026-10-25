@@ -365,7 +365,7 @@ func copyMetricPrefix(source pmetric.Metric, destination pmetric.Metric, limit i
 
 func copyNumberDataPoints(source pmetric.NumberDataPointSlice, destination pmetric.NumberDataPointSlice, limit int) int {
 	copied := min(source.Len(), limit)
-	for index := 0; index < copied; index++ {
+	for index := range copied {
 		source.At(index).CopyTo(destination.AppendEmpty())
 	}
 	return copied
@@ -373,7 +373,7 @@ func copyNumberDataPoints(source pmetric.NumberDataPointSlice, destination pmetr
 
 func copyHistogramDataPoints(source pmetric.HistogramDataPointSlice, destination pmetric.HistogramDataPointSlice, limit int) int {
 	copied := min(source.Len(), limit)
-	for index := 0; index < copied; index++ {
+	for index := range copied {
 		source.At(index).CopyTo(destination.AppendEmpty())
 	}
 	return copied
@@ -381,7 +381,7 @@ func copyHistogramDataPoints(source pmetric.HistogramDataPointSlice, destination
 
 func copyExponentialHistogramDataPoints(source pmetric.ExponentialHistogramDataPointSlice, destination pmetric.ExponentialHistogramDataPointSlice, limit int) int {
 	copied := min(source.Len(), limit)
-	for index := 0; index < copied; index++ {
+	for index := range copied {
 		source.At(index).CopyTo(destination.AppendEmpty())
 	}
 	return copied
@@ -389,7 +389,7 @@ func copyExponentialHistogramDataPoints(source pmetric.ExponentialHistogramDataP
 
 func copySummaryDataPoints(source pmetric.SummaryDataPointSlice, destination pmetric.SummaryDataPointSlice, limit int) int {
 	copied := min(source.Len(), limit)
-	for index := 0; index < copied; index++ {
+	for index := range copied {
 		source.At(index).CopyTo(destination.AppendEmpty())
 	}
 	return copied

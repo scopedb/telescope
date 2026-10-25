@@ -154,8 +154,8 @@ func readQueryStatement(flags *flag.FlagSet, filePath string, stdin io.Reader) (
 }
 
 func queryExecutionError(statementID string, err error) error {
-	var scopeDBError *scopedb.Error
-	if !errors.As(err, &scopeDBError) || scopeDBError.StatementDetails == nil {
+	scopeDBError, ok := errors.AsType[*scopedb.Error](err)
+	if !ok || scopeDBError.StatementDetails == nil {
 		return fmt.Errorf("statement %s: %w", statementID, err)
 	}
 	details := scopeDBError.StatementDetails

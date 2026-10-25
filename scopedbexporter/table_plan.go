@@ -17,11 +17,13 @@
 package scopedbexporter
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 
 	scopedb "github.com/scopedb/goscopedb"
@@ -197,7 +199,7 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 		}
 	}
 	if len(blocked) > 0 {
-		sort.Strings(blocked)
+		slices.Sort(blocked)
 		return "", fmt.Errorf("table plan is blocked: %s", strings.Join(blocked, ", "))
 	}
 
@@ -219,16 +221,9 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 			schemaSet[schemaName{database: database, schema: schema}] = struct{}{}
 		}
 	}
-	databases := sortedStringKeys(databaseSet)
-	schemas := make([]schemaName, 0, len(schemaSet))
-	for schema := range schemaSet {
-		schemas = append(schemas, schema)
-	}
-	sort.Slice(schemas, func(left int, right int) bool {
-		if schemas[left].database == schemas[right].database {
-			return schemas[left].schema < schemas[right].schema
-		}
-		return schemas[left].database < schemas[right].database
+	databases := slices.Sorted(maps.Keys(databaseSet))
+	schemas := slices.SortedFunc(maps.Keys(schemaSet), func(left, right schemaName) int {
+		return cmp.Or(strings.Compare(left.database, right.database), strings.Compare(left.schema, right.schema))
 	})
 
 	var statements []string
@@ -243,10 +238,8 @@ func RenderTablePlanScopeQL(plan IngestionTablePlan) (string, error) {
 		))
 	}
 
-	tables := append([]TablePlan(nil), plan.Tables...)
-	sort.Slice(tables, func(left int, right int) bool {
-		return tables[left].Table < tables[right].Table
-	})
+	tables := slices.Clone(plan.Tables)
+	slices.SortFunc(tables, func(left, right TablePlan) int { return strings.Compare(left.Table, right.Table) })
 	for _, table := range tables {
 		identifier, err := scopeQLTableIdentifier(table.Table)
 		if err != nil {
@@ -395,7 +388,7 @@ func groupTableRequirements(
 		}
 	}
 
-	tableNames := sortedStringKeys(byTable)
+	tableNames := slices.Sorted(maps.Keys(byTable))
 	builders := make([]tablePlanBuilder, 0, len(tableNames))
 	for _, table := range tableNames {
 		builders = append(builders, *byTable[table])
@@ -404,7 +397,7 @@ func groupTableRequirements(
 }
 
 func buildTablePlan(builder tablePlanBuilder, exists bool, resource *scopedb.CatalogTable) TablePlan {
-	signals := sortedStringKeys(builder.signals)
+	signals := slices.Sorted(maps.Keys(builder.signals))
 
 	actual := make(map[string]scopedb.DataType)
 	if exists && resource != nil {
@@ -412,7 +405,7 @@ func buildTablePlan(builder tablePlanBuilder, exists bool, resource *scopedb.Cat
 			actual[column.Name] = column.DataType
 		}
 	}
-	columnNames := sortedStringKeys(builder.requirements)
+	columnNames := slices.Sorted(maps.Keys(builder.requirements))
 
 	plan := TablePlan{
 		Table:   builder.ref.String(),
@@ -451,9 +444,7 @@ func planTableColumn(
 	exists bool,
 	actual map[string]scopedb.DataType,
 ) TableColumnPlan {
-	sort.Slice(requirements, func(left int, right int) bool {
-		return requirements[left].signal < requirements[right].signal
-	})
+	slices.SortFunc(requirements, func(left, right tableColumnRequirement) int { return strings.Compare(left.signal, right.signal) })
 	column := TableColumnPlan{Name: name}
 	details := make([]TableColumnRequirement, 0, len(requirements))
 	includeDetails := len(requirements) > 1
@@ -496,7 +487,7 @@ func planTableColumn(
 		}
 		details = append(details, detail)
 	}
-	column.ObservedTypes = sortedStringKeys(observed)
+	column.ObservedTypes = slices.Sorted(maps.Keys(observed))
 	finish := func() TableColumnPlan {
 		if includeDetails {
 			column.Requirements = details
@@ -568,8 +559,8 @@ func scopeDBTableType(value string) (scopedb.DataType, bool) {
 }
 
 func isCatalogNotFound(err error) bool {
-	var scopeErr *scopedb.Error
-	return errors.As(err, &scopeErr) && scopeErr.HTTPStatus == http.StatusNotFound
+	scopeErr, ok := errors.AsType[*scopedb.Error](err)
+	return ok && scopeErr.HTTPStatus == http.StatusNotFound
 }
 
 func scopeQLTableIdentifier(raw string) (string, error) {
@@ -600,16 +591,4 @@ func scopeQLColumnDefinition(column TableColumnPlan) (string, error) {
 
 func scopeQLIdentifier(value string) string {
 	return "`" + value + "`"
-}
-
-func sortedStringKeys[V any](values map[string]V) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

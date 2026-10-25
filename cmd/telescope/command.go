@@ -43,17 +43,8 @@ func runCommand(
 		}
 	}
 	writeErr := errors.Join(writeErrs...)
-	if errors.Is(commandErr, flag.ErrHelp) {
-		if writeErr != nil {
-			return writeErr
-		}
-		return commandErr
-	}
-	if commandErr == nil {
+	if errors.Is(commandErr, flag.ErrHelp) && writeErr != nil {
 		return writeErr
-	}
-	if writeErr == nil {
-		return commandErr
 	}
 	return errors.Join(commandErr, writeErr)
 }

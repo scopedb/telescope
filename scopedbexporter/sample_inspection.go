@@ -17,9 +17,11 @@
 package scopedbexporter
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -87,11 +89,7 @@ func InspectSample(signal string, sample []byte) (SampleInspection, error) {
 
 	fields := make([]SampleFieldInspection, 0, len(observed))
 	for selector, observation := range observed {
-		types := make([]string, 0, len(observation.types))
-		for valueType := range observation.types {
-			types = append(types, valueType)
-		}
-		sort.Strings(types)
+		types := slices.Sorted(maps.Keys(observation.types))
 		group, _, _ := strings.Cut(selector, ".")
 		fields = append(fields, SampleFieldInspection{
 			Group:         group,
@@ -101,13 +99,11 @@ func InspectSample(signal string, sample []byte) (SampleInspection, error) {
 			Total:         len(payload.Records),
 		})
 	}
-	sort.Slice(fields, func(left int, right int) bool {
-		leftRank := sampleFieldGroupRank(fields[left].Group)
-		rightRank := sampleFieldGroupRank(fields[right].Group)
-		if leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		return fields[left].Selector < fields[right].Selector
+	slices.SortFunc(fields, func(left, right SampleFieldInspection) int {
+		return cmp.Or(
+			cmp.Compare(sampleFieldGroupRank(left.Group), sampleFieldGroupRank(right.Group)),
+			strings.Compare(left.Selector, right.Selector),
+		)
 	})
 
 	return SampleInspection{
