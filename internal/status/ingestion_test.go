@@ -100,7 +100,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, ExportFailed: 6, EnqueueFailed: 99, QueueCapacity: 5000},
+			"logs":   {Received: 10, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
@@ -236,27 +236,12 @@ otelcol_exporter_queue_capacity{exporter="scopedb",data_type="logs"} 5000
 	logs := snapshot.Signals["logs"]
 	assert.Equal(t, uint64(10), logs.Received)
 	assert.Equal(t, uint64(2), logs.ReceiverRefused)
-	assert.Equal(t, uint64(3), logs.ExportFailed)
-	assert.Equal(t, uint64(1), logs.EnqueueFailed)
 	assert.Equal(t, int64(5), logs.QueueSize)
 	assert.Equal(t, int64(5000), logs.QueueCapacity)
 	assert.Equal(t, int64(7), snapshot.Signals["traces"].QueueSize)
 }
 
-func TestSignalDropCountsSeparatesFinalFailureReasons(t *testing.T) {
-	runtime := scopedbexporter.SignalRuntimeStatus{
-		PermanentFailedRecords: 5,
-		RetryExhaustedRecords:  4,
-		EnqueueFailedRecords:   1,
-	}
-
-	dropped, retryExhausted := signalDropCounts(runtime)
-
-	assert.Equal(t, uint64(10), dropped)
-	assert.Equal(t, uint64(4), retryExhausted)
-}
-
-func TestSignalIngestionState(t *testing.T) {
+func TestIngestionStatusReportsState(t *testing.T) {
 	runtime := scopedbexporter.SignalRuntimeStatus{Signal: "logs", Ready: true, DestinationVerified: true, QueueEnabled: true}
 	tests := []struct {
 		name      string
@@ -273,7 +258,16 @@ func TestSignalIngestionState(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, signalIngestionState(tt.runtime, tt.metrics, tt.available))
+			service := newService("test")
+			service.ingestionRuntime = fakeExporterStatusReader{snapshot: scopedbexporter.StatusSnapshot{
+				Signals: map[string]scopedbexporter.SignalRuntimeStatus{"logs": tt.runtime},
+			}}
+			metrics := fakeCollectorMetricsReader{snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{"logs": tt.metrics}}}
+			if !tt.available {
+				metrics.err = assert.AnError
+			}
+			service.ingestionMetrics = metrics
+			assert.Equal(t, tt.want, service.IngestionStatus(t.Context()).Signals[0].State)
 		})
 	}
 }

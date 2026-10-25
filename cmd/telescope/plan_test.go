@@ -28,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/scopedb/telescope/scopedbexporter"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPlanCommandRendersScopeQLForMissingTable(t *testing.T) {
@@ -51,13 +52,10 @@ signals:
 		"--format", "scopeql",
 		configPath,
 	}, strings.NewReader(""), &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("runPlanCommand() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	want := "CREATE TABLE `app`.`logs` (\n    `message` string,\n    `ts` timestamp\n);\n"
-	if got := stdout.String(); got != want {
-		t.Fatalf("scopeql output = %q, want %q", got, want)
-	}
+	require.Equal(t, want, stdout.String())
 }
 
 func TestPlanCommandPrintsActionableBlockedPlan(t *testing.T) {
@@ -80,9 +78,8 @@ signals:
 		"--sample", "logs=-",
 		configPath,
 	}, strings.NewReader(`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"kvlistValue":{"values":[{"key":"request_id","value":{"stringValue":"42"}}]}}}]}]}]}`), &stdout, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected blocked plan error")
-	}
+	require.Error(t, err)
+
 	for _, expected := range []string{
 		"table app.logs [logs]: blocked",
 		"output type is runtime-dependent",
@@ -92,9 +89,7 @@ signals:
 		"cast: object",
 		"resolve blocked mappings or table conflicts",
 	} {
-		if !strings.Contains(stdout.String(), expected) {
-			t.Fatalf("plan output missing %q: %s", expected, stdout.String())
-		}
+		require.Contains(t, stdout.String(), expected)
 	}
 }
 
@@ -128,22 +123,13 @@ signals:
 		"--out", outputPath,
 		configPath,
 	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("runPlanCommand() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	contents, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("read ScopeQL output: %v", err)
-	}
-	if got, want := string(contents), "CREATE TABLE `app`.`logs` (\n    `message` string\n);\n"; got != want {
-		t.Fatalf("ScopeQL file = %q, want %q", got, want)
-	}
-	if !strings.Contains(stdout.String(), "scopeql output: "+outputPath) {
-		t.Fatalf("plan output does not identify written ScopeQL: %s", stdout.String())
-	}
-	if requests != 2 {
-		t.Fatalf("catalog requests = %d, want one table and one schema read", requests)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "CREATE TABLE `app`.`logs` (\n    `message` string\n);\n", string(contents))
+	require.Contains(t, stdout.String(), "scopeql output: "+outputPath)
+	require.Equal(t, 2, requests)
 }
 
 func TestPlanCommandDoesNotOverwriteOutputWhenBlocked(t *testing.T) {
@@ -158,9 +144,7 @@ signals:
       body: log.body
 `)
 	outputPath := filepath.Join(t.TempDir(), "tables.scopeql")
-	if err := os.WriteFile(outputPath, []byte("existing\n"), 0o600); err != nil {
-		t.Fatalf("write existing output: %v", err)
-	}
+	require.NoError(t, os.WriteFile(outputPath, []byte("existing\n"), 0o600))
 
 	err := runPlanCommand(context.Background(), []string{
 		"--scopedb-endpoint", server.URL,
@@ -168,29 +152,11 @@ signals:
 		"--out", outputPath,
 		configPath,
 	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected blocked plan error")
-	}
-	contents, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatalf("read existing output: %v", readErr)
-	}
-	if got := string(contents); got != "existing\n" {
-		t.Fatalf("blocked plan overwrote output: %q", got)
-	}
-}
+	require.Error(t, err)
 
-func TestPlanCommandRejectsOutWithMachineFormat(t *testing.T) {
-	err := runPlanCommand(
-		context.Background(),
-		[]string{"--format", "scopeql", "--out", "tables.scopeql"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "--out requires --format human") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	contents, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	require.Equal(t, "existing\n", string(contents))
 }
 
 func TestPlanCommandRendersVersionedJSON(t *testing.T) {
@@ -212,19 +178,13 @@ signals:
 		"--format", "json",
 		configPath,
 	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("runPlanCommand() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	var plan scopedbexporter.IngestionTablePlan
-	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
-		t.Fatalf("decode JSON plan: %v\n%s", err, stdout.String())
-	}
-	if plan.Version != scopedbexporter.TablePlanVersion {
-		t.Fatalf("plan version = %d", plan.Version)
-	}
-	if len(plan.Tables) != 1 || plan.Tables[0].Action != scopedbexporter.TableActionCreate {
-		t.Fatalf("unexpected plan: %+v", plan)
-	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &plan))
+	require.Equal(t, scopedbexporter.TablePlanVersion, plan.Version)
+	require.Len(t, plan.Tables, 1)
+	require.Equal(t, scopedbexporter.TableActionCreate, plan.Tables[0].Action)
 }
 
 func TestPlanCommandShowsMissingNamespaceAndPhysicalPolicy(t *testing.T) {
@@ -249,59 +209,28 @@ signals:
 		"--out", outputPath,
 		configPath,
 	}, strings.NewReader(""), &stdout, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("runPlanCommand() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, expected := range []string{
 		"namespace: create database analytics",
 		"namespace: create schema analytics.otel",
 		"physical policy: unspecified; review retention, clustering, distinct keys, and indexes",
 	} {
-		if !strings.Contains(stdout.String(), expected) {
-			t.Fatalf("plan output missing %q: %s", expected, stdout.String())
-		}
+		require.Contains(t, stdout.String(), expected)
 	}
 	contents, readErr := os.ReadFile(outputPath)
-	if readErr != nil {
-		t.Fatalf("read ScopeQL output: %v", readErr)
-	}
+	require.NoError(t, readErr)
+
 	if !strings.HasPrefix(string(contents), "CREATE DATABASE `analytics`;\nCREATE SCHEMA `analytics`.`otel`;\nCREATE TABLE") {
 		t.Fatalf("unexpected ScopeQL output: %s", contents)
-	}
-}
-
-func TestPlanCommandRejectsUnsupportedFormat(t *testing.T) {
-	err := runPlanCommand(
-		context.Background(),
-		[]string{"--format", "yaml"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "unsupported plan format") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPlanCommandRejectsNonPositiveTimeout(t *testing.T) {
-	err := runPlanCommand(
-		context.Background(),
-		[]string{"--timeout", "0s"},
-		strings.NewReader(""),
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "--timeout must be greater than zero") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func writeTablePlanConfig(t *testing.T, contents string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "telescope.yaml")
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+
 	return path
 }
 

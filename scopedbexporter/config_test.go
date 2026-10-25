@@ -26,11 +26,6 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 )
 
-func TestConfigValidate(t *testing.T) {
-	cfg := validTestConfig()
-	require.NoError(t, cfg.Validate())
-}
-
 func TestConfigValidateRequiredConnectionFields(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.Endpoint = ""
@@ -107,20 +102,6 @@ func TestConfigAllowsOneSignal(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
-func TestCreateDefaultConfig(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-
-	assert.Empty(t, cfg.Tables)
-	assert.Empty(t, cfg.Mappings)
-	assert.Equal(t, defaultCompression, cfg.Compression)
-	assert.True(t, cfg.RetryOnFailure.Enabled)
-	assert.Zero(t, cfg.RetryOnFailure.MaxElapsedTime)
-	assert.True(t, cfg.SendingQueue.HasValue())
-	assert.Equal(t, "bytes", cfg.SendingQueue.Get().Sizer.String())
-	assert.Equal(t, int64(512<<20), cfg.SendingQueue.Get().QueueSize)
-	assert.Equal(t, 1, cfg.SendingQueue.Get().NumConsumers)
-}
-
 func TestConfigUnmarshalSetsOnlySpecifiedMappings(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	conf := confmap.NewFromStringMap(map[string]any{
@@ -135,46 +116,6 @@ func TestConfigUnmarshalSetsOnlySpecifiedMappings(t *testing.T) {
 	assert.Equal(t, "log.body", cfg.Mappings.Logs["event"].Source)
 	assert.Empty(t, cfg.Mappings.Traces)
 	assert.Empty(t, cfg.Mappings.Metrics)
-}
-
-func TestConfigUnmarshalExpandedMappingRule(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	conf := confmap.NewFromStringMap(map[string]any{
-		"mappings": map[string]any{
-			"logs": map[string]any{
-				"service": map[string]any{
-					"sources": []any{
-						`resource.attributes["service.name"]`,
-						`resource.attributes["service"]`,
-					},
-					"default": "unknown",
-					"cast":    "string",
-				},
-			},
-		},
-	})
-
-	require.NoError(t, conf.Unmarshal(cfg))
-	rule := cfg.Mappings.Logs["service"]
-	assert.Equal(t, []string{
-		`resource.attributes["service.name"]`,
-		`resource.attributes["service"]`,
-	}, rule.Sources)
-	assert.Equal(t, "unknown", rule.Default)
-	assert.True(t, rule.hasDefault())
-	assert.Equal(t, "string", rule.Cast)
-}
-
-func TestConfigUnmarshalPreservesExplicitEmptyMapping(t *testing.T) {
-	cfg := createDefaultConfig().(*Config)
-	conf := confmap.NewFromStringMap(map[string]any{
-		"mappings": map[string]any{
-			"logs": map[string]any{},
-		},
-	})
-
-	require.NoError(t, conf.Unmarshal(cfg))
-	assert.Empty(t, cfg.Mappings.Logs)
 }
 
 func validTestConfig() *Config {

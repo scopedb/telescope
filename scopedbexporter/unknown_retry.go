@@ -43,8 +43,6 @@ func (c UnknownRetryConfig) Validate() error {
 	return nil
 }
 
-type unknownRetryContextKey struct{}
-
 // A pending unknown chunk is always the prefix of the remaining OTLP items.
 // Keep its exact mapped bytes until resolved; later rejections cannot prove
 // whether a previous unknown attempt committed.

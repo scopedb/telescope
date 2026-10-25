@@ -40,12 +40,11 @@ const (
 )
 
 type appendClient struct {
-	sdk      *scopedb.Client
-	http     *http.Client
-	logger   *zap.Logger
-	plans    map[string]*mappingPlan
-	batch    AppendBatchConfig
-	appendFn func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error)
+	sdk    *scopedb.Client
+	http   *http.Client
+	logger *zap.Logger
+	plans  map[string]*mappingPlan
+	batch  AppendBatchConfig
 }
 
 type recordFailure struct {
@@ -94,9 +93,6 @@ func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 		logger: logger.Named("scopedbexporter/client"),
 		plans:  plans,
 		batch:  cfg.AppendBatch,
-		appendFn: func(ctx context.Context, table *scopedb.Table, ndjson []byte) (scopedb.AppendRowsResult, error) {
-			return table.AppendNDJSON(ctx, ndjson)
-		},
 	}, nil
 }
 
@@ -166,7 +162,7 @@ func (c *appendClient) inspectDestination(ctx context.Context, signal string) (S
 	return validation, errors.Join(validationErrors...)
 }
 
-func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload) sendOutcome {
+func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
 	if payload == nil {
 		return sendOutcome{err: consumererror.NewPermanent(errors.New("nil append payload"))}
 	}
@@ -182,7 +178,6 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 	}
 
 	outcome := sendOutcome{}
-	replay, _ := ctx.Value(unknownRetryContextKey{}).(*unknownRetryState)
 	table := c.table(plan.table)
 	maxBytes, maxRows := c.batch.limits()
 	body := make([]byte, 0, min(maxBytes, len(payload.Records)*256))
@@ -199,7 +194,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		outcome.err = err
 	}
 	appendChunk := func(ctx context.Context, chunkBody []byte, rows int) error {
-		result, err := c.appendFn(ctx, table, chunkBody)
+		result, err := table.AppendNDJSON(ctx, chunkBody)
 		if err != nil {
 			return err
 		}

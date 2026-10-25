@@ -42,16 +42,7 @@ type Server struct {
 	handler http.Handler
 }
 
-func New(version string, configDigest string) *Server {
-	return NewWithRegistries(
-		version,
-		configDigest,
-		scopedbexporter.NewStatusRegistry(),
-		scopedbexporter.NewCaptureRegistry(),
-	)
-}
-
-func NewWithRegistries(
+func New(
 	version string,
 	configDigest string,
 	statuses *scopedbexporter.StatusRegistry,

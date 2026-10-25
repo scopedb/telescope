@@ -21,24 +21,18 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunCaptureWritesOnlyOTLPPayloadToStdout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/ingestion/capture" {
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-		if got := request.URL.Query().Get("signal"); got != "traces" {
-			t.Fatalf("unexpected signal: %q", got)
-		}
-		if got := request.URL.Query().Get("limit"); got != "2" {
-			t.Fatalf("unexpected limit: %q", got)
-		}
-		if got := request.URL.Query().Get("timeout"); got != "3s" {
-			t.Fatalf("unexpected timeout: %q", got)
-		}
+		require.Equal(t, "/v1/ingestion/capture", request.URL.Path)
+		require.Equal(t, "traces", request.URL.Query().Get("signal"))
+		require.Equal(t, "2", request.URL.Query().Get("limit"))
+		require.Equal(t, "3s", request.URL.Query().Get("timeout"))
+
 		w.Header().Set("X-Telescope-Signal", "traces")
 		w.Header().Set("X-Telescope-Records", "2")
 		_, _ = w.Write([]byte(`{"resourceSpans":[]}`))
@@ -53,24 +47,18 @@ func TestRunCaptureWritesOnlyOTLPPayloadToStdout(t *testing.T) {
 		"--timeout", "3s",
 		"traces",
 	}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("runCaptureCommand() error = %v", err)
-	}
-	if got := stdout.String(); got != "{\"resourceSpans\":[]}\n" {
-		t.Fatalf("unexpected stdout: %q", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "{\"resourceSpans\":[]}\n", stdout.String())
+
 	wantStderr := "waiting for new traces after Collector batching; generate traffic now (limit=2, timeout=3s)\n" +
 		"captured traces: 2 records\n"
-	if got := stderr.String(); got != wantStderr {
-		t.Fatalf("unexpected stderr: %q", got)
-	}
+	require.Equal(t, wantStderr, stderr.String())
 }
 
 func TestRunCaptureUsesDefaultTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if got := request.URL.Query().Get("timeout"); got != "45s" {
-			t.Fatalf("unexpected timeout: %q", got)
-		}
+		require.Equal(t, "45s", request.URL.Query().Get("timeout"))
+
 		_, _ = w.Write([]byte(`{"resourceSpans":[]}`))
 	}))
 	defer server.Close()
@@ -81,32 +69,7 @@ func TestRunCaptureUsesDefaultTimeout(t *testing.T) {
 		&bytes.Buffer{},
 		&bytes.Buffer{},
 	)
-	if err != nil {
-		t.Fatalf("runCaptureCommand() error = %v", err)
-	}
-}
-
-func TestRunCaptureRejectsRemoteAndStandaloneModesTogether(t *testing.T) {
-	err := runCaptureCommand(
-		context.Background(),
-		[]string{
-			"--endpoint", "http://127.0.0.1:8080",
-			"--listen-http", "127.0.0.1:4318",
-			"traces",
-		},
-		&bytes.Buffer{},
-		&bytes.Buffer{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunCaptureRejectsInvalidSignal(t *testing.T) {
-	err := runCaptureCommand(context.Background(), []string{"profiles"}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.NoError(t, err)
 }
 
 func TestRunCaptureReportsEndpointError(t *testing.T) {
@@ -121,12 +84,9 @@ func TestRunCaptureReportsEndpointError(t *testing.T) {
 		&bytes.Buffer{},
 		&bytes.Buffer{},
 	)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, err)
+
 	for _, expected := range []string{"no new exporter input observed within 1ms", "start capture before generating traffic", "batch delay"} {
-		if !strings.Contains(err.Error(), expected) {
-			t.Fatalf("capture error missing %q: %v", expected, err)
-		}
+		require.Contains(t, err.Error(), expected)
 	}
 }

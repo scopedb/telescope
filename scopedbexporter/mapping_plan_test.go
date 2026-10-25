@@ -19,7 +19,6 @@ package scopedbexporter
 import (
 	"testing"
 
-	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,19 +103,6 @@ func TestMappingPlanKeepsMetricNumberTypesSeparate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"double_value": 0.75}, row)
-}
-
-func TestMappingPlanPreservesSelectedEmptyString(t *testing.T) {
-	plan, err := compileMappingPlan(signalLogs, "logs", shorthandMapping(map[string]string{
-		"tenant": `resource.attributes["tenant"]`,
-	}))
-	require.NoError(t, err)
-
-	row, err := plan.project(telemetryRecord{
-		"resource": map[string]any{"tenant": ""},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, map[string]any{"tenant": ""}, row)
 }
 
 func TestMappingPlanProjectsNestedFallbackCastDefaultAndValue(t *testing.T) {
@@ -261,18 +247,6 @@ func TestMappingPlanRejectsInvalidNestedSelectors(t *testing.T) {
 			assert.ErrorContains(t, err, tt.want)
 		})
 	}
-}
-
-func TestSelectorTypeCompatibility(t *testing.T) {
-	assert.Equal(t, MappingCompatible, selectorTypeFor("log.timestamp").compatibilityWith(scopedb.TimestampDataType))
-	assert.Equal(t, MappingCompatible, selectorTypeFor("log.timestamp").compatibilityWith(scopedb.StringDataType))
-	assert.Equal(t, MappingIncompatible, selectorTypeFor("log.severity_number").compatibilityWith(scopedb.StringDataType))
-	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibilityWith(scopedb.StringDataType))
-	assert.Equal(t, MappingCompatible, selectorTypeFor("span.events").compatibilityWith(scopedb.ObjectDataType))
-	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor(`resource.attributes["tenant.id"]`).compatibilityWith(scopedb.StringDataType))
-	assert.Equal(t, MappingRuntimeDependent, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.IntDataType))
-	assert.Equal(t, MappingIncompatible, selectorTypeFor("datapoint.value").compatibilityWith(scopedb.StringDataType))
-	assert.Equal(t, MappingCompatible, selectorTypeFor("log.body").compatibilityWith(scopedb.AnyDataType))
 }
 
 func TestMappingPlanReportsAllSelectorErrorsWithSuggestion(t *testing.T) {

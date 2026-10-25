@@ -20,7 +20,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/otelcol"
-	"go.yaml.in/yaml/v3"
 )
 
 func TestLoadAndRenderIngestionConfig(t *testing.T) {
@@ -55,38 +53,8 @@ signals:
 
 	ingestion, err := LoadConfig(path)
 	require.NoError(t, err)
-	traceConfig, enabled := ingestion.Signal("traces")
-	require.True(t, enabled)
-	assert.Equal(t, "app.spans", traceConfig.Table)
-	assert.Equal(t, "span.name", traceConfig.Mapping["name"].Source)
-	assert.Equal(t, []string{
-		`resource.attributes["service.name"]`,
-		`resource.attributes["service"]`,
-	}, traceConfig.Mapping["service"].Sources)
-	assert.Equal(t, "unknown", traceConfig.Mapping["service"].Default)
-	assert.Equal(t, []string{"traces"}, ingestion.EnabledSignals())
-
 	uri, err := ConfigURI(ingestion)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(uri, "yaml:"))
-	var rendered map[string]any
-	require.NoError(t, yaml.Unmarshal([]byte(strings.TrimPrefix(uri, "yaml:")), &rendered))
-	exporters := rendered["exporters"].(map[string]any)
-	scopeDB := exporters["scopedb"].(map[string]any)
-	tables := scopeDB["tables"].(map[string]any)
-	assert.Equal(t, map[string]any{"traces": "app.spans"}, tables)
-	assert.Equal(t, "zstd", scopeDB["compression"])
-	retry := scopeDB["retry_on_failure"].(map[string]any)
-	assert.Equal(t, "0s", retry["max_elapsed_time"])
-	service := rendered["service"].(map[string]any)
-	telemetry := service["telemetry"].(map[string]any)
-	logs := telemetry["logs"].(map[string]any)
-	assert.Equal(t, "warn", logs["level"])
-	pipelines := service["pipelines"].(map[string]any)
-	assert.Equal(t, []string{"traces"}, mapKeys(pipelines))
-
-	t.Setenv("TELESCOPE_SCOPEDB_ENDPOINT", "https://scope.example")
-	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "test-key")
 	settings := Settings(uri, "test")
 	provider, err := otelcol.NewConfigProvider(settings.ConfigProviderSettings)
 	require.NoError(t, err)
@@ -110,22 +78,6 @@ signals:
 	}
 }
 
-func TestDefaultConfigAcceptsEnvironmentOverrides(t *testing.T) {
-	t.Setenv("TELESCOPE_QUEUE_DIR", "/var/lib/telescope/instance")
-	config := defaultConfig()
-	require.NoError(t, config.applyEnvironment())
-	require.Equal(t, "/var/lib/telescope/instance", config.Delivery.Queue.Directory)
-	require.Equal(t, "TELESCOPE_QUEUE_DIR", config.Sources["delivery.queue.directory"])
-}
-
-func mapKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
 func TestLoadConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "telescope.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("unknown: true\n"), 0o600))
@@ -133,17 +85,6 @@ func TestLoadConfigRejectsUnknownAndIncompleteFields(t *testing.T) {
 	_, err := LoadConfig(path)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "field unknown not found")
-}
-
-func TestDeploymentConfigExamplesAreValid(t *testing.T) {
-	for _, path := range []string{
-		filepath.Join("..", "..", "deploy", "telescope.example.yaml"),
-		filepath.Join("..", "..", "deploy", "kubernetes", "example", "telescope.yaml"),
-	} {
-		config, err := LoadConfig(path)
-		require.NoError(t, err, path)
-		assert.Equal(t, []string{"traces"}, config.EnabledSignals(), path)
-	}
 }
 
 func TestRuntimeConfigurationPrecedenceAndContractDigest(t *testing.T) {

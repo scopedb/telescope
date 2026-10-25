@@ -32,13 +32,7 @@ import (
 )
 
 func TestV02CompatibleAppendIntegration(t *testing.T) {
-	endpoint, apiKey := os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT"), os.Getenv("TELESCOPE_SCOPEDB_INTEGRATION_API_KEY")
-	if endpoint == "" || apiKey == "" {
-		t.Skip("set the integration endpoint and API key")
-	}
-	client, err := scopedb.NewClient(scopedb.Config{Endpoint: endpoint, APIKey: apiKey})
-	require.NoError(t, err)
-	defer client.Close()
+	client, endpoint, apiKey := scopeDBIntegrationClient(t)
 	data, err := os.ReadFile("../deploy/telescope.v0.2-compatible.yaml")
 	require.NoError(t, err)
 	var cfg IngestionConfig
@@ -81,7 +75,9 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 			require.NoError(t, validationErr)
 			payload, err := mapOTLPSample(signal, readGoldenFile(t, signal+".otlp.json"))
 			require.NoError(t, err)
-			requireCommitted(t, exporter.send(ctx, signal, payload))
+			outcome := exporter.send(ctx, signal, payload, nil)
+			require.NoError(t, outcome.err)
+			require.Len(t, outcome.committed, len(payload.Records))
 			result, err := client.Query(ctx, "FROM "+table.Identifier())
 			require.NoError(t, err)
 			objects, err := result.ToObjects()

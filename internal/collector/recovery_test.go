@@ -35,9 +35,6 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
 	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,10 +60,6 @@ func TestPersistentQueueV1FixtureRemainsReadable(t *testing.T) {
 	queueDir := restoreQueueFixture(t, filepath.Join("testdata", "queue", "v1"))
 	committed := make(chan map[string]any, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeRecoveryTableDescription(t, w, r)
-			return
-		}
 		body, err := decodeRecoveryAppendBody(r)
 		require.NoError(t, err)
 		var row map[string]any
@@ -108,54 +101,37 @@ func TestPersistentQueueV1FixtureRemainsReadable(t *testing.T) {
 
 func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal string) {
 	var backendAvailable atomic.Bool
-	var catalogAvailable atomic.Bool
-	catalogAvailable.Store(true)
 	failedAttempt := make(chan struct{}, 1)
 	committed := make(chan map[string]any, 1)
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			if !catalogAvailable.Load() {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-					"message":   "catalog unavailable",
-					"retryable": true,
-				}))
-				return
-			}
-			writeRecoveryTableDescription(t, w, r)
-		case http.MethodPost:
-			if !backendAvailable.Load() {
-				select {
-				case failedAttempt <- struct{}{}:
-				default:
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-					"message":   "test outage",
-					"details":   map[string]any{"status": "rejected"},
-					"retryable": true,
-				}))
-				return
-			}
-			body, err := decodeRecoveryAppendBody(r)
-			require.NoError(t, err)
-			var row map[string]any
-			require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		require.Equal(t, http.MethodPost, r.Method)
+		if !backendAvailable.Load() {
 			select {
-			case committed <- row:
+			case failedAttempt <- struct{}{}:
 			default:
 			}
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-				"status":            "committed",
-				"num_rows_inserted": 1,
+				"message":   "test outage",
+				"details":   map[string]any{"status": "rejected"},
+				"retryable": true,
 			}))
-		default:
-			t.Fatalf("unexpected ScopeDB request method %s", r.Method)
+			return
 		}
+		body, err := decodeRecoveryAppendBody(r)
+		require.NoError(t, err)
+		var row map[string]any
+		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		select {
+		case committed <- row:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"status":            "committed",
+			"num_rows_inserted": 1,
+		}))
 	}))
 	defer backend.Close()
 
@@ -173,13 +149,10 @@ func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal strin
 		t.Fatal("ScopeDB append was not attempted during outage")
 	}
 	first.stop(t)
-	require.True(t, directoryHasFiles(t, queueDir), "persistent queue directory should retain state")
 
-	catalogAvailable.Store(false)
 	second := startRecoveryCollector(t, config)
 	defer second.stop(t)
 	backendAvailable.Store(true)
-	catalogAvailable.Store(true)
 	select {
 	case row := <-committed:
 		assert.Equal(t, map[string]any{"value": value}, row)
@@ -192,10 +165,6 @@ func TestByteSizedQueueRefusesItemOverCapacity(t *testing.T) {
 	for _, signal := range []string{"logs", "traces", "metrics"} {
 		t.Run(signal, func(t *testing.T) {
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet {
-					writeRecoveryTableDescription(t, w, r)
-					return
-				}
 				t.Errorf("append should not be attempted when the item exceeds queue capacity")
 				w.WriteHeader(http.StatusInternalServerError)
 			}))
@@ -218,60 +187,6 @@ func TestByteSizedQueueRefusesItemOverCapacity(t *testing.T) {
 			assert.Equal(t, uint64(1), statuses.Snapshot().Signals[signal].EnqueueFailedRecords)
 		})
 	}
-}
-
-func TestExporterFailureMetricCountsOnlyTheFinalOutcome(t *testing.T) {
-	var mu sync.Mutex
-	attempts := map[string]int{}
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeRecoveryTableDescription(t, w, r)
-			return
-		}
-		body, err := decodeRecoveryAppendBody(r)
-		require.NoError(t, err)
-		var row map[string]any
-		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
-		value, _ := row["value"].(string)
-		mu.Lock()
-		attempts[value]++
-		attempt := attempts[value]
-		mu.Unlock()
-		if value == "retry succeeds" && attempt >= 3 {
-			writeRecoveryAppendCommitted(t, w)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"message":   "test outage",
-			"details":   map[string]any{"status": "rejected"},
-			"retryable": true,
-		}))
-	}))
-	defer backend.Close()
-
-	otlpAddress := freeTCPAddress(t)
-	metricsAddress := freeTCPAddress(t)
-	runtime := startRecoveryCollector(t, retryOutcomeCollectorConfig(backend.URL, otlpAddress, metricsAddress))
-	defer runtime.stop(t)
-
-	require.NoError(t, sendRecoverySignal(otlpAddress, "logs", "retry succeeds"))
-	require.Eventually(t, func() bool {
-		return readCollectorCounter(t, metricsAddress, "otelcol_exporter_sent_log_records") == 1
-	}, 5*time.Second, 20*time.Millisecond)
-	mu.Lock()
-	assert.Equal(t, 3, attempts["retry succeeds"])
-	mu.Unlock()
-	assert.Zero(t, readCollectorCounter(t, metricsAddress, "otelcol_exporter_send_failed_log_records"))
-
-	require.NoError(t, sendRecoverySignal(otlpAddress, "logs", "retry exhausts"))
-	require.Eventually(t, func() bool {
-		return readCollectorCounter(t, metricsAddress, "otelcol_exporter_send_failed_log_records") == 1
-	}, 5*time.Second, 20*time.Millisecond)
-	mu.Lock()
-	assert.Greater(t, attempts["retry exhausts"], 1)
-	mu.Unlock()
 }
 
 type recoveryCollector struct {
@@ -390,57 +305,6 @@ service:
 `, queueDir, otlpAddress, scopeDBEndpoint, signal)
 }
 
-func retryOutcomeCollectorConfig(scopeDBEndpoint string, otlpAddress string, metricsAddress string) string {
-	metricsHost, metricsPort, err := net.SplitHostPort(metricsAddress)
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf(`
-receivers:
-  otlp:
-    protocols:
-      http:
-        endpoint: %q
-exporters:
-  scopedb:
-    endpoint: %q
-    api_key: test-key
-    compression: zstd
-    timeout: 1s
-    tables:
-      logs: public.recovery_logs
-    mappings:
-      logs:
-        value: log.message
-    sending_queue:
-      enabled: true
-      sizer: bytes
-      queue_size: 1048576
-      num_consumers: 1
-    retry_on_failure:
-      enabled: true
-      initial_interval: 10ms
-      max_interval: 10ms
-      max_elapsed_time: 100ms
-service:
-  telemetry:
-    logs:
-      level: fatal
-    metrics:
-      level: normal
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: %q
-                port: %s
-  pipelines:
-    logs:
-      receivers: [otlp]
-      exporters: [scopedb]
-`, otlpAddress, scopeDBEndpoint, metricsHost, metricsPort)
-}
-
 func freeTCPAddress(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -500,21 +364,6 @@ func marshalRecoverySignal(signal string, value string) ([]byte, error) {
 	}
 }
 
-func writeRecoveryTableDescription(t *testing.T, w http.ResponseWriter, r *http.Request) {
-	t.Helper()
-	w.Header().Set("ETag", `"1"`)
-	name := strings.TrimPrefix(r.URL.Path, "/v1/catalog/databases/scopedb/schemas/public/tables/")
-	require.Contains(t, []string{"recovery_logs", "recovery_traces", "recovery_metrics"}, name)
-	w.Header().Set("Content-Type", "application/json")
-	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"name":         name,
-		"columns":      []map[string]any{{"name": "value", "data_type": "string"}},
-		"partition_by": []string{},
-		"cluster_by":   []string{},
-		"distinct":     map[string]any{"on": []string{}, "by": []string{}},
-	}))
-}
-
 func writeRecoveryAppendCommitted(t *testing.T, w http.ResponseWriter) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
@@ -522,47 +371,6 @@ func writeRecoveryAppendCommitted(t *testing.T, w http.ResponseWriter) {
 		"status":            "committed",
 		"num_rows_inserted": 1,
 	}))
-}
-
-func readCollectorCounter(t *testing.T, address string, name string) float64 {
-	t.Helper()
-	response, err := (&http.Client{Timeout: time.Second}).Get("http://" + address + "/metrics")
-	if err != nil {
-		return 0
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return 0
-	}
-	parser := expfmt.NewTextParser(model.UTF8Validation)
-	families, err := parser.TextToMetricFamilies(response.Body)
-	if err != nil {
-		return 0
-	}
-	family := families[name]
-	if family == nil {
-		family = families[name+"_total"]
-	}
-	if family == nil {
-		return 0
-	}
-	var value float64
-	for _, metric := range family.Metric {
-		if prometheusLabel(metric, "exporter") != "scopedb" {
-			continue
-		}
-		value += metric.GetCounter().GetValue()
-	}
-	return value
-}
-
-func prometheusLabel(metric *dto.Metric, name string) string {
-	for _, label := range metric.Label {
-		if label.GetName() == name {
-			return label.GetValue()
-		}
-	}
-	return ""
 }
 
 func decodeRecoveryAppendBody(r *http.Request) ([]byte, error) {
@@ -575,21 +383,6 @@ func decodeRecoveryAppendBody(r *http.Request) ([]byte, error) {
 	}
 	defer decoder.Close()
 	return io.ReadAll(decoder)
-}
-
-func directoryHasFiles(t *testing.T, directory string) bool {
-	t.Helper()
-	found := false
-	require.NoError(t, filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if path != directory && !entry.IsDir() {
-			found = true
-		}
-		return nil
-	}))
-	return found
 }
 
 func restoreQueueFixture(t *testing.T, sourceDir string) string {

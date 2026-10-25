@@ -25,9 +25,6 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
@@ -107,33 +104,16 @@ func (e *dbExporter) shutdown(_ context.Context) error {
 	return nil
 }
 
-func (e *dbExporter) pushLogs(ctx context.Context, logs plog.Logs) error {
-	return pushSignal(e, ctx, signalLogs, logs, logs.LogRecordCount(), mapLogs, func(err error, indexes []int) error {
-		return consumererror.NewLogs(err, logsFromRecords(logs, indexes))
-	})
-}
-
-func (e *dbExporter) pushTraces(ctx context.Context, traces ptrace.Traces) error {
-	return pushSignal(e, ctx, signalTraces, traces, traces.SpanCount(), mapTraces, func(err error, indexes []int) error {
-		return consumererror.NewTraces(err, tracesFromRecords(traces, indexes))
-	})
-}
-
-func (e *dbExporter) pushMetrics(ctx context.Context, metrics pmetric.Metrics) error {
-	return pushSignal(e, ctx, signalMetrics, metrics, metrics.DataPointCount(), mapMetrics, func(err error, indexes []int) error {
-		return consumererror.NewMetrics(err, metricsFromRecords(metrics, indexes))
-	})
-}
-
 func pushSignal[T any](
-	exporter *dbExporter,
+	request *deliveryRequest,
 	ctx context.Context,
-	signal string,
 	data T,
 	records int,
 	mapData func(T) (*ingestPayload, error),
 	wrapSubset func(error, []int) error,
 ) error {
+	exporter := request.exporter
+	signal := exporter.signal
 	started := time.Now().UTC()
 	payload, err := mapData(data)
 	if err != nil {
@@ -141,7 +121,7 @@ func pushSignal[T any](
 		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
 		return wrapSubset(permanentErr, recordIndexes(0, records))
 	}
-	outcome := exporter.client.send(ctx, signal, payload)
+	outcome := exporter.client.send(ctx, signal, payload, &request.replay)
 	if len(outcome.committed) > 0 {
 		exporter.statuses.recordWrite(signal, len(outcome.committed), started, nil, false)
 		exporter.statuses.recordProbeSuccess(signal, probeIDsFromRecords(payload, outcome.committed))

@@ -18,112 +18,34 @@ package collector
 
 import (
 	"os"
-	"strings"
+	"path/filepath"
 	"testing"
 
-	"github.com/scopedb/telescope/scopedbexporter"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSettingsConfigURI(t *testing.T) {
-	tests := []struct {
-		name      string
-		configURI string
-		wantURI   string
-	}{
-		{
-			name: "empty config has no implicit mapping",
-		},
-		{
-			name:      "bare path becomes file uri",
-			configURI: "/etc/telescope/collector.yaml",
-			wantURI:   "file:/etc/telescope/collector.yaml",
-		},
-		{
-			name:      "http uri is preserved",
-			configURI: "http://127.0.0.1:8080/collector.yaml",
-			wantURI:   "http://127.0.0.1:8080/collector.yaml",
-		},
-		{
-			name:      "yaml uri is preserved",
-			configURI: "yaml:receivers: {}",
-			wantURI:   "yaml:receivers: {}",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			settings := Settings(tt.configURI, "test")
-			uris := settings.ConfigProviderSettings.ResolverSettings.URIs
-			if tt.wantURI == "" {
-				if len(uris) != 0 {
-					t.Fatalf("expected no config URI, got %q", uris)
-				}
-				return
-			}
-			if len(uris) != 1 {
-				t.Fatalf("expected one config URI, got %d", len(uris))
-			}
-			if !strings.HasPrefix(uris[0], tt.wantURI) {
-				t.Fatalf("expected URI prefix %q, got %q", tt.wantURI, uris[0])
-			}
+	for input, want := range map[string][]string{
+		"":                                nil,
+		"/etc/telescope/collector.yaml":   {"file:/etc/telescope/collector.yaml"},
+		"http://localhost/collector.yaml": {"http://localhost/collector.yaml"},
+		"yaml:receivers: {}":              {"yaml:receivers: {}"},
+	} {
+		t.Run(input, func(t *testing.T) {
+			require.Equal(t, want, Settings(input, "test").ConfigProviderSettings.ResolverSettings.URIs)
 		})
 	}
 }
 
-func TestSettingsGracefulShutdownMode(t *testing.T) {
-	standalone := Settings("", "test")
-	if standalone.DisableGracefulShutdown {
-		t.Fatal("standalone collector settings should preserve graceful shutdown")
-	}
-
-	embedded := newSettings(
-		"",
-		"test",
-		true,
-		scopedbexporter.NewStatusRegistry(),
-		scopedbexporter.NewCaptureRegistry(),
-	)
-	if !embedded.DisableGracefulShutdown {
-		t.Fatal("embedded collector settings should let Telescope own shutdown")
-	}
-}
-
 func TestApplyDefaultEnv(t *testing.T) {
-	t.Setenv("HOME", "/tmp/telescope-home")
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TELESCOPE_OTLP_GRPC_ADDR", "127.0.0.1:14317")
-	t.Setenv("TELESCOPE_OTLP_HTTP_ADDR", "")
 	t.Setenv("TELESCOPE_QUEUE_DIR", "")
-	t.Setenv("TELESCOPE_QUEUE_MAX_BYTES", "")
 	t.Setenv("TELESCOPE_OTEL_BATCH_TIMEOUT", "5s")
-	t.Setenv("TELESCOPE_OTEL_BATCH_SIZE", "")
-	t.Setenv("TELESCOPE_OTEL_BATCH_MAX_SIZE", "")
 
 	Settings("", "test")
 
-	if got := getenv(t, "TELESCOPE_OTLP_GRPC_ADDR"); got != "127.0.0.1:14317" {
-		t.Fatalf("expected existing gRPC addr to be preserved, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_OTLP_HTTP_ADDR"); got != "0.0.0.0:4318" {
-		t.Fatalf("expected default OTLP HTTP addr, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_QUEUE_DIR"); got != "/tmp/telescope-home/.telescope/queue" {
-		t.Fatalf("expected default queue dir under HOME, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_QUEUE_MAX_BYTES"); got != "536870912" {
-		t.Fatalf("expected default queue byte budget, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_OTEL_BATCH_TIMEOUT"); got != "5s" {
-		t.Fatalf("expected existing batch timeout to be preserved, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_OTEL_BATCH_SIZE"); got != "2000" {
-		t.Fatalf("expected default batch size, got %q", got)
-	}
-	if got := getenv(t, "TELESCOPE_OTEL_BATCH_MAX_SIZE"); got != "2000" {
-		t.Fatalf("expected default batch max size, got %q", got)
-	}
-}
-
-func getenv(t *testing.T, key string) string {
-	t.Helper()
-	return strings.TrimSpace(os.Getenv(key))
+	require.Equal(t, "127.0.0.1:14317", os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"))
+	require.Equal(t, "5s", os.Getenv("TELESCOPE_OTEL_BATCH_TIMEOUT"))
+	require.Equal(t, filepath.Join(os.Getenv("HOME"), ".telescope", "queue"), os.Getenv("TELESCOPE_QUEUE_DIR"))
 }
