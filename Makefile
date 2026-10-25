@@ -191,8 +191,12 @@ kubernetes-validate:
 	sed -n '/^kind: ConfigMap$$/,/^---$$/p' "$$rendered" | grep --quiet '^  namespace: telescope$$'; \
 	test "$$(grep -c "name: $$config_name$$" "$$rendered")" -eq 2
 
+.PHONY: compose-validate
+compose-validate:
+	python3 scripts/check-compose.py
+
 .PHONY: ci-runtime
-ci-runtime: validate kubernetes-validate docker-smoke artifacts
+ci-runtime: validate compose-validate kubernetes-validate docker-smoke artifacts
 
 .PHONY: demo
 demo:
