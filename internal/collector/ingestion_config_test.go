@@ -158,6 +158,7 @@ destination:
   api_key: ${env:TEST_RUNTIME_KEY}
 delivery:
   timeout: 3s
+  unknown_retry: {enabled: true, max_retries: 2, max_elapsed_time: 10s}
   queue:
     type: memory
     max_bytes: 65536
@@ -199,6 +200,9 @@ signals:
 		require.Equal(t, "key:${literal}", string(exporter.APIKey))
 		require.Equal(t, "${env:UNRESOLVED_MAPPING_LITERAL}", exporter.Mappings.Logs["literal"].Value)
 		require.Nil(t, exporter.SendingQueue.Get().StorageID)
+		require.True(t, exporter.UnknownRetry.Enabled)
+		require.Equal(t, 2, exporter.UnknownRetry.MaxRetries)
+		require.Equal(t, 10*time.Second, exporter.UnknownRetry.MaxElapsedTime)
 	}
 
 	first, err := config.ContractDigest()
@@ -214,6 +218,8 @@ func TestRuntimeConfigurationRejectsInvalidPolicy(t *testing.T) {
 		"delivery: {queue: {type: shared}}",
 		"delivery: {queue: {max_bytes: 0}}",
 		"delivery: {timeout: -1s}",
+		"delivery: {unknown_retry: {enabled: true, max_retries: 0}}",
+		"delivery: {unknown_retry: {enabled: true, max_elapsed_time: 0s}}",
 		"delivery: {retry: {initial_interval: 5s, max_interval: 1s}}",
 		"batch: {size: 10, max_size: 1}",
 		"resources: {memory_limit_mib: 128, memory_spike_mib: 128}",

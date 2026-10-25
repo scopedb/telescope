@@ -57,6 +57,9 @@ func (c Config) RuntimeSettings() ([]RuntimeSetting, error) {
 
 func (c Config) Warnings() []string {
 	var warnings []string
+	if c.Delivery.UnknownRetry.Enabled {
+		warnings = append(warnings, "unknown outcome replay is enabled: committed rows may be duplicated; replay budgets restart after persisted recovery")
+	}
 	for _, path := range c.overridden {
 		warnings = append(warnings, fmt.Sprintf("%s overrides YAML field %s", c.Sources[path], path))
 	}

@@ -29,6 +29,7 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 	var received []*dto.Metric
 	var written []*dto.Metric
 	var unknown []*dto.Metric
+	var replayAttempts, replayedRecords []*dto.Metric
 	var dropped []*dto.Metric
 	var invalid []*dto.Metric
 	var queueBytes []*dto.Metric
@@ -42,6 +43,8 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 		received = append(received, prometheusCounter(float64(signal.Received), labels...))
 		written = append(written, prometheusCounter(float64(signal.Written), labels...))
 		unknown = append(unknown, prometheusCounter(float64(signal.Unknown), labels...))
+		replayAttempts = append(replayAttempts, prometheusCounter(float64(signal.UnknownReplayAttempts), labels...))
+		replayedRecords = append(replayedRecords, prometheusCounter(float64(signal.UnknownReplayedRecords), labels...))
 		dropped = append(dropped,
 			prometheusCounter(float64(signal.RetryExhausted), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("retry_exhausted")})...),
 			prometheusCounter(float64(signal.EnqueueFailed), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("enqueue_failed")})...),
@@ -81,6 +84,8 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 	}
 
 	families := []*dto.MetricFamily{
+		{Name: new("telescope_ingestion_unknown_replay_attempts_total"), Help: new("Append attempts replaying a chunk with a previous unknown outcome."), Type: new(dto.MetricType_COUNTER), Metric: replayAttempts},
+		{Name: new("telescope_ingestion_unknown_replayed_records_total"), Help: new("Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery."), Type: new(dto.MetricType_COUNTER), Metric: replayedRecords},
 		{
 			Name:   new("telescope_ingestion_unknown_total"),
 			Help:   new("Telemetry items with an unknown append outcome, excluded from written and dropped items."),

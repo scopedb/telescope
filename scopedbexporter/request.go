@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
@@ -41,10 +42,11 @@ type deliveryRequest struct {
 	err      error
 	once     sync.Once
 	exporter *dbExporter
+	replay   unknownRetryState
 }
 
 func newDeliveryRequest(data any, exporter *dbExporter) *deliveryRequest {
-	return &deliveryRequest{data: data, original: data, exporter: exporter}
+	return &deliveryRequest{data: data, original: data, exporter: exporter, replay: unknownRetryState{config: exporter.cfg.UnknownRetry, exporter: exporter}}
 }
 
 func (r *deliveryRequest) ItemsCount() int {
@@ -89,6 +91,7 @@ func (r *deliveryRequest) OnError(err error) xexporterhelper.Request {
 }
 
 func (r *deliveryRequest) send(ctx context.Context) error {
+	ctx = context.WithValue(ctx, unknownRetryContextKey{}, &r.replay)
 	switch data := r.data.(type) {
 	case plog.Logs:
 		r.err = r.exporter.pushLogs(ctx, data)
@@ -110,7 +113,13 @@ func (r *deliveryRequest) finish() {
 			return
 		}
 		r.OnError(r.err)
-		r.exporter.statuses.recordRetryExhausted(r.exporter.signal, r.ItemsCount())
+		remaining := r.ItemsCount()
+		if pending := r.replay.pending; pending != nil {
+			r.exporter.statuses.recordUnknown(r.exporter.signal, pending.rows, time.Now(), unresolvedUnknown(pending.err))
+			remaining -= pending.rows
+			r.replay.pending = nil
+		}
+		r.exporter.statuses.recordRetryExhausted(r.exporter.signal, remaining)
 	})
 }
 

@@ -54,6 +54,10 @@ delivery:
     directory: /var/lib/telescope/queue
     max_bytes: 536870912
     consumers: 1
+  unknown_retry:
+    enabled: false
+    max_retries: 3
+    max_elapsed_time: 5m
   retry:
     initial_interval: 5s
     max_interval: 60s
@@ -78,7 +82,7 @@ The example selects a container queue directory and enables optional OTLP self-m
 
 Precedence is command flags, nonempty Telescope environment variables, YAML, then built-in defaults. Connection settings additionally accept `SCOPEDB_ENDPOINT` / `SCOPEDB_API_KEY` as environment fallbacks before YAML. An `--env-file` fills unset values using literal `KEY=VALUE` lines and optional matching quotes; it performs no shell expansion and does not support inline comments. `${env:NAME}` references are supported in destination settings, the queue directory, and OTLP endpoint, headers, and resource attributes. Mapping values remain literal. `validate`, including `--offline`, reports resolved runtime values and their sources, plus total queue capacity across enabled signals. `validate` and `run` warn when an environment override replaces an explicitly configured YAML field. Remove obsolete deployment environment overrides when moving settings into YAML. Operational settings do not change the ingestion contract digest.
 
-[The environment example](../deploy/.env.example) lists the existing batching, append, timeout, and queue overrides. Compose forwards these variables. Keep credentials in your deployment secret store and tune memory, retries, and self-metrics in YAML. `memory_spike_mib` must be smaller than `memory_limit_mib`; raise the limit to match the process budget. `delivery.timeout: 0s` disables the per-attempt deadline, and `delivery.retry.max_elapsed_time: 0s` permits unlimited retries. Set a finite duration, such as `5m`, when delivery must expire; exhausted records count as dropped.
+[The environment example](../deploy/.env.example) lists the existing batching, append, timeout, and queue overrides. Compose forwards these variables. Keep credentials in your deployment secret store and tune memory, retries, and self-metrics in YAML. `memory_spike_mib` must be smaller than `memory_limit_mib`; raise the limit to match the process budget. `delivery.timeout: 0s` disables the per-attempt deadline, and `delivery.retry.max_elapsed_time: 0s` permits unlimited retries. Set a finite duration, such as `5m`, when delivery must expire; exhausted known-unwritten records count as dropped. `delivery.unknown_retry` is a separate, default-disabled policy for applications that accept possible duplicates. Enabling it requires finite count and elapsed budgets; see [unknown replay semantics](exporter.md#append-and-retry-semantics), including the restart boundary.
 
 Queue capacity (`delivery.queue.max_bytes`) is **per signal**, measured in logical serialized bytes. File queues default to 512 MiB per signal. Size a file volume above the sum for enabled signals, plus queue database overhead. File queues require exclusive ownership: never share a directory between live processes. Each replacement must reopen the same directory only after its previous owner stops. A task-local file directory avoids shared locks, but data survives only as long as that directory does. `delivery.queue.type: memory` explicitly selects volatile buffering and needs no volume; pending data is lost when the process exits. A shared filesystem is not a shared queue service: separate directories isolate live instances, but a replacement can recover pending data only by reopening its predecessor's directory after the predecessor stops. Increasing the file lock wait does not establish ownership or coordinate rolling deployment. Shared queue takeover is not provided. On network storage, validate locking, sync behavior, and startup latency in the actual deployment.
 

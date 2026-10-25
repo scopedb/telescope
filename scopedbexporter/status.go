@@ -50,6 +50,8 @@ type SignalRuntimeStatus struct {
 	LastProbeSuccess        time.Time
 	ConfirmedWrittenRecords uint64
 	UnknownRecords          uint64
+	UnknownReplayAttempts   uint64
+	UnknownReplayedRecords  uint64
 	PermanentFailedRecords  uint64
 	RetryExhaustedRecords   uint64
 	EnqueueFailedRecords    uint64

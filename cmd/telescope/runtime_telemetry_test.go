@@ -40,6 +40,14 @@ import (
 )
 
 func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
+	for _, replayEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replay=%v", replayEnabled), func(t *testing.T) { testRunTelemetry(t, replayEnabled) })
+	}
+}
+
+func testRunTelemetry(t *testing.T, replayEnabled bool) {
+	t.Helper()
+
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
 		if strings.HasPrefix(name, "TELESCOPE_") || strings.HasPrefix(name, "SCOPEDB_") {
@@ -118,6 +126,13 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 		case 2:
 			w.WriteHeader(400)
 			_, _ = io.WriteString(w, `{"message":"rejected","details":{"status":"rejected"}}`)
+		case 3:
+			if replayEnabled {
+				w.WriteHeader(400)
+				_, _ = io.WriteString(w, `{"details":{"status":"rejected"}}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"status":"committed","num_rows_inserted":1}`)
 		default:
 			_, _ = io.WriteString(w, `{"status":"committed","num_rows_inserted":1}`)
 		}
@@ -134,6 +149,11 @@ receivers:
   http_addr: %q
 http_addr: %q
 delivery:
+  unknown_retry:
+    enabled: %t
+  retry:
+    initial_interval: 10ms
+    max_interval: 10ms
   queue:
     type: memory
 batch:
@@ -159,7 +179,7 @@ signals:
     table: logs
     mapping:
       value: log.message
-`, backend.URL, grpcAddress, httpAddress, opsAddress, metricsAddress, gateway.URL)), 0o600))
+`, backend.URL, grpcAddress, httpAddress, opsAddress, replayEnabled, metricsAddress, gateway.URL)), 0o600))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	var stderr bytes.Buffer
@@ -205,7 +225,15 @@ signals:
 			observed["otelcol_exporter_queue_size"] == 1 &&
 			observed["otelcol_receiver_accepted_log_records"] == 3
 	}, 5*time.Second, 10*time.Millisecond)
-	require.Equal(t, int64(3), calls.Load())
+	expectedCalls := int64(3)
+	if replayEnabled {
+		expectedCalls++
+		mu.Lock()
+		require.Equal(t, int64(1), observed["telescope_ingestion_unknown_replay_attempts_total"])
+		require.Equal(t, int64(1), observed["telescope_ingestion_unknown_replayed_records_total"])
+		mu.Unlock()
+	}
+	require.Equal(t, expectedCalls, calls.Load())
 	for _, path := range []string{"/metrics", "/v1/ingestion/status"} {
 		response, err := client.Get("http://" + opsAddress + path)
 		require.NoError(t, err)
@@ -214,6 +242,9 @@ signals:
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 200, response.StatusCode)
 		if path == "/metrics" {
+			if replayEnabled {
+				require.Contains(t, string(body), `telescope_ingestion_unknown_replay_attempts_total{signal="logs",table="logs"} 1`)
+			}
 			require.Contains(t, string(body), `telescope_ingestion_unknown_total{signal="logs",table="logs"} 1`)
 			require.Contains(t, string(body), `telescope_ingestion_dropped_total{signal="logs",table="logs",reason="permanent_rejected"} 1`)
 		} else {

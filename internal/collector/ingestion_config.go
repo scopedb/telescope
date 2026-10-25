@@ -124,6 +124,7 @@ func ConfigURI(config Config) (string, error) {
 			"append_batch":     map[string]any{"max_rows": config.Delivery.MaxRows, "max_bytes": config.Delivery.MaxBytes},
 			"sending_queue":    queue,
 			"retry_on_failure": map[string]any{"enabled": true, "initial_interval": r.InitialInterval.String(), "max_interval": r.MaxInterval.String(), "max_elapsed_time": r.MaxElapsedTime.String()},
+			"unknown_retry":    map[string]any{"enabled": config.Delivery.UnknownRetry.Enabled, "max_retries": config.Delivery.UnknownRetry.MaxRetries, "max_elapsed_time": config.Delivery.UnknownRetry.MaxElapsedTime.String()},
 			"tables":           tables, "mappings": mappings,
 		}},
 		"service": map[string]any{

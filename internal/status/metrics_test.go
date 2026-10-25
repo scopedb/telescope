@@ -43,6 +43,8 @@ func TestGetPrometheusMetrics(t *testing.T) {
 				QueueUnit:               "bytes",
 				LastWriteSuccess:        lastSuccess,
 				ConfirmedWrittenRecords: 7,
+				UnknownReplayAttempts:   2,
+				UnknownReplayedRecords:  1,
 				PermanentFailedRecords:  2,
 				RetryExhaustedRecords:   2,
 				EnqueueFailedRecords:    1,
@@ -74,7 +76,15 @@ func TestGetPrometheusMetrics(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.Equal(t, string(expfmt.NewFormat(expfmt.TypeTextPlain)), recorder.Header().Get("Content-Type"))
-	assert.Equal(t, `# HELP telescope_ingestion_unknown_total Telemetry items with an unknown append outcome, excluded from written and dropped items.
+	assert.Equal(t, `# HELP telescope_ingestion_unknown_replay_attempts_total Append attempts replaying a chunk with a previous unknown outcome.
+# TYPE telescope_ingestion_unknown_replay_attempts_total counter
+telescope_ingestion_unknown_replay_attempts_total{signal="logs",table="scopedb.otel.logs"} 2
+telescope_ingestion_unknown_replay_attempts_total{signal="traces",table="scopedb.otel.traces"} 0
+# HELP telescope_ingestion_unknown_replayed_records_total Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery.
+# TYPE telescope_ingestion_unknown_replayed_records_total counter
+telescope_ingestion_unknown_replayed_records_total{signal="logs",table="scopedb.otel.logs"} 1
+telescope_ingestion_unknown_replayed_records_total{signal="traces",table="scopedb.otel.traces"} 0
+# HELP telescope_ingestion_unknown_total Telemetry items with an unknown append outcome, excluded from written and dropped items.
 # TYPE telescope_ingestion_unknown_total counter
 telescope_ingestion_unknown_total{signal="logs",table="scopedb.otel.logs"} 0
 telescope_ingestion_unknown_total{signal="traces",table="scopedb.otel.traces"} 0
