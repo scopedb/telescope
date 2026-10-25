@@ -266,7 +266,7 @@ func TestCompileMappingRuleResolvesKnownConstantCast(t *testing.T) {
 		Cast:    "int",
 	})
 	require.NoError(t, err)
-	evaluation, err = compiled.evaluate(Record{})
+	evaluation, err = compiled.evaluate(telemetryRecord{})
 	require.NoError(t, err)
 	assert.True(t, evaluation.present)
 	assert.Equal(t, int64(3), evaluation.value)
@@ -286,10 +286,10 @@ func TestCompileMappingRuleDeclaresDynamicStructuredType(t *testing.T) {
 	assert.Equal(t, selectorTypeObject, compiled.valueType)
 	assert.True(t, compiled.runtimeDependent)
 
-	evaluation, err := compiled.evaluate(Record{"body": map[string]any{"request_id": "42"}})
+	evaluation, err := compiled.evaluate(telemetryRecord{"body": map[string]any{"request_id": "42"}})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"request_id": "42"}, evaluation.value)
 
-	_, err = compiled.evaluate(Record{"body": "not-an-object"})
+	_, err = compiled.evaluate(telemetryRecord{"body": "not-an-object"})
 	require.Error(t, err)
 }

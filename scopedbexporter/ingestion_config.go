@@ -198,7 +198,7 @@ func InspectIngestionDestinations(
 	return validations, errors.Join(errs...)
 }
 
-func newIngestionClient(endpoint string, apiKey string, ingestion IngestionConfig) (*Client, error) {
+func newIngestionClient(endpoint string, apiKey string, ingestion IngestionConfig) (*appendClient, error) {
 	cfg := createDefaultConfig().(*Config)
 	cfg.Endpoint = endpoint
 	cfg.APIKey = configopaque.String(apiKey)

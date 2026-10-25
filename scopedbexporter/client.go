@@ -29,7 +29,6 @@ import (
 	scopedb "github.com/scopedb/goscopedb"
 	"github.com/scopedb/telescope/internal/httpclient"
 	"go.opentelemetry.io/collector/consumer/consumererror"
-	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.uber.org/zap"
 )
@@ -39,7 +38,7 @@ const (
 	maxAppendRequestRows  = 200_000
 )
 
-type Client struct {
+type appendClient struct {
 	sdk      *scopedb.Client
 	http     *http.Client
 	logger   *zap.Logger
@@ -61,11 +60,7 @@ type sendOutcome struct {
 	err         error
 }
 
-func NewClient(cfg *Config, settings exporter.Settings) (*Client, error) {
-	return newClient(cfg, settings.Logger)
-}
-
-func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
+func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
 	httpClient := httpclient.New()
 	sdkClient, err := scopedb.NewClient(scopedb.Config{
 		Endpoint:    cfg.Endpoint,
@@ -92,7 +87,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 		plans[signal] = plan
 	}
 
-	return &Client{
+	return &appendClient{
 		sdk:    sdkClient,
 		http:   httpClient,
 		logger: logger.Named("scopedbexporter/client"),
@@ -104,7 +99,7 @@ func newClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Close() {
+func (c *appendClient) Close() {
 	if c.sdk != nil {
 		c.sdk.Close()
 	}
@@ -113,12 +108,7 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) ValidateDestination(ctx context.Context, signal string) error {
-	_, err := c.inspectDestination(ctx, signal)
-	return err
-}
-
-func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalDestinationValidation, error) {
+func (c *appendClient) inspectDestination(ctx context.Context, signal string) (SignalDestinationValidation, error) {
 	plan, ok := c.plans[signal]
 	if !ok {
 		return SignalDestinationValidation{}, fmt.Errorf("no mapping plan for signal %q", signal)
@@ -175,29 +165,7 @@ func (c *Client) inspectDestination(ctx context.Context, signal string) (SignalD
 	return validation, errors.Join(validationErrors...)
 }
 
-func (c *Client) Send(ctx context.Context, signal string, payload *IngestPayload) error {
-	outcome := c.send(ctx, signal, payload)
-	if outcome.err != nil {
-		return outcome.err
-	}
-	if len(outcome.unknown) > 0 {
-		return consumererror.NewPermanent(fmt.Errorf("%d rows have an unknown append outcome: %w", len(outcome.unknown), outcome.unknown[0].err))
-	}
-	if len(outcome.rejected) == 0 {
-		return nil
-	}
-	errs := make([]error, 0, len(outcome.rejected))
-	for _, failure := range outcome.rejected {
-		errs = append(errs, failure.err)
-	}
-	return consumererror.NewPermanent(fmt.Errorf(
-		"%d mapped rows rejected: %w",
-		len(outcome.rejected),
-		errors.Join(errs...),
-	))
-}
-
-func (c *Client) send(ctx context.Context, signal string, payload *IngestPayload) sendOutcome {
+func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload) sendOutcome {
 	if payload == nil {
 		return sendOutcome{err: consumererror.NewPermanent(errors.New("nil append payload"))}
 	}
@@ -411,7 +379,7 @@ func recordIndexes(from int, to int) []int {
 	return indexes
 }
 
-func (c *Client) table(ref tableRef) *scopedb.Table {
+func (c *appendClient) table(ref tableRef) *scopedb.Table {
 	table := c.sdk.Table(ref.Table)
 	table.Database = ref.Database
 	table.Schema = ref.Schema

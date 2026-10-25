@@ -235,7 +235,7 @@ func describeMappedColumn(column mappedColumn) MappingColumnDescription {
 	}
 }
 
-func mapOTLPSample(signal string, sample []byte) (*IngestPayload, error) {
+func mapOTLPSample(signal string, sample []byte) (*ingestPayload, error) {
 	trimmed := bytes.TrimSpace(sample)
 	if len(trimmed) == 0 {
 		return nil, errors.New("OTLP sample is empty")

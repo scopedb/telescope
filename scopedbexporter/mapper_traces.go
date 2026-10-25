@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func mapTraces(traces ptrace.Traces) (*IngestPayload, error) {
+func mapTraces(traces ptrace.Traces) (*ingestPayload, error) {
 	payload := newPayload()
 
 	resourceSpans := traces.ResourceSpans()
@@ -38,7 +38,7 @@ func mapTraces(traces ptrace.Traces) (*IngestPayload, error) {
 			spans := scopeSpan.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				mapped := Record{
+				mapped := telemetryRecord{
 					"trace_id":                 traceIDString(span.TraceID()),
 					"span_id":                  spanIDString(span.SpanID()),
 					"parent_span_id":           spanIDString(span.ParentSpanID()),

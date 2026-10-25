@@ -133,7 +133,7 @@ func observeSampleField(observed map[string]*sampleFieldObservation, selector st
 func expandSampleObject(observed map[string]*sampleFieldObservation, selector string, value any) {
 	values, ok := value.(map[string]any)
 	if !ok {
-		if record, recordOK := value.(Record); recordOK {
+		if record, recordOK := value.(telemetryRecord); recordOK {
 			values = map[string]any(record)
 		} else {
 			return

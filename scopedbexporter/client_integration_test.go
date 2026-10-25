@@ -113,10 +113,11 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 			},
 		},
 	}))
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
-	require.NoError(t, client.ValidateDestination(ctx, signalLogs))
+	_, validationErr := client.inspectDestination(ctx, signalLogs)
+	require.NoError(t, validationErr)
 
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
@@ -129,7 +130,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 
 	payload, err := mapLogs(logs)
 	require.NoError(t, err)
-	require.NoError(t, client.Send(ctx, signalLogs, payload))
+	requireCommitted(t, client.send(ctx, signalLogs, payload))
 
 	result, err := sdkClient.Query(ctx, fmt.Sprintf("FROM %s", table.Identifier()))
 	require.NoError(t, err)
@@ -141,7 +142,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	assert.Equal(t, "01020300000000000000000000000000", objects[0]["trace_id"])
 	assert.Len(t, objects[0], 4)
 
-	outcome := client.send(ctx, signalLogs, &IngestPayload{Records: []Record{
+	outcome := client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"message": "before invalid row"},
 		{"message": 42},
 		{"message": "after invalid row"},
@@ -216,11 +217,12 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 				_, err := table.Catalog().Delete(ctx, scopedb.CatalogOptions{AllowDestructive: true})
 				assert.NoError(t, err)
 			})
-			client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+			client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 			require.NoError(t, err)
 			defer client.Close()
-			require.NoError(t, client.ValidateDestination(ctx, signal))
-			require.NoError(t, client.Send(ctx, signal, payload))
+			_, validationErr := client.inspectDestination(ctx, signal)
+			require.NoError(t, validationErr)
+			requireCommitted(t, client.send(ctx, signal, payload))
 
 			query := "FROM " + table.Identifier()
 			if signal == signalTraces {

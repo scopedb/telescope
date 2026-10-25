@@ -23,7 +23,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"go.yaml.in/yaml/v3"
 )
 

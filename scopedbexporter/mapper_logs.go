@@ -18,7 +18,7 @@ package scopedbexporter
 
 import "go.opentelemetry.io/collector/pdata/plog"
 
-func mapLogs(logs plog.Logs) (*IngestPayload, error) {
+func mapLogs(logs plog.Logs) (*ingestPayload, error) {
 	payload := newPayload()
 
 	resourceLogs := logs.ResourceLogs()
@@ -34,7 +34,7 @@ func mapLogs(logs plog.Logs) (*IngestPayload, error) {
 			for k := 0; k < logRecords.Len(); k++ {
 				record := logRecords.At(k)
 				body := valueToAny(record.Body())
-				mapped := Record{
+				mapped := telemetryRecord{
 					"timestamp_unix_nano":          timestampString(record.Timestamp()),
 					"observed_timestamp_unix_nano": timestampString(record.ObservedTimestamp()),
 					"trace_id":                     traceIDString(record.TraceID()),

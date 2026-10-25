@@ -103,7 +103,7 @@ var signalSourceSelectors = map[string][]string{
 	},
 }
 
-type recordGetter func(Record) (any, bool)
+type recordGetter func(telemetryRecord) (any, bool)
 
 type mappedColumn struct {
 	name             string
@@ -186,7 +186,7 @@ func compileMappingPlan(signal string, table string, columns MappingConfig) (*ma
 	return plan, nil
 }
 
-func (p *mappingPlan) project(record Record) (map[string]any, error) {
+func (p *mappingPlan) project(record telemetryRecord) (map[string]any, error) {
 	row := make(map[string]any, len(p.columns))
 	for _, column := range p.columns {
 		evaluation, err := column.get(record)
@@ -294,7 +294,7 @@ func compileRecordGetter(signal string, source string) (recordGetter, error) {
 
 	getter := commonRecordGetter(base)
 	if base == "record.id" {
-		getter = func(record Record) (any, bool) { return recordID(signal, record) }
+		getter = func(record telemetryRecord) (any, bool) { return recordID(signal, record) }
 	}
 	if getter == nil {
 		switch signal {
@@ -446,7 +446,7 @@ func parseSelectorPath(source string) (string, []selectorPathStep, error) {
 }
 
 func selectorPathGetter(base recordGetter, steps []selectorPathStep) recordGetter {
-	return func(record Record) (any, bool) {
+	return func(record telemetryRecord) (any, bool) {
 		current, ok := base(record)
 		if !ok {
 			return nil, false
@@ -463,7 +463,7 @@ func selectorPathGetter(base recordGetter, steps []selectorPathStep) recordGette
 			switch values := current.(type) {
 			case map[string]any:
 				current, ok = values[step.key]
-			case Record:
+			case telemetryRecord:
 				current, ok = values[step.key]
 			default:
 				return nil, false
@@ -536,7 +536,7 @@ func editDistance(left string, right string) int {
 func commonRecordGetter(source string) recordGetter {
 	switch source {
 	case "record":
-		return func(record Record) (any, bool) { return map[string]any(record), true }
+		return func(record telemetryRecord) (any, bool) { return map[string]any(record), true }
 	case "resource.attributes":
 		return pathGetter("resource")
 	case "resource.schema_url":
@@ -688,7 +688,7 @@ func metricRecordGetter(source string) recordGetter {
 }
 
 func timestampGetter(key string) recordGetter {
-	return func(record Record) (any, bool) {
+	return func(record telemetryRecord) (any, bool) {
 		raw, ok := pathGetter(key)(record)
 		if !ok {
 			return nil, false
@@ -703,19 +703,19 @@ func timestampGetter(key string) recordGetter {
 }
 
 func pathGetter(key string) recordGetter {
-	return func(record Record) (any, bool) {
+	return func(record telemetryRecord) (any, bool) {
 		value, ok := record[key]
 		return presentValue(value, ok)
 	}
 }
 
 func nestedPathGetter(path ...string) recordGetter {
-	return func(record Record) (any, bool) {
+	return func(record telemetryRecord) (any, bool) {
 		var current any = map[string]any(record)
 		for _, key := range path {
 			values, ok := current.(map[string]any)
 			if !ok {
-				if typed, recordOK := current.(Record); recordOK {
+				if typed, recordOK := current.(telemetryRecord); recordOK {
 					values = map[string]any(typed)
 				} else {
 					return nil, false

@@ -89,7 +89,7 @@ The target tables are user-managed and must exist before data can be written. St
 Sources shared by all signals:
 
 - `record`: the full normalized signal record, including attributes, resource, scope, and signal-specific fields
-- `record.id`: a deterministic SHA-256 content identifier; see [v0.2 compatibility](../../docs/migration-v0.2.md)
+- `record.id`: a deterministic SHA-256 content identifier; see [v0.2 compatibility](../docs/migration-v0.2.md)
 - `resource.attributes`, `resource.attributes["<key>"]`
 - `resource.schema_url`, `resource.dropped_attributes_count`
 - `scope.name`, `scope.version`, `scope.attributes`, `scope.attributes["<key>"]`

@@ -182,7 +182,7 @@ func TestAppendBatchBoundsMappedPayload(t *testing.T) {
 		}
 		return scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: int64(len(lines))}, nil
 	}
-	outcome := client.send(t.Context(), signalLogs, &IngestPayload{Records: []Record{{"message": "a"}, {"message": strings.Repeat("x", 80)}, {"message": strings.Repeat("y", 35)}, {"message": "b"}, {"message": "c"}}})
+	outcome := client.send(t.Context(), signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "a"}, {"message": strings.Repeat("x", 80)}, {"message": strings.Repeat("y", 35)}, {"message": "b"}, {"message": "c"}}})
 	require.NoError(t, outcome.err)
 	require.Len(t, outcome.rejected, 1)
 	require.Equal(t, []string{"a", strings.Repeat("y", 35), "b", "c"}, sent)
@@ -204,7 +204,7 @@ func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout.Timeout)
 	defer cancel()
-	require.NoError(t, exp.client.Send(ctx, signalLogs, &IngestPayload{Records: []Record{{"message": "ok"}}}))
+	requireCommitted(t, exp.client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "ok"}}}))
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

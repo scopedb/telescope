@@ -27,7 +27,7 @@ import (
 )
 
 func TestV02CompatibleMapping(t *testing.T) {
-	data, err := os.ReadFile("../../deploy/telescope.v0.2-compatible.yaml")
+	data, err := os.ReadFile("../deploy/telescope.v0.2-compatible.yaml")
 	require.NoError(t, err)
 	var cfg IngestionConfig
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
@@ -91,8 +91,8 @@ func requireRecordContains(t *testing.T, want, got any) {
 }
 
 func TestRecordIDSurvivesRebatching(t *testing.T) {
-	first := Record{"attributes": map[string]any{"b": 2, "a": 1}, "body": "message", "timestamp_unix_nano": "100"}
-	second := Record{"timestamp_unix_nano": "100", "body": "message", "attributes": map[string]any{"a": 1, "b": 2}}
+	first := telemetryRecord{"attributes": map[string]any{"b": 2, "a": 1}, "body": "message", "timestamp_unix_nano": "100"}
+	second := telemetryRecord{"timestamp_unix_nano": "100", "body": "message", "attributes": map[string]any{"a": 1, "b": 2}}
 	id, ok := recordID(signalLogs, first)
 	require.True(t, ok)
 	replay, ok := recordID(signalLogs, second)

@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 func TestNewWithRegistriesUsesProvidedRuntime(t *testing.T) {

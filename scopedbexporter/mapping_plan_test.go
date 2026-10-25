@@ -33,7 +33,7 @@ func TestMappingPlanProjectsOnlySelectedColumns(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"trace_id":             "010203",
 		"span_id":              "not-selected",
 		"start_time_unix_nano": "1713835425123456789",
@@ -65,7 +65,7 @@ func TestMappingPlanCanExplicitlyKeepAttributeObjects(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"attributes": map[string]any{"order.id": "42"},
 		"resource":   map[string]any{"service.name": "checkout"},
 	})
@@ -82,7 +82,7 @@ func TestMappingPlanOmitsMissingSources(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{"number_value": 0.0})
+	row, err := plan.project(telemetryRecord{"number_value": 0.0})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"value": 0.0}, row)
 }
@@ -94,12 +94,12 @@ func TestMappingPlanKeepsMetricNumberTypesSeparate(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"int_value": int64(9_007_199_254_740_993),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"int_value": int64(9_007_199_254_740_993)}, row)
-	row, err = plan.project(Record{
+	row, err = plan.project(telemetryRecord{
 		"double_value": 0.75,
 	})
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestMappingPlanPreservesSelectedEmptyString(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"resource": map[string]any{"tenant": ""},
 	})
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestMappingPlanProjectsNestedFallbackCastDefaultAndValue(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"body": map[string]any{
 			"attempt": "2",
 			"request": map[string]any{"id": "request-42"},
@@ -186,7 +186,7 @@ func TestMappingPlanTreatsNestedPathMismatchAsAbsent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"body":       map[string]any{"request": "not-an-object"},
 		"attributes": map[string]any{"request.id": "request-42"},
 	})
@@ -200,7 +200,7 @@ func TestMappingPlanAllowsWhitespaceInNestedSelectors(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{
+	row, err := plan.project(telemetryRecord{
 		"body": map[string]any{
 			"request": map[string]any{"id": "request-42"},
 		},
@@ -221,7 +221,7 @@ func TestMappingPlanCoalesceUsesFirstPresentValue(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	row, err := plan.project(Record{"resource": map[string]any{
+	row, err := plan.project(telemetryRecord{"resource": map[string]any{
 		"tenant.primary":  "",
 		"tenant.fallback": "fallback",
 	}})
@@ -235,7 +235,7 @@ func TestMappingPlanReportsCastFailure(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = plan.project(Record{"attributes": map[string]any{"attempt": "second"}})
+	_, err = plan.project(telemetryRecord{"attributes": map[string]any{"attempt": "second"}})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, `column "attempt"`)
 	reason, ok := mappingErrorReason(err)

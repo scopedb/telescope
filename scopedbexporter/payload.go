@@ -34,21 +34,20 @@ const (
 	signalTraces  = "traces"
 	signalMetrics = "metrics"
 
-	// ProbeAttribute identifies synthetic records sent by `telescope ingestion
-	// test`. It is observed in memory and does not need to be part of a user's
+	// ProbeAttribute identifies synthetic records sent by `telescope verify`. It is observed in memory and does not need to be part of a user's
 	// ScopeDB mapping.
 	ProbeAttribute = "telescope.probe.id"
 )
 
-type IngestPayload struct {
-	Records []Record
+type ingestPayload struct {
+	Records []telemetryRecord
 }
 
-type Record map[string]any
+type telemetryRecord map[string]any
 
 // recordID identifies mapped content independently of batch position, queue
 // replay, and arrival time. Equal records intentionally have equal IDs.
-func recordID(signal string, record Record) (any, bool) {
+func recordID(signal string, record telemetryRecord) (any, bool) {
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return nil, false
@@ -59,7 +58,7 @@ func recordID(signal string, record Record) (any, bool) {
 	return fmt.Sprintf("%x", digest.Sum(nil)), true
 }
 
-func probeIDsFromRecords(payload *IngestPayload, indexes []int) []string {
+func probeIDsFromRecords(payload *ingestPayload, indexes []int) []string {
 	if payload == nil {
 		return nil
 	}
@@ -93,9 +92,9 @@ type otelContext struct {
 	scopeSchemaURL                 string
 }
 
-func newPayload() *IngestPayload {
-	return &IngestPayload{
-		Records: make([]Record, 0),
+func newPayload() *ingestPayload {
+	return &ingestPayload{
+		Records: make([]telemetryRecord, 0),
 	}
 }
 
@@ -109,7 +108,7 @@ func newOTelContext(resource pcommon.Resource, resourceSchemaURL string, scope p
 	}
 }
 
-func (c otelContext) addTo(record Record) {
+func (c otelContext) addTo(record telemetryRecord) {
 	record["resource"] = c.resource
 	record["resource_schema_url"] = c.resourceSchemaURL
 	record["resource_dropped_attributes_count"] = c.resourceDroppedAttributesCount

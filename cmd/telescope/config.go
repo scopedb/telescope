@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/scopedb/telescope/internal/collector"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 const defaultTelescopeConfigPath = "telescope.yaml"

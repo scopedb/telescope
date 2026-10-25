@@ -164,7 +164,7 @@ func PlanIngestionTables(
 	return result, nil
 }
 
-func missingNamespace(ctx context.Context, client *Client, database string, schema string) (bool, bool, error) {
+func missingNamespace(ctx context.Context, client *appendClient, database string, schema string) (bool, bool, error) {
 	_, err := client.sdk.Catalog().Schema(database, schema).Get(ctx)
 	if err == nil {
 		return false, false, nil

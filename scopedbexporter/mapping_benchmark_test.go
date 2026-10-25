@@ -21,7 +21,7 @@ import "testing"
 var benchmarkMappingRow map[string]any
 
 func BenchmarkMappingPlanProject(b *testing.B) {
-	record := Record{
+	record := telemetryRecord{
 		"trace_id": "0102030405060708090a0b0c0d0e0f10",
 		"message":  "order accepted",
 		"status":   "INFO",

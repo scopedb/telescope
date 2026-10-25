@@ -103,7 +103,7 @@ func metricMappingError(metric pmetric.Metric) error {
 	return nil
 }
 
-func mapMetrics(metrics pmetric.Metrics) (*IngestPayload, error) {
+func mapMetrics(metrics pmetric.Metrics) (*ingestPayload, error) {
 	payload := newPayload()
 
 	resourceMetrics := metrics.ResourceMetrics()
@@ -128,7 +128,7 @@ func mapMetrics(metrics pmetric.Metrics) (*IngestPayload, error) {
 	return payload, nil
 }
 
-func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, otelCtx otelContext) error {
+func appendMetricRecords(payload *ingestPayload, metric pmetric.Metric, otelCtx otelContext) error {
 	switch metric.Type() {
 	case pmetric.MetricTypeGauge:
 		points := metric.Gauge().DataPoints()
@@ -206,8 +206,8 @@ func appendMetricRecords(payload *IngestPayload, metric pmetric.Metric, otelCtx 
 	return nil
 }
 
-func newMetricRecord(metric pmetric.Metric, otelCtx otelContext, attrs pcommon.Map, ts pcommon.Timestamp, start pcommon.Timestamp, flags pmetric.DataPointFlags) Record {
-	record := Record{
+func newMetricRecord(metric pmetric.Metric, otelCtx otelContext, attrs pcommon.Map, ts pcommon.Timestamp, start pcommon.Timestamp, flags pmetric.DataPointFlags) telemetryRecord {
+	record := telemetryRecord{
 		"metric_name":               metric.Name(),
 		"description":               metric.Description(),
 		"unit":                      metric.Unit(),
@@ -221,7 +221,7 @@ func newMetricRecord(metric pmetric.Metric, otelCtx otelContext, attrs pcommon.M
 	return record
 }
 
-func newNumberMetricRecord(metric pmetric.Metric, otelCtx otelContext, point pmetric.NumberDataPoint) (Record, error) {
+func newNumberMetricRecord(metric pmetric.Metric, otelCtx otelContext, point pmetric.NumberDataPoint) (telemetryRecord, error) {
 	value, valueType, err := numberDataPointValue(point)
 	if err != nil {
 		return nil, err

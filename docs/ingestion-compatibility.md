@@ -2,7 +2,7 @@
 
 Compatibility contract: `v1` source mapping
 
-This reference documents the OTLP data Telescope accepts and the fields available to mappings. The executable source contract is the versioned corpus under `packages/scopedbexporter/testdata/golden/v1`.
+This reference documents the OTLP data Telescope accepts and the fields available to mappings. The executable source contract is the versioned corpus under `scopedbexporter/testdata/golden/v1`.
 
 This is not a mandatory ScopeDB row schema. Only sources selected in a configured signal's `mapping` are serialized into its destination columns. See [Mapping and Table Management](table-management.md).
 
@@ -132,7 +132,7 @@ When the embedded profile uses `unit: bytes`, queue size and capacity are logica
 
 The status and metrics endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
 
-Counters reset when the process restarts. See the [delivery contract](../packages/scopedbexporter/README.md#append-and-retry-semantics) for the crash window between an append and queue acknowledgement.
+Counters reset when the process restarts. See the [delivery contract](../scopedbexporter/README.md#append-and-retry-semantics) for the crash window between an append and queue acknowledgement.
 
 ### Forward Collector Metrics over OTLP
 
@@ -174,7 +174,7 @@ These gaps require an additive source-selector extension. They must be added to 
 Any OpenTelemetry Collector dependency update must pass:
 
 ```bash
-go test ./packages/scopedbexporter -run TestGoldenMappingContractV1
+go test ./scopedbexporter -run TestGoldenMappingContractV1
 go test ./internal/collector -run TestPersistentQueueV1FixtureRemainsReadable
 ```
 

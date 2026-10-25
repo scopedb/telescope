@@ -32,7 +32,7 @@ import (
 
 	"github.com/scopedb/telescope/internal/collector"
 	statusapi "github.com/scopedb/telescope/internal/status"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer) error {

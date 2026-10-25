@@ -245,7 +245,7 @@ type mappingEvaluation struct {
 	resolution int
 }
 
-type mappingEvaluator func(Record) (mappingEvaluation, error)
+type mappingEvaluator func(telemetryRecord) (mappingEvaluation, error)
 
 type compiledMappingRule struct {
 	description      string
@@ -329,11 +329,11 @@ func compileMappingRule(signal string, configured MappingRule) (compiledMappingR
 
 	var evaluator mappingEvaluator
 	if rule.hasValue() {
-		evaluator = func(Record) (mappingEvaluation, error) {
+		evaluator = func(telemetryRecord) (mappingEvaluation, error) {
 			return mappingEvaluation{value: value, present: true, resolution: 0}, nil
 		}
 	} else {
-		evaluator = func(record Record) (mappingEvaluation, error) {
+		evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
 			for index, getter := range getters {
 				if selected, ok := getter(record); ok {
 					return mappingEvaluation{value: selected, present: true, resolution: index}, nil
@@ -343,7 +343,7 @@ func compileMappingRule(signal string, configured MappingRule) (compiledMappingR
 		}
 		if rule.Cast != "" {
 			inner := evaluator
-			evaluator = func(record Record) (mappingEvaluation, error) {
+			evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
 				evaluation, err := inner(record)
 				if err != nil || !evaluation.present {
 					return evaluation, err
@@ -361,7 +361,7 @@ func compileMappingRule(signal string, configured MappingRule) (compiledMappingR
 		}
 		if rule.hasDefault() {
 			inner := evaluator
-			evaluator = func(record Record) (mappingEvaluation, error) {
+			evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
 				evaluation, err := inner(record)
 				if err != nil || evaluation.present {
 					return evaluation, err
@@ -439,7 +439,7 @@ func selectorTypeForValue(value any) selectorType {
 		return selectorTypeUInt
 	case float32, float64:
 		return selectorTypeFloat
-	case map[string]any, Record:
+	case map[string]any, telemetryRecord:
 		return selectorTypeObject
 	case []any, []map[string]any:
 		return selectorTypeArray

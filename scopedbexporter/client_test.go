@@ -66,17 +66,17 @@ func TestClientSendAppendsMappedNDJSON(t *testing.T) {
 		"message": "log.message",
 		"service": `resource.attributes["service.name"]`,
 	})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{
+	outcome := client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{{
 		"message":    "hello",
 		"trace_id":   "not-selected",
 		"attributes": map[string]any{"order.id": "not-selected"},
 		"resource":   map[string]any{"service.name": "checkout", "host.name": "not-selected"},
 	}}})
-	require.NoError(t, err)
+	requireCommitted(t, outcome)
 	require.Len(t, received, 1)
 	assert.Equal(t, map[string]any{"message": "hello", "service": "checkout"}, received[0])
 }
@@ -94,12 +94,12 @@ func TestClientSendUsesConfiguredGzipCompression(t *testing.T) {
 	cfg := testClientConfig(server.URL)
 	cfg.Compression = "gzip"
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
-	require.NoError(t, client.Send(context.Background(), signalLogs, &IngestPayload{
-		Records: []Record{{"message": "hello"}},
+	requireCommitted(t, client.send(context.Background(), signalLogs, &ingestPayload{
+		Records: []telemetryRecord{{"message": "hello"}},
 	}))
 }
 
@@ -108,7 +108,7 @@ func TestClientSendRoutesAllSignals(t *testing.T) {
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
 	cfg.Mappings.Traces = shorthandMapping(map[string]string{"name": "span.name"})
 	cfg.Mappings.Metrics = shorthandMapping(map[string]string{"name": "metric.name"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -122,9 +122,9 @@ func TestClientSendRoutesAllSignals(t *testing.T) {
 		return scopedb.AppendRowsResult{Status: scopedb.AppendStateCommitted, NumRowsInserted: 1}, nil
 	}
 
-	require.NoError(t, client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "log"}}}))
-	require.NoError(t, client.Send(context.Background(), signalTraces, &IngestPayload{Records: []Record{{"name": "span"}}}))
-	require.NoError(t, client.Send(context.Background(), signalMetrics, &IngestPayload{Records: []Record{{"metric_name": "metric"}}}))
+	requireCommitted(t, client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "log"}}}))
+	requireCommitted(t, client.send(context.Background(), signalTraces, &ingestPayload{Records: []telemetryRecord{{"name": "span"}}}))
+	requireCommitted(t, client.send(context.Background(), signalMetrics, &ingestPayload{Records: []telemetryRecord{{"metric_name": "metric"}}}))
 
 	assert.Equal(t, []string{"vendor_otel_logs_test", "vendor_otel_traces_test", "vendor_otel_metrics_test"}, tableNames)
 	assert.Equal(t, []map[string]any{{"message": "log"}, {"name": "span"}, {"name": "metric"}}, rows)
@@ -148,21 +148,23 @@ func TestClientValidateDestination(t *testing.T) {
 
 	cfg := testClientConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
-	require.NoError(t, client.ValidateDestination(context.Background(), signalLogs))
+	_, validationErr := client.inspectDestination(context.Background(), signalLogs)
+
+	require.NoError(t, validationErr)
 	validation, err := client.inspectDestination(context.Background(), signalLogs)
 	require.NoError(t, err)
 	require.Len(t, validation.Columns, 1)
 	assert.Equal(t, "string", validation.Columns[0].TargetType)
 	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
 	cfg.Mappings.Logs["service"] = MappingRule{Source: `resource.attributes["service.name"]`}
-	client, err = NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err = newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
-	err = client.ValidateDestination(context.Background(), signalLogs)
+	_, err = client.inspectDestination(context.Background(), signalLogs)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "missing mapped columns: service")
 }
@@ -189,7 +191,7 @@ func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
 		"severity": "log.severity_number",
 		"tenant":   `resource.attributes["tenant.id"]`,
 	})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -212,7 +214,7 @@ func TestClientValidateDestinationUsesCastOutputType(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"severity": {Source: "log.severity_number", Cast: "string"},
 	}
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -227,7 +229,7 @@ func TestClientValidateDestinationUsesCastOutputType(t *testing.T) {
 func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
 	cfg := testClientConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -250,12 +252,14 @@ func TestClientSendReportsRetryFromFailedChunk(t *testing.T) {
 		}, nil
 	}
 
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{
+	outcome := client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"body": strings.Repeat("a", 5*1024*1024)},
 		{"body": strings.Repeat("b", 5*1024*1024)},
 	}})
-	require.Error(t, err)
-	assert.False(t, consumererror.IsPermanent(err))
+	require.Error(t, outcome.err)
+	assert.False(t, consumererror.IsPermanent(outcome.err))
+	assert.Equal(t, []int{0}, outcome.committed)
+	assert.Equal(t, []int{1}, outcome.uncommitted)
 }
 
 func TestClientSendDoesNotRetryUnconfirmedAppendResult(t *testing.T) {
@@ -277,16 +281,18 @@ func TestClientSendDoesNotRetryUnconfirmedAppendResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testClientConfig("https://scopedb.invalid")
 			cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-			client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+			client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 			require.NoError(t, err)
 			defer client.Close()
 			client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {
 				return tt.result, nil
 			}
 
-			err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{"message": "hello"}}})
-			require.Error(t, err)
-			assert.True(t, consumererror.IsPermanent(err))
+			outcome := client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{{"message": "hello"}}})
+			require.NoError(t, outcome.err)
+			require.Len(t, outcome.unknown, 1)
+			assert.Empty(t, outcome.uncommitted)
+			assert.Empty(t, outcome.committed)
 		})
 	}
 }
@@ -294,7 +300,7 @@ func TestClientSendDoesNotRetryUnconfirmedAppendResult(t *testing.T) {
 func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) {
 	cfg := testClientConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -311,15 +317,16 @@ func TestClientSendCommitsValidRowsAroundPermanentEncodingFailure(t *testing.T) 
 		}, nil
 	}
 
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{
+	outcome := client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"body": "before"},
 		{"body": math.NaN()},
 		{"body": "after"},
 	}})
-	require.Error(t, err)
-	assert.True(t, consumererror.IsPermanent(err))
+	require.NoError(t, outcome.err)
+	require.Len(t, outcome.rejected, 1)
+	assert.Equal(t, []int{0, 2}, outcome.committed)
 	assert.Equal(t, []map[string]any{{"body": "before"}, {"body": "after"}}, appended)
-	assert.ErrorContains(t, err, "mapped row 1")
+	assert.ErrorContains(t, outcome.rejected[0].err, "mapped row 1")
 }
 
 func TestClientSendRejectsInvalidCastBeforeAppend(t *testing.T) {
@@ -327,7 +334,7 @@ func TestClientSendRejectsInvalidCastBeforeAppend(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"attempt": {Source: `log.attributes["attempt"]`, Cast: "int"},
 	}
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -336,13 +343,13 @@ func TestClientSendRejectsInvalidCastBeforeAppend(t *testing.T) {
 		appendCalls++
 		return scopedb.AppendRowsResult{}, nil
 	}
-	err = client.Send(context.Background(), signalLogs, &IngestPayload{Records: []Record{{
+	outcome := client.send(context.Background(), signalLogs, &ingestPayload{Records: []telemetryRecord{{
 		"attributes": map[string]any{"attempt": "second"},
 	}}})
-	require.Error(t, err)
-	assert.True(t, consumererror.IsPermanent(err))
+	require.NoError(t, outcome.err)
+	require.Len(t, outcome.rejected, 1)
 	assert.Equal(t, 0, appendCalls)
-	reason, ok := mappingErrorReason(err)
+	reason, ok := mappingErrorReason(outcome.rejected[0].err)
 	assert.True(t, ok)
 	assert.Equal(t, mappingReasonCastFailed, reason)
 }
@@ -494,4 +501,13 @@ func decodeSDKRequestBody(r *http.Request) ([]byte, error) {
 	default:
 		return nil, errors.New("unsupported content encoding")
 	}
+}
+
+func requireCommitted(t *testing.T, outcome sendOutcome) {
+	t.Helper()
+	require.NoError(t, outcome.err)
+	require.NotEmpty(t, outcome.committed)
+	require.Empty(t, outcome.rejected)
+	require.Empty(t, outcome.unknown)
+	require.Empty(t, outcome.uncommitted)
 }

@@ -29,7 +29,7 @@ import (
 	"time"
 
 	statusapi "github.com/scopedb/telescope/internal/status"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 const defaultCaptureEndpoint = "http://127.0.0.1:8080"

@@ -35,11 +35,11 @@ import (
 func TestGoldenMappingContractV1(t *testing.T) {
 	tests := []struct {
 		name       string
-		mapRecords func(t *testing.T, input []byte) []Record
+		mapRecords func(t *testing.T, input []byte) []telemetryRecord
 	}{
 		{
 			name: "logs",
-			mapRecords: func(t *testing.T, input []byte) []Record {
+			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
 				logs, err := (&plog.JSONUnmarshaler{}).UnmarshalLogs(input)
 				require.NoError(t, err)
 				payload, err := mapLogs(logs)
@@ -49,7 +49,7 @@ func TestGoldenMappingContractV1(t *testing.T) {
 		},
 		{
 			name: "traces",
-			mapRecords: func(t *testing.T, input []byte) []Record {
+			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
 				traces, err := (&ptrace.JSONUnmarshaler{}).UnmarshalTraces(input)
 				require.NoError(t, err)
 				payload, err := mapTraces(traces)
@@ -59,7 +59,7 @@ func TestGoldenMappingContractV1(t *testing.T) {
 		},
 		{
 			name: "metrics",
-			mapRecords: func(t *testing.T, input []byte) []Record {
+			mapRecords: func(t *testing.T, input []byte) []telemetryRecord {
 				metrics, err := (&pmetric.JSONUnmarshaler{}).UnmarshalMetrics(input)
 				require.NoError(t, err)
 				payload, err := mapMetrics(metrics)

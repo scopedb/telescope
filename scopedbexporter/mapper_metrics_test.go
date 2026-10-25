@@ -182,7 +182,7 @@ func TestFilterInvalidMetricsPreservesValidMetrics(t *testing.T) {
 	assert.Equal(t, 3, metrics.DataPointCount(), "filter must not mutate its input")
 }
 
-func findMetricRecord(t *testing.T, records []Record, metricName string) Record {
+func findMetricRecord(t *testing.T, records []telemetryRecord, metricName string) telemetryRecord {
 	t.Helper()
 	for _, record := range records {
 		if record["metric_name"] == metricName {

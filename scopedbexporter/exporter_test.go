@@ -186,7 +186,7 @@ func TestExporterDropsCompleteScopeDBRowRejection(t *testing.T) {
 func TestExporterRetriesGoodRowsOnceAfterCompleteScopeDBRowErrors(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -239,7 +239,7 @@ func TestExporterRetriesGoodRowsOnceAfterCompleteScopeDBRowErrors(t *testing.T) 
 func TestExporterDoesNotSplitTruncatedScopeDBRowErrors(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -277,7 +277,7 @@ func TestExporterDoesNotSplitTruncatedScopeDBRowErrors(t *testing.T) {
 func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -313,7 +313,7 @@ func TestExporterReturnsOnlyUncommittedSuffixForRetry(t *testing.T) {
 func TestExporterReturnsOnlyUncommittedSuffixForPermanentFailure(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"body": "log.body"})
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -360,7 +360,7 @@ func TestExporterReportsMappingCastFailure(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
 	}
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -387,7 +387,7 @@ func TestExporterDropsOnlyInvalidMappedLogRecord(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
 	}
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -425,7 +425,7 @@ func TestExporterRetrySubsetExcludesLocallyRejectedRecords(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"attempt": {Source: `log.body["attempt"]`, Cast: "int"},
 	}
-	client, err := NewClient(cfg, exportertest.NewNopSettings(typeStr))
+	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
 	client.appendFn = func(context.Context, *scopedb.Table, []byte) (scopedb.AppendRowsResult, error) {

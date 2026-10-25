@@ -26,7 +26,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 )
 
 type sampleFlags struct {

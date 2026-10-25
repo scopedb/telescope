@@ -18,7 +18,7 @@ package collector
 
 import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
-	"github.com/scopedb/telescope/packages/scopedbexporter"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/extension"
@@ -67,7 +67,7 @@ func factories(statuses *scopedbexporter.StatusRegistry, captures *scopedbexport
 		return otelcol.Factories{}, err
 	}
 	result.ExporterModules = map[component.Type]string{
-		scopeDBFactory.Type(): "github.com/scopedb/telescope/packages/scopedbexporter v0.0.0",
+		scopeDBFactory.Type(): "github.com/scopedb/telescope/scopedbexporter v0.0.0",
 	}
 
 	batchFactory := batchprocessor.NewFactory()

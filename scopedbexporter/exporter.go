@@ -36,7 +36,7 @@ type dbExporter struct {
 	persistent   bool
 	queueEnabled bool
 	cfg          *Config
-	client       *Client
+	client       *appendClient
 	logger       *zap.Logger
 	signal       string
 	statuses     *StatusRegistry
@@ -46,7 +46,7 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 	if _, enabled := cfg.signal(signal); !enabled {
 		return nil, fmt.Errorf("%s signal is not configured for the scopedb exporter", signal)
 	}
-	client, err := NewClient(cfg, set)
+	client, err := newClient(cfg, set.Logger)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func pushSignal[T any](
 	signal string,
 	data T,
 	records int,
-	mapData func(T) (*IngestPayload, error),
+	mapData func(T) (*ingestPayload, error),
 	wrapSubset func(error, []int) error,
 ) error {
 	started := time.Now().UTC()
