@@ -97,7 +97,7 @@ func createDefaultConfig() component.Config {
 		Compression:    defaultCompression,
 		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
-		UnknownRetry:   UnknownRetryConfig{MaxRetries: 3, MaxElapsedTime: 5 * time.Minute},
+		UnknownRetry:   UnknownRetryConfig{MaxRetries: 20, MaxElapsedTime: 5 * time.Minute},
 		SendingQueue:   configoptional.Some(queueCfg),
 	}
 }

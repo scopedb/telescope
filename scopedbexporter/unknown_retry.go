@@ -90,11 +90,14 @@ func (s *unknownRetryState) retain(ctx context.Context, body []byte, rows int, e
 	return true
 }
 
-// Match the SDK stream's opt-in boundary. Cancellation and client timeouts after
-// dispatch remain terminal; a safe temporary rejection may follow an unknown.
+// Request timeouts may be replayed, but cancellation remains terminal. The
+// delivery context and replay budget are checked separately from this error.
 func replayableUnknown(err error) bool {
 	e, ok := errors.AsType[*scopedb.Error](err)
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !ok || e.AppendDetails == nil || e.AppendDetails.Status != scopedb.AppendStateUnknown || e.WriteDetails != nil {
+	if !ok || e.AppendDetails == nil || e.AppendDetails.Status != scopedb.AppendStateUnknown {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || (e.WriteDetails != nil && e.WriteDetails.Reason != scopedb.WriteErrorReasonTimeout) {
 		return false
 	}
 	return e.HTTPStatus == 0 || (e.HTTPStatus >= 200 && e.HTTPStatus < 300) || e.HTTPStatus == 408 || e.HTTPStatus == 429 || e.HTTPStatus >= 500

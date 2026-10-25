@@ -37,7 +37,7 @@ Use the [StatefulSet guide](../deploy/kubernetes/README.md). Each replica gets a
 | `http_addr` | `127.0.0.1:8080`; [operational endpoints](operations.md#status-and-metrics-reference). |
 | `resources.memory_limit_mib`, `resources.memory_spike_mib` | `512`, `128`; the spike allowance must be smaller than the limit. |
 | `batch.size`, `batch.max_size`, `batch.timeout` | `2000`, `2000`, `30s`; flush by count or time. |
-| `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes` | `30s`, `8000`, `4194304`; attempt deadline and uncompressed NDJSON chunk limits. A zero timeout disables the deadline. |
+| `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes` | `30s`, `8000`, `4194304`; timeout per HTTP append and uncompressed NDJSON chunk limits. A zero timeout disables the deadline. |
 | `delivery.queue.type`, `directory`, `max_bytes`, `consumers` | `file`, `~/.telescope/queue`, 512 MiB per signal, `1`. Memory queue capacity is derived as described below. |
 | `delivery.retry.initial_interval`, `max_interval`, `max_elapsed_time` | `5s`, `60s`, `0s`; zero elapsed time permits unlimited retries. A finite elapsed limit must be at least `max_interval`; it expires known-unwritten records as dropped. |
 | `delivery.unknown_retry` | Disabled by default; opt-in replay requires finite count and elapsed budgets. See [delivery semantics](exporter.md#append-and-retry-semantics). |

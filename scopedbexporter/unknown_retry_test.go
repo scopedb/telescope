@@ -22,10 +22,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -56,6 +56,7 @@ func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
 		{"reject after unknown", []int{503, 400}, []string{"unavailable", `{"details":{"status":"rejected","row_errors":[{"row_index":0,"message":"invalid"}]}}`}, 2, 0, 1, 1},
 		{"exhausted", []int{503}, []string{"unavailable"}, 3, 0, 1, 1},
 		{"malformed acknowledgement", []int{200, 200}, []string{"{}", `{"status":"committed","num_rows_inserted":1}`}, 2, 1, 0, 1},
+		{"attempt timeout", []int{0, 200}, []string{"", `{"status":"committed","num_rows_inserted":1}`}, 2, 1, 0, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -68,11 +69,16 @@ func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
 				bodies = append(bodies, string(body))
 				mu.Unlock()
 				i := min(int(calls.Add(1))-1, len(tc.statuses)-1)
+				if tc.statuses[i] == 0 {
+					<-r.Context().Done()
+					return
+				}
 				w.WriteHeader(tc.statuses[i])
 				_, _ = io.WriteString(w, tc.bodies[i])
 			}))
 			t.Cleanup(server.Close)
 			cfg := replayTestConfig(server.URL)
+			cfg.Timeout.Timeout = 100 * time.Millisecond
 			exp, registry := startTestLogsExporter(t, cfg)
 			err := exp.ConsumeLogs(t.Context(), testLogs("same encoded record"))
 			if tc.unknown > 0 {
@@ -215,23 +221,32 @@ func TestUnknownReplayHonorsRetryAfterAndElapsedLimit(t *testing.T) {
 	require.Equal(t, uint64(1), registry.Snapshot().Signals[signalLogs].UnknownRecords)
 }
 
-func TestUnknownReplayDoesNotRetryClientCancellation(t *testing.T) {
-	var calls atomic.Int32
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		_, _ = io.Copy(io.Discard, r.Body)
-		cancel()
-		<-r.Context().Done()
-	}))
-	t.Cleanup(server.Close)
-	cfg := replayTestConfig(server.URL)
-	exp, registry := startTestLogsExporter(t, cfg)
-	require.Error(t, exp.ConsumeLogs(ctx, testLogs(strings.Repeat("cancelled", 100))))
-	require.Equal(t, int32(1), calls.Load())
-	require.Zero(t, registry.Snapshot().Signals[signalLogs].UnknownReplayAttempts)
-	require.Equal(t, uint64(1), registry.Snapshot().Signals[signalLogs].UnknownRecords)
+func TestUnknownReplayStopsAtCallerCancellationOrDeadline(t *testing.T) {
+	for _, ending := range []string{"cancel", "deadline"} {
+		t.Run(ending, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				cfg := replayTestConfig("https://scopedb.invalid")
+				cfg.Timeout.Timeout = 2 * time.Second
+				exp, registry := startTestLogsExporter(t, cfg)
+				exp.(*capturingLogsExporter).exp.client.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					calls.Add(1)
+					if ending == "cancel" {
+						cancel()
+					}
+					<-r.Context().Done()
+					return nil, r.Context().Err()
+				})
+				require.ErrorIs(t, exp.ConsumeLogs(ctx, testLogs("interrupted")), ctx.Err())
+				require.Equal(t, int32(1), calls.Load())
+				state := registry.Snapshot().Signals[signalLogs]
+				require.Zero(t, state.UnknownReplayAttempts)
+				require.Equal(t, uint64(1), state.UnknownRecords)
+			})
+		})
+	}
 }
 
 func TestUnknownReplayBoundsAnInFlightAttempt(t *testing.T) {
