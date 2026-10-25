@@ -71,7 +71,7 @@ func newSettings(
 			Version:     version,
 		},
 		Factories: func() (otelcol.Factories, error) {
-			return factories(statuses, captures)
+			return factories(version, statuses, captures)
 		},
 		DisableGracefulShutdown: disableGracefulShutdown,
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{

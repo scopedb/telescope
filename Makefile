@@ -19,6 +19,8 @@ DIST_DIR ?= dist
 PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 TELESCOPE ?= ./bin/telescope
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || printf 'development')
+# Resolve once so every target in this invocation uses the same build version.
+VERSION := $(VERSION)
 LD_FLAGS ?= -s -w -X main.version=$(VERSION)
 
 .PHONY: license-check

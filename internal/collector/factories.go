@@ -31,7 +31,7 @@ import (
 	otelconftelemetry "go.opentelemetry.io/collector/service/telemetry/otelconftelemetry"
 )
 
-func factories(statuses *scopedbexporter.StatusRegistry, captures *scopedbexporter.CaptureRegistry) (otelcol.Factories, error) {
+func factories(version string, statuses *scopedbexporter.StatusRegistry, captures *scopedbexporter.CaptureRegistry) (otelcol.Factories, error) {
 	var err error
 	result := otelcol.Factories{
 		Telemetry: otelconftelemetry.NewFactory(),
@@ -67,7 +67,7 @@ func factories(statuses *scopedbexporter.StatusRegistry, captures *scopedbexport
 		return otelcol.Factories{}, err
 	}
 	result.ExporterModules = map[component.Type]string{
-		scopeDBFactory.Type(): "github.com/scopedb/telescope/scopedbexporter v0.0.0",
+		scopeDBFactory.Type(): "github.com/scopedb/telescope " + version,
 	}
 
 	batchFactory := batchprocessor.NewFactory()
