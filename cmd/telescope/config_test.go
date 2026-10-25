@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/scopedb/telescope/scopedbexporter"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrintConfigurationSummaryCountsColumns(t *testing.T) {
@@ -39,6 +40,36 @@ func TestPrintConfigurationSummaryCountsColumns(t *testing.T) {
 	}})
 	if got, want := output.String(), "configuration: ok (columns=2, statically-typed=1, sample-check=1)\n"; got != want {
 		t.Fatalf("printConfigurationSummary() = %q, want %q", got, want)
+	}
+}
+
+func TestValidateReportsEffectiveConfigurationWithoutSecrets(t *testing.T) {
+	t.Setenv("TELESCOPE_QUEUE_DIR", "/var/lib/telescope/override")
+	t.Setenv("TELESCOPE_SCOPEDB_API_KEY", "private-key")
+	t.Setenv("TEST_OTLP_AUTH", "private-header")
+	path := filepath.Join(t.TempDir(), "telescope.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+destination:
+  api_key: ignored-private-key
+delivery:
+  queue:
+    directory: /var/lib/telescope/configured
+telemetry:
+  otlp:
+    headers:
+      Authorization: ${env:TEST_OTLP_AUTH}
+signals:
+  logs: {table: logs, mapping: {message: log.message}}
+`), 0o600))
+	var stdout, stderr bytes.Buffer
+	require.NoError(t, runConfigCommand(t.Context(), "validate", []string{"--offline", path}, strings.NewReader(""), &stdout, &stderr))
+	require.Contains(t, stdout.String(), `runtime.delivery.queue.directory: "/var/lib/telescope/override" (source: TELESCOPE_QUEUE_DIR)`)
+	require.Contains(t, stdout.String(), `runtime.delivery.queue.type: "file" (source: default)`)
+	require.Contains(t, stdout.String(), `runtime.delivery.retry.max_elapsed_time: "0s"`)
+	require.Contains(t, stdout.String(), `runtime.telemetry.otlp.headers.Authorization: "<redacted>"`)
+	require.Contains(t, stderr.String(), "TELESCOPE_QUEUE_DIR overrides YAML field delivery.queue.directory")
+	for _, secret := range []string{"private-key", "private-header", "ignored-private-key"} {
+		require.NotContains(t, stdout.String()+stderr.String(), secret)
 	}
 }
 

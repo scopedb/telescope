@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,36 +132,108 @@ func TestWriteTimeoutAndConnectionLossAreTerminalUnknown(t *testing.T) {
 }
 
 func TestCollectorRespectsRetryAfter(t *testing.T) {
-	var attempts atomic.Int32
-	var first time.Time
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if attempts.Add(1) == 1 {
-			first = time.Now()
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprint(w, `{"message":"busy","retryable":true,"details":{"status":"rejected"}}`)
-			return
-		}
-		assert.GreaterOrEqual(t, time.Since(first), time.Second)
-		writeAppendCommitted(t, w, 1)
-	}))
-	defer server.Close()
-	cfg := testExporterConfig(server.URL)
-	cfg.RetryOnFailure.Enabled = true
-	cfg.RetryOnFailure.InitialInterval = time.Millisecond
-	cfg.RetryOnFailure.MaxInterval = time.Millisecond
-	cfg.RetryOnFailure.MaxElapsedTime = 5 * time.Second
-	statuses := NewStatusRegistry()
-	exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-	logs := plog.NewLogs()
-	logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("message")
-	require.NoError(t, exp.ConsumeLogs(t.Context(), logs))
-	require.Equal(t, int32(2), attempts.Load())
-	require.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].ConfirmedWrittenRecords)
+	for name, responseBody := range map[string]string{
+		"structured":   `{"message":"busy","retryable":true,"details":{"status":"rejected"}}`,
+		"unstructured": "too many requests",
+	} {
+		t.Run(name, func(t *testing.T) {
+
+			var attempts atomic.Int32
+			var first time.Time
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if attempts.Add(1) == 1 {
+					first = time.Now()
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("Retry-After", "1")
+					w.WriteHeader(http.StatusTooManyRequests)
+					fmt.Fprint(w, responseBody)
+					return
+				}
+				assert.GreaterOrEqual(t, time.Since(first), time.Second)
+				writeAppendCommitted(t, w, 1)
+			}))
+			defer server.Close()
+			cfg := testExporterConfig(server.URL)
+			cfg.RetryOnFailure.Enabled = true
+			cfg.RetryOnFailure.InitialInterval = time.Millisecond
+			cfg.RetryOnFailure.MaxInterval = time.Millisecond
+			cfg.RetryOnFailure.MaxElapsedTime = 5 * time.Second
+			statuses := NewStatusRegistry()
+			exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+			require.NoError(t, err)
+			require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
+			defer exp.Shutdown(context.Background())
+			logs := plog.NewLogs()
+			logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("message")
+			require.NoError(t, exp.ConsumeLogs(t.Context(), logs))
+			require.Equal(t, int32(2), attempts.Load())
+			require.Equal(t, uint64(1), statuses.Snapshot().Signals[signalLogs].ConfirmedWrittenRecords)
+		})
+	}
+}
+
+func TestMemoryQueueDrainsAtShutdownWithoutRetrying(t *testing.T) {
+	for _, success := range []bool{true, false} {
+		t.Run(fmt.Sprint(success), func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			t.Cleanup(func() { once.Do(func() { close(release) }) })
+			var calls atomic.Int32
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					close(entered)
+					<-release
+				}
+				if success {
+					writeAppendCommitted(t, w, 1)
+					return
+				}
+				w.WriteHeader(503)
+				_, _ = io.WriteString(w, `{"details":{"status":"rejected"}}`)
+			}))
+			defer func() { once.Do(func() { close(release) }); backend.Close() }()
+			cfg := testExporterConfig(backend.URL)
+			queue := exporterhelper.NewDefaultQueueConfig()
+			queue.NumConsumers = 1
+			cfg.SendingQueue = configoptional.Some(queue)
+			cfg.RetryOnFailure.Enabled = true
+			cfg.RetryOnFailure.InitialInterval = time.Hour
+			cfg.RetryOnFailure.MaxInterval = time.Hour
+			cfg.RetryOnFailure.MaxElapsedTime = 0
+			statuses := NewStatusRegistry()
+			exp, err := NewFactoryWithRegistries(statuses, nil).CreateLogs(t.Context(), exportertest.NewNopSettings(typeStr), cfg)
+			require.NoError(t, err)
+			require.NoError(t, exp.Start(t.Context(), componenttest.NewNopHost()))
+			for range 3 {
+				logs := plog.NewLogs()
+				logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("queued")
+				require.NoError(t, exp.ConsumeLogs(t.Context(), logs))
+			}
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("no append started")
+			}
+			done := make(chan error, 1)
+			go func() { done <- exp.Shutdown(context.Background()) }()
+			require.Eventually(t, exp.(*capturingLogsExporter).exp.stopping.Load, time.Second, time.Millisecond)
+			once.Do(func() { close(release) })
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("queue did not drain")
+			}
+			require.Equal(t, int32(3), calls.Load())
+			state := statuses.Snapshot().Signals[signalLogs]
+			if success {
+				require.Equal(t, uint64(3), state.ConfirmedWrittenRecords)
+			} else {
+				require.Equal(t, uint64(3), state.RetryExhaustedRecords)
+			}
+			require.Zero(t, state.UnknownRecords)
+		})
+	}
 }
 
 func TestAppendBatchBoundsMappedPayload(t *testing.T) {

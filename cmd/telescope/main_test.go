@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"github.com/scopedb/telescope/internal/collector"
 	"io"
 	"os"
 	"path/filepath"
@@ -293,7 +294,7 @@ func TestReportReadiness(t *testing.T) {
 	reportReadiness(context.Background(), func(context.Context) bool {
 		checks++
 		return checks == 2
-	}, &output, time.Millisecond, "127.0.0.1:18080")
+	}, &output, time.Millisecond, "127.0.0.1:18080", collector.ReceiverConfig{GRPCAddr: "127.0.0.1:14317", HTTPAddr: "127.0.0.1:14318"})
 
 	want := "telescope ready: otlp_grpc=127.0.0.1:14317 otlp_http=127.0.0.1:14318 http=127.0.0.1:18080\n"
 	if output.String() != want {
@@ -306,7 +307,7 @@ func TestReportReadinessStopsWithContext(t *testing.T) {
 	cancel()
 	var output bytes.Buffer
 
-	reportReadiness(ctx, func(context.Context) bool { return true }, &output, time.Millisecond, "127.0.0.1:18080")
+	reportReadiness(ctx, func(context.Context) bool { return true }, &output, time.Millisecond, "127.0.0.1:18080", collector.ReceiverConfig{GRPCAddr: "127.0.0.1:14317", HTTPAddr: "127.0.0.1:14318"})
 
 	if output.Len() != 0 {
 		t.Fatalf("reportReadiness() output = %q, want none", output.String())

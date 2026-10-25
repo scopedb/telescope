@@ -24,7 +24,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +53,7 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	if err != nil {
 		return err
 	}
+	printRuntimeWarnings(stderr, ingestion)
 	collectorConfigURI, err := collector.ConfigURI(ingestion)
 	if err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)
@@ -62,7 +62,10 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	if err != nil {
 		return fmt.Errorf("identify Telescope config: %w", err)
 	}
-	listenAddr := resolveHTTPListenAddr(*httpAddr)
+	listenAddr := ingestion.HTTPAddr
+	if strings.TrimSpace(*httpAddr) != "" {
+		listenAddr = strings.TrimSpace(*httpAddr)
+	}
 
 	statuses := scopedbexporter.NewStatusRegistry()
 	captures := scopedbexporter.NewCaptureRegistry()
@@ -71,6 +74,11 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 		return fmt.Errorf("build collector: %w", err)
 	}
 	operationalServer := statusapi.NewWithRegistries(version, configDigest, statuses, captures)
+	queueDirectory := ""
+	if ingestion.Delivery.Queue.Type == "file" {
+		queueDirectory = ingestion.Delivery.Queue.Directory
+	}
+	operationalServer.ConfigureRuntime(ingestion.Receivers.GRPCAddr, ingestion.Receivers.HTTPAddr, ingestion.Telemetry.MetricsAddr, queueDirectory)
 	operationalServer.SetCollectorRunning(func() bool { return otelCollector.GetState() == otelcol.StateRunning })
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
@@ -109,7 +117,7 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	readinessDone := make(chan struct{})
 	go func() {
 		defer close(readinessDone)
-		reportReadiness(ctx, operationalServer.Ready, stderr, 200*time.Millisecond, listenAddr)
+		reportReadiness(ctx, operationalServer.Ready, stderr, 200*time.Millisecond, listenAddr, ingestion.Receivers)
 	}()
 
 	var runErr error
@@ -144,6 +152,7 @@ func reportReadiness(
 	w io.Writer,
 	interval time.Duration,
 	httpAddr string,
+	receivers collector.ReceiverConfig,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -157,8 +166,8 @@ func reportReadiness(
 			fmt.Fprintf(
 				w,
 				"telescope ready: otlp_grpc=%s otlp_http=%s http=%s\n",
-				os.Getenv("TELESCOPE_OTLP_GRPC_ADDR"),
-				os.Getenv("TELESCOPE_OTLP_HTTP_ADDR"),
+				receivers.GRPCAddr,
+				receivers.HTTPAddr,
 				httpAddr,
 			)
 			return

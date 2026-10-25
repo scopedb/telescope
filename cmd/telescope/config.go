@@ -75,17 +75,27 @@ func runConfigCommand(
 	if _, err := collector.ConfigURI(ingestion); err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)
 	}
-	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion)
+	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion.IngestionConfig)
 	if err != nil {
 		return err
 	}
-	previews, err := loadMappingSamples(samples.paths, ingestion, stdin)
+	previews, err := loadMappingSamples(samples.paths, ingestion.IngestionConfig, stdin)
 	if err != nil {
 		return err
 	}
 
 	printConfigPlan(stdout, descriptions)
 	printConfigurationSummary(stdout, descriptions)
+	if !preview {
+		settings, err := ingestion.RuntimeSettings()
+		if err != nil {
+			return err
+		}
+		for _, setting := range settings {
+			fmt.Fprintf(stdout, "runtime.%s: %q (source: %s)\n", setting.Path, setting.Value, setting.Source)
+		}
+	}
+	printRuntimeWarnings(stderr, ingestion)
 
 	var destinations []scopedbexporter.SignalDestinationValidation
 	var validationErrors []error
@@ -94,12 +104,12 @@ func runConfigCommand(
 	} else {
 		validationCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		endpoint, apiKey := scopeDBCredentials()
+		endpoint, apiKey := ingestion.Destination.Endpoint, ingestion.Destination.APIKey
 		destinations, err = scopedbexporter.InspectIngestionDestinations(
 			validationCtx,
 			endpoint,
 			apiKey,
-			ingestion,
+			ingestion.IngestionConfig,
 		)
 		if err != nil {
 			fmt.Fprintln(stdout, "destination: check failed")
@@ -120,16 +130,30 @@ func runConfigCommand(
 func loadTelescopeConfig(
 	flags *flag.FlagSet,
 	bootstrap bootstrapFlags,
-) (string, scopedbexporter.IngestionConfig, error) {
+) (string, collector.Config, error) {
 	if err := applyBootstrapFlags(bootstrap); err != nil {
-		return "", scopedbexporter.IngestionConfig{}, err
+		return "", collector.Config{}, err
 	}
 	path, err := telescopeConfigPath(flags)
 	if err != nil {
-		return "", scopedbexporter.IngestionConfig{}, err
+		return "", collector.Config{}, err
 	}
 	config, err := collector.LoadConfig(path)
+	if err == nil {
+		if strings.TrimSpace(valueOf(bootstrap.scopedbEndpoint)) != "" {
+			config.Sources["destination.endpoint"] = "--scopedb-endpoint"
+		}
+		if strings.TrimSpace(valueOf(bootstrap.scopedbAPIKey)) != "" {
+			config.Sources["destination.api_key"] = "--scopedb-api-key"
+		}
+	}
 	return path, config, err
+}
+
+func printRuntimeWarnings(w io.Writer, config collector.Config) {
+	for _, warning := range config.Warnings() {
+		fmt.Fprintf(w, "warning: %s\n", warning)
+	}
 }
 
 func telescopeConfigPath(flags *flag.FlagSet) (string, error) {

@@ -15,12 +15,13 @@ All notable changes to this project will be documented in this file.
 
 * Map logs, traces, and metrics into selected ScopeDB columns, with ordered fallback sources, defaults, constants, and explicit casts. Inspect samples, preview rows, plan additive table changes, and validate destinations before receiving traffic.
 * Capture bounded OTLP samples with a standalone listener or from a running instance. Verify synthetic delivery, inspect local delivery status, and execute a single ScopeQL statement from the CLI.
-* Preserve pending telemetry in disk-backed queues across restarts. Report confirmed writes, known drops, and unknown append outcomes separately, with Prometheus metrics and alert rules.
+* Preserve pending telemetry in disk-backed queues across restarts, or select an explicit memory queue. Configure receiver addresses, memory limits, batching, delivery, retries, and self-metrics in the same YAML as signal mappings. Inspect effective values and sources with `validate`, receive warnings about environment overrides, and derive memory queue defaults from the shared process budget.
+* Report confirmed writes, known drops, and unknown append outcomes separately. Push delivery and Collector metrics to an OTLP gateway with configurable resource attributes and gzip compression while retaining operational HTTP and Prometheus metrics with consistent delivery counters.
 * Provide Docker Compose and Kubernetes StatefulSet examples, Linux amd64/arm64 images, and self-contained archives for macOS arm64 and Linux amd64/arm64.
 
 ### Improvements
 
-* Use synchronous ScopeDB Append acknowledgements and honor `Retry-After`. Isolate identifiable invalid rows while delivering valid neighbors; retry only unsettled rows during a running export. Unknown outcomes are terminal, while crash recovery retains the documented [queue replay boundary](docs/exporter.md#append-and-retry-semantics).
+* Use synchronous ScopeDB Append acknowledgements and honor `Retry-After`. Retry connection failures known to precede dispatch and unstructured HTTP 429 rejections; keep unstructured HTTP 503 and post-dispatch failures unknown. Isolate identifiable invalid rows while delivering valid neighbors; retry only unsettled rows during a running export. Unknown outcomes are terminal, while crash recovery retains the documented [queue replay boundary](docs/exporter.md#append-and-retry-semantics).
 * Keep the receiver available during a ScopeDB outage. Readiness reflects local Collector health; destination verification is reported separately.
 
 For earlier releases, see [GitHub Releases](https://github.com/scopedb/telescope/releases).

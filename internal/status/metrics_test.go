@@ -45,6 +45,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 				ConfirmedWrittenRecords: 7,
 				PermanentFailedRecords:  2,
 				RetryExhaustedRecords:   2,
+				EnqueueFailedRecords:    1,
 				InvalidItemsByReason: map[string]uint64{
 					"unsupported_number_value_type": 1,
 					"unsupported_metric_type":       2,
@@ -62,7 +63,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 	}}
 	service.ingestionMetrics = fakeCollectorMetricsReader{snapshot: collectorMetricsSnapshot{
 		Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 1, QueueSize: 5, QueueCapacity: 5000},
+			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 99, QueueSize: 5, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		},
 	}}

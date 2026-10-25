@@ -31,6 +31,7 @@ import (
 )
 
 func Settings(configURI string, version string) otelcol.CollectorSettings {
+	applyDefaultEnv()
 	return newSettings(
 		configURI,
 		version,
@@ -47,8 +48,6 @@ func newSettings(
 	statuses *scopedbexporter.StatusRegistry,
 	captures *scopedbexporter.CaptureRegistry,
 ) otelcol.CollectorSettings {
-	applyDefaultEnv()
-
 	configURI = strings.TrimSpace(configURI)
 	if configURI != "" && !strings.Contains(configURI, ":") {
 		configURI = "file:" + configURI

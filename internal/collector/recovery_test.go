@@ -38,6 +38,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
+	"github.com/scopedb/telescope/scopedbexporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/otelcol"
@@ -207,12 +208,14 @@ func TestByteSizedQueueRefusesItemOverCapacity(t *testing.T) {
 				"queue_size: 1",
 				1,
 			)
-			runtime := startRecoveryCollector(t, config)
+			statuses := scopedbexporter.NewStatusRegistry()
+			runtime := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, statuses, scopedbexporter.NewCaptureRegistry()))
 			defer runtime.stop(t)
 
 			err := sendRecoverySignal(address, signal, signal+" larger than one byte")
 			require.Error(t, err)
 			assert.ErrorContains(t, err, "503 Service Unavailable")
+			assert.Equal(t, uint64(1), statuses.Snapshot().Signals[signal].EnqueueFailedRecords)
 		})
 	}
 }
@@ -612,4 +615,40 @@ func restoreQueueFixture(t *testing.T, sourceDir string) string {
 		))
 	}
 	return destinationDir
+}
+
+func TestConnectionRefusalKeepsPersistentQueueUntilRecovery(t *testing.T) {
+	backendAddress, receiverAddress := freeTCPAddress(t), freeTCPAddress(t)
+	statuses := scopedbexporter.NewStatusRegistry()
+	config := recoveryCollectorConfig("http://"+backendAddress, receiverAddress, t.TempDir(), "logs")
+	runtime := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, statuses, scopedbexporter.NewCaptureRegistry()))
+	defer runtime.stop(t)
+	require.NoError(t, sendRecoverySignal(receiverAddress, "logs", "retained during connection outage"))
+	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].LastError != "" }, 5*time.Second, 10*time.Millisecond)
+	state := statuses.Snapshot().Signals["logs"]
+	require.Zero(t, state.UnknownRecords)
+	require.Zero(t, state.PermanentFailedRecords)
+	require.Zero(t, state.RetryExhaustedRecords)
+
+	listener, err := net.Listen("tcp", backendAddress)
+	require.NoError(t, err)
+	committed := make(chan struct{}, 1)
+	backend := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := decodeRecoveryAppendBody(r)
+		require.NoError(t, err)
+		require.Contains(t, string(body), "retained during connection outage")
+		writeRecoveryAppendCommitted(t, w)
+		committed <- struct{}{}
+	}))
+	require.NoError(t, backend.Listener.Close())
+	backend.Listener = listener
+	backend.Start()
+	defer backend.Close()
+	select {
+	case <-committed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection recovery did not deliver the retained record")
+	}
+	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].ConfirmedWrittenRecords == 1 }, time.Second, 10*time.Millisecond)
+	require.Zero(t, statuses.Snapshot().Signals["logs"].UnknownRecords)
 }

@@ -76,7 +76,7 @@ func runPlanCommand(
 	if err != nil {
 		return err
 	}
-	previews, err := loadMappingSamples(samples.paths, ingestion, stdin)
+	previews, err := loadMappingSamples(samples.paths, ingestion.IngestionConfig, stdin)
 	if err != nil {
 		return err
 	}
@@ -87,12 +87,12 @@ func runPlanCommand(
 
 	catalogCtx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
-	endpoint, apiKey := scopeDBCredentials()
+	endpoint, apiKey := ingestion.Destination.Endpoint, ingestion.Destination.APIKey
 	plan, err := scopedbexporter.PlanIngestionTables(
 		catalogCtx,
 		endpoint,
 		apiKey,
-		ingestion,
+		ingestion.IngestionConfig,
 		previewValues,
 	)
 	if err != nil {
@@ -112,7 +112,7 @@ func runPlanCommand(
 			}
 			writtenPath = *outputPath
 		}
-		if err := printTablePlan(stdout, plan, ingestion, writtenPath); err != nil {
+		if err := printTablePlan(stdout, plan, ingestion.IngestionConfig, writtenPath); err != nil {
 			return err
 		}
 	case "json":

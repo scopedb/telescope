@@ -203,6 +203,9 @@ func requestFromData(ctx context.Context, data any, exporter *dbExporter) xexpor
 func consumeWithDelivery(ctx context.Context, exp *dbExporter, consume func(context.Context) error) error {
 	var request *deliveryRequest
 	err := consume(context.WithValue(ctx, deliveryContextKey{}, &request))
+	if exp.queueEnabled && err != nil && request != nil {
+		exp.statuses.update(exp.signal, func(s *SignalRuntimeStatus) { s.EnqueueFailedRecords += uint64(request.ItemsCount()) })
+	}
 	if !exp.queueEnabled && request != nil {
 		request.finish()
 	}

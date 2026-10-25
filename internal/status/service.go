@@ -35,6 +35,7 @@ type captureReader interface {
 }
 
 type service struct {
+	listeners        IngestionListeners
 	version          string
 	configDigest     string
 	now              func() time.Time
@@ -42,6 +43,7 @@ type service struct {
 	ingestionCapture captureReader
 	ingestionMetrics collectorMetricsReader
 	queueStorage     queueStorageReader
+	queueStorageType string
 	collectorRunning func() bool
 }
 
@@ -55,6 +57,7 @@ func newService(version string) *service {
 
 func newServiceWithRuntime(version string, runtime exporterStatusReader, captures captureReader) *service {
 	return &service{
+		listeners:        IngestionListeners{GRPC: listenerAddress("TELESCOPE_OTLP_GRPC_ADDR", "0.0.0.0:4317"), HTTP: listenerAddress("TELESCOPE_OTLP_HTTP_ADDR", "0.0.0.0:4318")},
 		version:          strings.TrimSpace(version),
 		now:              func() time.Time { return time.Now().UTC() },
 		ingestionRuntime: runtime,

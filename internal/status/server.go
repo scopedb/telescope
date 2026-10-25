@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -180,4 +181,22 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// ConfigureRuntime binds operational status to the resolved run configuration.
+func (s *Server) ConfigureRuntime(grpcAddr, httpAddr, metricsAddr, queueDirectory string) {
+	s.service.listeners = IngestionListeners{GRPC: grpcAddr, HTTP: httpAddr}
+	host, port, _ := net.SplitHostPort(metricsAddr)
+	switch host {
+	case "", "0.0.0.0":
+		host = "127.0.0.1"
+	case "::":
+		host = "::1"
+	}
+	s.service.ingestionMetrics = &prometheusCollectorMetricsReader{url: "http://" + net.JoinHostPort(host, port) + "/metrics", client: &http.Client{Timeout: 2 * time.Second}}
+	s.service.queueStorageType = "file"
+	if queueDirectory == "" {
+		s.service.queueStorageType = "memory"
+	}
+	s.service.queueStorage = &directoryQueueStorageReader{directory: queueDirectory}
 }
