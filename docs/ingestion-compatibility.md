@@ -96,69 +96,9 @@ Reported reasons are:
 | `mapping_encoding_failed` | A projected row contains a value that cannot be represented as JSON. |
 | `mapped_row_too_large` | One projected NDJSON row exceeds the ScopeDB append request limit. |
 
-## Ingestion Status
+## Delivery and status
 
-`telescope capture --listen-http <address> <signal>` starts a temporary standalone OTLP/HTTP endpoint for cold-start sampling. It accepts JSON or protobuf, supports identity and gzip content encoding, limits each request to 20 MiB, and emits a bounded standard OTLP JSON sample. It does not load a mapping, contact ScopeDB, persist, queue, retry, or forward input.
-
-`telescope inspect <signal> --sample <path>` decodes OTLP JSON or protobuf through the same mapper as `run` and reports exact mapping selectors, observed types, and the records where each selector has a populated value. Empty protocol defaults are omitted. Nested objects are expanded; arrays remain whole values. It neither displays sample values nor generates or persists a mapping.
-
-`GET /v1/ingestion/capture?signal=<signal>&limit=<records>&timeout=<duration>` performs one on-demand capture at exporter input, after Collector batch processing and before the exporter sending queue, and returns an OTLP JSON export request. The native record unit is log records, spans, or metric points. It returns a partial sample when the timeout expires after receiving data and retains no background sample buffer. The default 45-second timeout exceeds the bundled 30-second batch timeout so low-volume input can reach the capture.
-
-`GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
-
-- OTLP receiver accepted, failed, and refused records;
-- successfully written, unknown, and ultimately dropped records;
-- drops split into exhausted retry, queue refusal, and permanent rejection counts;
-- exporter queue enqueue failures, current size, capacity, and configured unit;
-- filesystem blocks allocated to the persistent queue directory;
-- the configured ScopeDB table;
-- last write attempt, success, failure, duration, and error;
-- whether the destination has been verified by a table check or successful append;
-- the synthetic probe IDs in the last successfully appended batch and their confirmation time;
-- records rejected by permanent mapper or ScopeDB errors observed by the exporter;
-- invalid mapper items grouped by stable reason.
-
-This endpoint reports data-plane delivery state only. It does not report table queryability.
-
-Receiver and queue counts come from the OpenTelemetry Collector's internal metrics. Final delivery counts come from the exporter and request completion, so partial retries do not turn settled records into drops. `written` counts native signal items only when ScopeDB confirms a chunk as `committed` with the expected inserted-row count, so a committed prefix remains visible even if a later chunk fails. `unknown` counts ambiguous appends that Telescope will not automatically replay; it is excluded from `written` and `dropped`. `dropped` combines exhausted retry items, queue enqueue failures, invalid items isolated locally, and complete ScopeDB row rejections. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when a memory queue cannot retry during shutdown or an advanced Collector configuration sets a finite horizon. Persistent entries retained during shutdown are not counted as drops. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
-
-The reported exporter queue excludes telemetry held by the Collector batch processor and an export currently in flight. Therefore a transient `received > written + unknown + dropped` with an empty exporter queue does not imply data loss. Human-readable `telescope status` calls this out as accepted items without a final outcome; it does not publish a synthetic durable counter for that transient state.
-
-`invalid_items_by_reason` counts locally identifiable mapping failures, while the delivery counters use each signal's native unit: log records, spans, or metric points. Human-readable `telescope status` prints the non-zero reason counts for each signal. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
-
-When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. `queue_storage.allocated_bytes` separately reports filesystem blocks allocated to files in `TELESCOPE_QUEUE_DIR`; it does not treat the queue database's logical file length as current disk use.
-
-`GET /metrics` exposes the same delivery facts as stable Prometheus metrics. This includes accepted, written, unknown, and finally dropped items; logical queue size, capacity, and utilization; last write success; destination verification; and allocated queue storage. `telescope_ingestion_queue_bytes` and `telescope_ingestion_queue_capacity_bytes` are published only for the byte sizer, while `telescope_ingestion_queue_utilization` is published for every sizer and is what the baseline alerts use. Load [`deploy/prometheus-rules.yaml`](../deploy/prometheus-rules.yaml) for the baseline alerts. Disk high-water history belongs in Prometheus and is calculated with `max_over_time`; Telescope does not retain another history database. The endpoint returns `503` rather than publishing false zeroes when Collector metrics are unavailable.
-
-The status and metrics endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
-
-Counters reset when the process restarts. See the [delivery contract](../scopedbexporter/README.md#append-and-retry-semantics) for the crash window between an append and queue acknowledgement.
-
-### Forward Collector Metrics over OTLP
-
-An advanced Collector configuration can forward internal metrics using the standard [`service.telemetry`](https://opentelemetry.io/docs/collector/internal-telemetry/) settings. Keep the pull reader when Telescope status needs to read these metrics. The embedded profile already sets `service.name=telescope`.
-
-```yaml
-service:
-  telemetry:
-    resource:
-      service.name: telescope
-    metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: 127.0.0.1
-                port: 8888
-        - periodic:
-            interval: 10000
-            exporter:
-              otlp:
-                protocol: http/protobuf
-                endpoint: https://metrics.example.com/v1/metrics
-```
-
-This forwards Collector queue, receiver, and exporter metrics. Telescope-specific delivery counters remain on `/metrics`; scrape that endpoint to distinguish unknown outcomes from known drops.
+See the [append and retry contract](exporter.md#append-and-retry-semantics) for partial failures and queue replay, and [operational status](operations.md#status-and-metrics-reference) for counters, endpoints, and internal metrics forwarding.
 
 ## Current `v1` Limitations
 

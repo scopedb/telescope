@@ -88,7 +88,7 @@ The rule contract is deliberately small:
 
 This projection runs only while building the ScopeDB row. It does not mutate the OpenTelemetry record seen by other pipelines, and it is not an event-processing language. Filtering, sampling, arbitrary expressions, regex, arithmetic, aggregation, and content-based routing remain upstream concerns.
 
-The full source selector reference is in the [ScopeDB exporter README](../scopedbexporter/README.md#mapping-sources).
+The full source selector reference is in the [ScopeDB exporter README](exporter.md#mapping-sources).
 
 ## Plan and Apply Tables
 
