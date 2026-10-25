@@ -42,6 +42,7 @@ type service struct {
 	ingestionCapture captureReader
 	ingestionMetrics collectorMetricsReader
 	queueStorage     queueStorageReader
+	collectorRunning func() bool
 }
 
 func newService(version string) *service {
@@ -89,6 +90,9 @@ func (s *service) Health(_ context.Context) HealthResponse {
 func (s *service) Readiness(ctx context.Context) (HealthResponse, bool) {
 	status := s.IngestionStatus(ctx)
 	ready := status.InternalTelemetry.Available && len(status.Signals) > 0
+	if s.collectorRunning != nil {
+		ready = ready && s.collectorRunning()
+	}
 	for _, signal := range status.Signals {
 		ready = ready && signal.Ready
 	}

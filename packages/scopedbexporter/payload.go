@@ -17,6 +17,7 @@
 package scopedbexporter
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,19 @@ type IngestPayload struct {
 }
 
 type Record map[string]any
+
+// recordID identifies mapped content independently of batch position, queue
+// replay, and arrival time. Equal records intentionally have equal IDs.
+func recordID(signal string, record Record) (any, bool) {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return nil, false
+	}
+	digest := sha256.New()
+	digest.Write([]byte(signal + "\x00"))
+	digest.Write(encoded)
+	return fmt.Sprintf("%x", digest.Sum(nil)), true
+}
 
 func probeIDsFromRecords(payload *IngestPayload, indexes []int) []string {
 	if payload == nil {

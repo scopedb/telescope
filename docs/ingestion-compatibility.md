@@ -29,12 +29,14 @@ The following shared context is available to every signal mapping:
 | Scope attributes | `scope.attributes` or `scope.attributes["<key>"]` |
 | Scope dropped attributes count | `scope.dropped_attributes_count` |
 | Scope schema URL | `scope.schema_url` |
+| Full normalized record | `record` |
+| Deterministic content identifier | `record.id` |
 
 Selected attribute strings, integers, doubles, booleans, arrays, and nested key-value lists retain their JSON type and structure. Selected byte values are base64-encoded strings and do not yet retain an explicit byte type marker.
 
 Any object or array source can be followed by chained `["key"]` and `[index]` path segments. Mapping rules can select the first present source, apply a default when all sources are absent, emit a constant, and cast the output to `string`, `int`, `uint`, `float`, `boolean`, `timestamp`, `object`, `array`, or explicitly `any`. Structured casts validate the runtime shape, and `any` is never selected implicitly. These operations shape only the destination row; they do not mutate the OpenTelemetry input.
 
-`telescope validate` checks every selected destination column before deployment. `telescope run` repeats the check when ScopeDB is reachable, while temporary destination failures do not block listeners or the persistent queue. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the same mapper as `run`, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
+`telescope validate` checks every selected destination column before deployment. `telescope run` validates locally without a catalog request, allowing listeners and the persistent queue to start during a destination outage. Rules with a fixed output type, including explicit casts and constants, are checked against the ScopeDB catalog type; timestamps may target `timestamp` or `string`, and `any` accepts every fixed output type. A cast can still require a sample when input values determine whether conversion succeeds. Uncast individual attributes, nested paths, `log.body`, and other runtime-typed values are checked for column existence without guessing their type. `telescope preview` accepts repeatable `--sample signal=path` arguments, projects representative OTLP JSON or protobuf through the same mapper as `run`, reports per-column coverage, observed output types, and selected source/default counts, and compares them with the destination without appending rows. `--strict` turns incomplete or default-only sample coverage into a non-zero result. Use `telescope capture <signal>` to obtain a bounded sample from a running Telescope exporter input.
 
 ## Logs
 
@@ -105,7 +107,7 @@ Reported reasons are:
 `GET /v1/ingestion/status` reports the current data path without querying ScopeDB telemetry tables. It lists only configured signals. For each one it includes:
 
 - OTLP receiver accepted, failed, and refused records;
-- successfully written and ultimately dropped records;
+- successfully written, unknown, and ultimately dropped records;
 - drops split into exhausted retry, queue refusal, and permanent rejection counts;
 - exporter queue enqueue failures, current size, capacity, and configured unit;
 - filesystem blocks allocated to the persistent queue directory;
@@ -118,17 +120,45 @@ Reported reasons are:
 
 This endpoint reports data-plane delivery state only. It does not report table queryability.
 
-Receiver, final exporter failure, and queue counts come from the OpenTelemetry Collector's internal metrics. `written` instead counts native signal items only when ScopeDB confirms a chunk as `committed` with the expected inserted-row count, so a committed prefix remains visible even if a later chunk fails. The exporter outcome metric wraps Collector's retry sender, so intermediate attempts are not counted as drops. `dropped` combines final exporter failures, queue enqueue failures, invalid items isolated locally, and complete ScopeDB row rejections. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when retry cannot continue during shutdown or an advanced Collector configuration sets a finite horizon. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
+Receiver and queue counts come from the OpenTelemetry Collector's internal metrics. Final delivery counts come from the exporter and request completion, so partial retries do not turn settled records into drops. `written` counts native signal items only when ScopeDB confirms a chunk as `committed` with the expected inserted-row count, so a committed prefix remains visible even if a later chunk fails. `unknown` counts ambiguous appends that Telescope will not automatically replay; it is excluded from `written` and `dropped`. `dropped` combines exhausted retry items, queue enqueue failures, invalid items isolated locally, and complete ScopeDB row rejections. `retry_exhausted` is the retryable part of final exporter failures. The embedded profile has no elapsed-time retry cutoff, so this normally remains zero; it can increase when a memory queue cannot retry during shutdown or an advanced Collector configuration sets a finite horizon. Persistent entries retained during shutdown are not counted as drops. `permanent_rejected` includes permanent mapping and ScopeDB rejections. Telescope does not add a second retry or queue implementation.
 
-The reported exporter queue excludes telemetry held by the Collector batch processor and an export currently in flight. Therefore a transient `received > written + dropped` with an empty exporter queue does not imply data loss. Human-readable `telescope status` calls this out as accepted items without a final outcome; it does not publish a synthetic durable counter for that transient state.
+The reported exporter queue excludes telemetry held by the Collector batch processor and an export currently in flight. Therefore a transient `received > written + unknown + dropped` with an empty exporter queue does not imply data loss. Human-readable `telescope status` calls this out as accepted items without a final outcome; it does not publish a synthetic durable counter for that transient state.
 
 `invalid_items_by_reason` counts locally identifiable mapping failures, while the delivery counters use each signal's native unit: log records, spans, or metric points. Human-readable `telescope status` prints the non-zero reason counts for each signal. A metric with no data type therefore increments `unsupported_metric_type` but contributes zero metric points to `permanent_rejected` and `dropped`.
 
 When the embedded profile uses `unit: bytes`, queue size and capacity are logical serialized telemetry bytes reported by Collector. `queue_storage.allocated_bytes` separately reports filesystem blocks allocated to files in `TELESCOPE_QUEUE_DIR`; it does not treat the queue database's logical file length as current disk use.
 
-`GET /metrics` exposes the same delivery facts as stable Prometheus metrics. This includes accepted, written, and finally dropped items; logical queue size, capacity, and utilization; last write success; destination verification; and allocated queue storage. `telescope_ingestion_queue_bytes` and `telescope_ingestion_queue_capacity_bytes` are published only for the byte sizer, while `telescope_ingestion_queue_utilization` is published for every sizer and is what the baseline alerts use. Load [`deploy/prometheus-rules.yaml`](../deploy/prometheus-rules.yaml) for the baseline alerts. Disk high-water history belongs in Prometheus and is calculated with `max_over_time`; Telescope does not retain another history database. The endpoint returns `503` rather than publishing false zeroes when Collector metrics are unavailable.
+`GET /metrics` exposes the same delivery facts as stable Prometheus metrics. This includes accepted, written, unknown, and finally dropped items; logical queue size, capacity, and utilization; last write success; destination verification; and allocated queue storage. `telescope_ingestion_queue_bytes` and `telescope_ingestion_queue_capacity_bytes` are published only for the byte sizer, while `telescope_ingestion_queue_utilization` is published for every sizer and is what the baseline alerts use. Load [`deploy/prometheus-rules.yaml`](../deploy/prometheus-rules.yaml) for the baseline alerts. Disk high-water history belongs in Prometheus and is calculated with `max_over_time`; Telescope does not retain another history database. The endpoint returns `503` rather than publishing false zeroes when Collector metrics are unavailable.
 
 The status and metrics endpoints read Collector's private Prometheus endpoint at `http://127.0.0.1:8888/metrics` by default. Set `TELESCOPE_INTERNAL_METRICS_URL` when a custom Collector configuration moves it. Scrape Telescope's operational `/metrics` endpoint, not port `8888`; the latter is an internal implementation detail. If internal metrics cannot be read, the status response remains available but reports `internal_telemetry.available: false` and a `degraded` signal state. State is limited to component health (`starting`, `ready`, `degraded`, or `refusing`); counters, queue size, and timestamps describe data movement without inferring flow from an old success.
+
+Counters reset when the process restarts. See the [delivery contract](../packages/scopedbexporter/README.md#append-and-retry-semantics) for the crash window between an append and queue acknowledgement.
+
+### Forward Collector Metrics over OTLP
+
+An advanced Collector configuration can forward internal metrics using the standard [`service.telemetry`](https://opentelemetry.io/docs/collector/internal-telemetry/) settings. Keep the pull reader when Telescope status needs to read these metrics. The embedded profile already sets `service.name=telescope`.
+
+```yaml
+service:
+  telemetry:
+    resource:
+      service.name: telescope
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+        - periodic:
+            interval: 10000
+            exporter:
+              otlp:
+                protocol: http/protobuf
+                endpoint: https://metrics.example.com/v1/metrics
+```
+
+This forwards Collector queue, receiver, and exporter metrics. Telescope-specific delivery counters remain on `/metrics`; scrape that endpoint to distinguish unknown outcomes from known drops.
 
 ## Current `v1` Limitations
 

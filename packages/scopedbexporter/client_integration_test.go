@@ -86,7 +86,8 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
-		assert.NoError(t, table.Drop(cleanupCtx))
+		_, cleanupErr := table.Catalog().Delete(cleanupCtx, scopedb.CatalogOptions{AllowDestructive: true})
+		assert.NoError(t, cleanupErr)
 	}()
 
 	cfg := testClientConfig(requestEndpoint)

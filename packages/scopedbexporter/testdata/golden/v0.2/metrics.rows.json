@@ -1,0 +1,345 @@
+[
+  {
+    "env": "default",
+    "metric_name": "system.load",
+    "metric_type": "gauge",
+    "number_value": 0.75,
+    "record": {
+      "attributes": {
+        "host.name": "host-1"
+      },
+      "description": "system load",
+      "exemplars": [
+        {
+          "filtered_attributes": {
+            "sampled": true
+          },
+          "span_id": "0102030405060708",
+          "timestamp_unix_nano": "1900",
+          "trace_id": "0102030405060708090a0b0c0d0e0f10",
+          "value": 0.7
+        }
+      ],
+      "metric_name": "system.load",
+      "number_value": 0.75,
+      "resource": {
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.mode": "test"
+        },
+        "name": "golden.meter",
+        "version": "1.0.0"
+      },
+      "start_timestamp_unix_nano": "1000",
+      "timestamp_unix_nano": "2000",
+      "type": "gauge",
+      "unit": "1",
+      "value": 0.75
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000002Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000001Z",
+    "unit": "1"
+  },
+  {
+    "env": "default",
+    "metric_name": "http.requests",
+    "metric_type": "sum",
+    "number_value": 42,
+    "record": {
+      "attributes": {},
+      "description": "",
+      "exemplars": [],
+      "is_monotonic": true,
+      "metric_name": "http.requests",
+      "number_value": 42,
+      "resource": {
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.mode": "test"
+        },
+        "name": "golden.meter",
+        "version": "1.0.0"
+      },
+      "start_timestamp_unix_nano": "1000",
+      "temporality": "cumulative",
+      "timestamp_unix_nano": "3000",
+      "type": "sum",
+      "unit": "1",
+      "value": 42
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000003Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000001Z",
+    "temporality": "cumulative",
+    "unit": "1"
+  },
+  {
+    "distribution": {
+      "bucket_counts": [
+        1,
+        2,
+        0
+      ],
+      "count": 3,
+      "explicit_bounds": [
+        5,
+        10
+      ],
+      "max": 9,
+      "min": 1.5,
+      "sum": 12.5
+    },
+    "env": "default",
+    "metric_name": "http.duration",
+    "metric_type": "histogram",
+    "record": {
+      "attributes": {},
+      "description": "",
+      "distribution": {
+        "bucket_counts": [
+          1,
+          2,
+          0
+        ],
+        "count": 3,
+        "explicit_bounds": [
+          5,
+          10
+        ],
+        "max": 9,
+        "min": 1.5,
+        "sum": 12.5
+      },
+      "exemplars": [
+        {
+          "filtered_attributes": {},
+          "span_id": "",
+          "timestamp_unix_nano": "3900",
+          "trace_id": "",
+          "value": 9
+        }
+      ],
+      "histogram": {
+        "bucket_counts": [
+          1,
+          2,
+          0
+        ],
+        "count": 3,
+        "explicit_bounds": [
+          5,
+          10
+        ],
+        "max": 9,
+        "min": 1.5,
+        "sum": 12.5
+      },
+      "metric_name": "http.duration",
+      "resource": {
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.mode": "test"
+        },
+        "name": "golden.meter",
+        "version": "1.0.0"
+      },
+      "start_timestamp_unix_nano": "1000",
+      "temporality": "delta",
+      "timestamp_unix_nano": "4000",
+      "type": "histogram",
+      "unit": "ms"
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000004Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000001Z",
+    "temporality": "delta",
+    "unit": "ms"
+  },
+  {
+    "distribution": {
+      "count": 4,
+      "max": 16,
+      "min": -2,
+      "negative": {
+        "bucket_counts": [
+          1
+        ],
+        "offset": 0
+      },
+      "positive": {
+        "bucket_counts": [
+          2,
+          1
+        ],
+        "offset": -1
+      },
+      "scale": 2,
+      "sum": 32,
+      "zero_count": 1,
+      "zero_threshold": 0.001
+    },
+    "env": "default",
+    "metric_name": "payload.size",
+    "metric_type": "exponential_histogram",
+    "record": {
+      "attributes": {},
+      "description": "",
+      "distribution": {
+        "count": 4,
+        "max": 16,
+        "min": -2,
+        "negative": {
+          "bucket_counts": [
+            1
+          ],
+          "offset": 0
+        },
+        "positive": {
+          "bucket_counts": [
+            2,
+            1
+          ],
+          "offset": -1
+        },
+        "scale": 2,
+        "sum": 32,
+        "zero_count": 1,
+        "zero_threshold": 0.001
+      },
+      "exemplars": [
+        {
+          "filtered_attributes": {},
+          "span_id": "",
+          "timestamp_unix_nano": "4900",
+          "trace_id": "",
+          "value": 8.5
+        }
+      ],
+      "histogram": {
+        "count": 4,
+        "max": 16,
+        "min": -2,
+        "negative": {
+          "bucket_counts": [
+            1
+          ],
+          "offset": 0
+        },
+        "positive": {
+          "bucket_counts": [
+            2,
+            1
+          ],
+          "offset": -1
+        },
+        "scale": 2,
+        "sum": 32,
+        "zero_count": 1,
+        "zero_threshold": 0.001
+      },
+      "metric_name": "payload.size",
+      "resource": {
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.mode": "test"
+        },
+        "name": "golden.meter",
+        "version": "1.0.0"
+      },
+      "start_timestamp_unix_nano": "1000",
+      "temporality": "cumulative",
+      "timestamp_unix_nano": "5000",
+      "type": "exponential_histogram",
+      "unit": "By"
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000005Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000001Z",
+    "temporality": "cumulative",
+    "unit": "By"
+  },
+  {
+    "distribution": {
+      "count": 2,
+      "quantile_values": [
+        {
+          "quantile": 0.5,
+          "value": 8
+        },
+        {
+          "quantile": 0.99,
+          "value": 12
+        }
+      ],
+      "sum": 20
+    },
+    "env": "default",
+    "metric_name": "rpc.duration.summary",
+    "metric_type": "summary",
+    "record": {
+      "attributes": {},
+      "description": "",
+      "distribution": {
+        "count": 2,
+        "quantile_values": [
+          {
+            "quantile": 0.5,
+            "value": 8
+          },
+          {
+            "quantile": 0.99,
+            "value": 12
+          }
+        ],
+        "sum": 20
+      },
+      "metric_name": "rpc.duration.summary",
+      "resource": {
+        "service.name": "checkout"
+      },
+      "scope": {
+        "attributes": {
+          "scope.mode": "test"
+        },
+        "name": "golden.meter",
+        "version": "1.0.0"
+      },
+      "start_timestamp_unix_nano": "1000",
+      "summary": {
+        "count": 2,
+        "quantile_values": [
+          {
+            "quantile": 0.5,
+            "value": 8
+          },
+          {
+            "quantile": 0.99,
+            "value": 12
+          }
+        ],
+        "sum": 20
+      },
+      "timestamp_unix_nano": "6000",
+      "type": "summary",
+      "unit": "ms"
+    },
+    "record_timestamp": "1970-01-01T00:00:00.000006Z",
+    "schema_version": "v1",
+    "service": "checkout",
+    "start_timestamp": "1970-01-01T00:00:00.000001Z",
+    "unit": "ms"
+  }
+]

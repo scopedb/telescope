@@ -31,6 +31,7 @@ import (
 	"time"
 
 	scopedb "github.com/scopedb/goscopedb"
+	"github.com/scopedb/telescope/internal/httpclient"
 )
 
 const defaultQueryTimeout = 30 * time.Second
@@ -81,7 +82,9 @@ func runQueryCommand(
 		return errors.New("ScopeDB endpoint is required; set TELESCOPE_SCOPEDB_ENDPOINT or SCOPEDB_ENDPOINT, or pass --scopedb-endpoint")
 	}
 
-	client, err := scopedb.NewClient(scopedb.Config{Endpoint: endpoint, APIKey: apiKey})
+	httpClient := httpclient.New()
+	defer httpClient.CloseIdleConnections()
+	client, err := scopedb.NewClient(scopedb.Config{Endpoint: endpoint, APIKey: apiKey, HTTPClient: httpClient})
 	if err != nil {
 		return err
 	}
@@ -90,7 +93,7 @@ func runQueryCommand(
 	waitCtx, cancelWait := context.WithTimeout(ctx, *timeout+5*time.Second)
 	defer cancelWait()
 	scopeQLStatement := client.Statement(statement)
-	scopeQLStatement.ExecTimeout = timeout.String()
+	scopeQLStatement.MaxElapsed = *timeout
 	handle, err := scopeQLStatement.Submit(waitCtx)
 	if err != nil {
 		return fmt.Errorf("submit ScopeQL: %w", err)

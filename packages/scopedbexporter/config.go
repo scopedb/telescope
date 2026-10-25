@@ -50,6 +50,7 @@ type SignalMappingConfig struct {
 }
 
 type Config struct {
+	AppendBatch    AppendBatchConfig                                        `mapstructure:"append_batch"`
 	Endpoint       string                                                   `mapstructure:"endpoint"`
 	APIKey         configopaque.String                                      `mapstructure:"api_key"`
 	Tables         TableRoutingConfig                                       `mapstructure:"tables"`
@@ -58,6 +59,24 @@ type Config struct {
 	Timeout        exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
 	RetryOnFailure configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
 	SendingQueue   configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
+}
+
+// AppendBatchConfig caps each uncompressed NDJSON request after mapping.
+// Zero values use the ScopeDB protocol limits.
+type AppendBatchConfig struct {
+	MaxRows  int `mapstructure:"max_rows"`
+	MaxBytes int `mapstructure:"max_bytes"`
+}
+
+func (cfg AppendBatchConfig) limits() (int, int) {
+	maxBytes, maxRows := cfg.MaxBytes, cfg.MaxRows
+	if maxBytes == 0 {
+		maxBytes = maxAppendRequestBytes
+	}
+	if maxRows == 0 {
+		maxRows = maxAppendRequestRows
+	}
+	return maxBytes, maxRows
 }
 
 func createDefaultConfig() component.Config {
@@ -83,6 +102,12 @@ func createDefaultConfig() component.Config {
 
 func (cfg *Config) Validate() error {
 	var errs []error
+	if cfg.AppendBatch.MaxRows < 0 || cfg.AppendBatch.MaxRows > maxAppendRequestRows {
+		errs = append(errs, fmt.Errorf("append_batch.max_rows must be between 0 and %d", maxAppendRequestRows))
+	}
+	if cfg.AppendBatch.MaxBytes < 0 || cfg.AppendBatch.MaxBytes > maxAppendRequestBytes {
+		errs = append(errs, fmt.Errorf("append_batch.max_bytes must be between 0 and %d", maxAppendRequestBytes))
+	}
 
 	if strings.TrimSpace(cfg.Endpoint) == "" {
 		errs = append(errs, errors.New("endpoint is required"))
@@ -118,6 +143,9 @@ func (cfg *Config) Validate() error {
 	}
 
 	if cfg.SendingQueue.HasValue() {
+		if cfg.SendingQueue.Get().Batch.HasValue() {
+			errs = append(errs, errors.New("sending_queue.batch is not supported; use the batch processor before the exporter"))
+		}
 		if err := cfg.SendingQueue.Get().Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("sending_queue: %w", err))
 		}

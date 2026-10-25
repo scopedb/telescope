@@ -44,7 +44,10 @@ exporters:
         distribution: datapoint.distribution
         labels: datapoint.attributes
     compression: zstd
-    timeout: 10s
+    timeout: 30s
+    append_batch:
+      max_rows: 8000
+      max_bytes: 4194304
     retry_on_failure:
       enabled: true
       initial_interval: 5s
@@ -79,12 +82,14 @@ An expanded rule accepts exactly one of `source`, `sources`, or `value`. `source
 
 Tables and mappings are always explicit: a signal is enabled only when both entries are configured.
 
-The target tables are user-managed and must exist before the exporter starts. Startup calls `Describe` for each route and fails with the exact missing columns or statically known output-type mismatches. Runtime-typed values such as uncast individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `preview --sample signal=path` to expose coverage, observed output types, and selected source/default counts without appending rows. Add `--strict` when unobserved, partial, or default-only sample coverage should fail. Signal routes may point to the same table when their mappings target a compatible schema.
+The target tables are user-managed and must exist before data can be written. Startup validates local configuration without contacting ScopeDB, so a destination outage cannot hold up receivers or queue recovery. Run `telescope validate` before deployment to check mapped columns and statically known output types through `Catalog().Table(...).Get`. Runtime-typed values such as uncast individual attributes are not assigned a guessed type. The Telescope CLI can project representative OTLP JSON or protobuf with `preview --sample signal=path` to expose coverage, observed output types, and selected source/default counts without appending rows. Add `--strict` when unobserved, partial, or default-only sample coverage should fail. Signal routes may point to the same table when their mappings target a compatible schema.
 
 ## Mapping Sources
 
 Sources shared by all signals:
 
+- `record`: the full normalized signal record, including attributes, resource, scope, and signal-specific fields
+- `record.id`: a deterministic SHA-256 content identifier; see [v0.2 compatibility](../../docs/migration-v0.2.md)
 - `resource.attributes`, `resource.attributes["<key>"]`
 - `resource.schema_url`, `resource.dropped_attributes_count`
 - `scope.name`, `scope.version`, `scope.attributes`, `scope.attributes["<key>"]`
@@ -128,10 +133,16 @@ Whole attribute maps, bodies, events, links, distributions, and exemplars retain
 
 ## Append and Retry Semantics
 
-The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk. Each request is capped at 8 MiB of uncompressed NDJSON and 200,000 rows.
+The writer uses synchronous `Table.AppendNDJSON`, one ScopeDB request per chunk. `append_batch.max_rows` and `append_batch.max_bytes` cap each request after mapping; bytes refer to uncompressed NDJSON, including newlines. Zero selects the protocol limit (200,000 rows or 8 MiB). The embedded profile uses 8,000 rows and 4 MiB. Use the upstream Collector batch processor to combine input records; `sending_queue.batch` is not supported. This keeps one completion boundary per queued request, including partial retries. A single mapped row above the configured byte cap is a permanent local rejection.
 
-A chunk succeeds only when ScopeDB reports `committed` and the inserted row count matches. Projection, JSON encoding, and row-size failures are isolated to the offending records. When ScopeDB returns a non-retryable `rejected` result with a complete, non-truncated row-error list, Telescope removes those rows and makes one append attempt for the remainder. It never bisects or repeatedly probes a rejected chunk. Rejections without a complete row list remain permanent for the whole uncommitted chunk. Retryable rejection, throttling, transport errors, and `unknown` outcomes are returned as retryable. When a later chunk fails, Collector retries only uncommitted records, not an already confirmed prefix or an isolated bad record.
+A chunk succeeds only when ScopeDB reports `committed` and the inserted row count matches. A structured `rejected` result is retried only when the SDK marks it retryable. Collector honors `Retry-After` as a minimum delay, including when it exceeds the configured backoff interval. Each signal defaults to one queue consumer; `sending_queue.num_consumers` changes its concurrency. Consumers and replicas share the destination's request budget, so adding consumers can increase throttling.
 
-The OpenTelemetry Collector `exporterhelper` sending queue is the only persistent queue and retry owner. Retryable requests have no elapsed-time expiry by default; the byte-sized queue bounds retained data, and a full queue reports enqueue failures instead of growing without limit. Unisolated permanent errors stop immediately. `AppendNDJSON` is not wrapped in a second SDK stream, queue, or reconciliation loop. Delivery is at least once: retrying an `unknown` outcome can create duplicates.
+An `unknown` outcome is terminal: Telescope does not automatically replay those rows. This includes an interrupted request, write timeout, malformed acknowledgement, or an HTTP error without a structured rejection. Only the affected chunk is counted as unknown; unsent rows can still be delivered. `unknown` in ingestion status and `telescope_ingestion_unknown_total` count these records separately from `written` and `dropped`. Collector's raw send-failure counter also includes terminal unknown outcomes; use Telescope's counters to distinguish them.
 
-`compression` accepts `zstd` (default) or `gzip` and is passed into `scopedb.Config`. ScopeDB Go SDK `v0.6.3` applies that setting to direct `AppendNDJSON` requests.
+Projection, JSON encoding, and row-size failures are isolated to the offending records. When ScopeDB returns a non-retryable `rejected` result with a complete, non-truncated row-error list, Telescope removes those rows and makes one append attempt for the remainder. It never bisects or repeatedly probes a rejected chunk. Rejections without a complete row list remain permanent for the uncommitted records. During a running export, Collector retries only the remaining records, excluding confirmed, rejected, and unknown chunks.
+
+The OpenTelemetry Collector `exporterhelper` sending queue is the only persistent queue and retry owner. Retryable requests have no elapsed-time expiry by default; configure `retry_on_failure.max_elapsed_time` for a finite budget. A full bounded queue reports enqueue failures. The queue stores the original OTLP request until export finishes: a crash or restart between a partial append and queue acknowledgement can replay that request, including previously committed or unknown chunks. This is an at-least-once crash boundary, not an exactly-once guarantee. Counters describe observations in the current process and cannot resolve a crash's missing acknowledgement.
+
+The exporter `timeout` owns each attempt's context, including mapping and all append chunks. Telescope explicitly disables the SDK's independent `WriteTimeout`, so a configured 60-second attempt is not cut short at the SDK's default 30 seconds. The embedded profile defaults to 30 seconds; the reusable exporter's default is 10 seconds. A timeout after dispatch is unknown; work not yet dispatched remains eligible for retry.
+
+`compression` accepts `zstd` (default) or `gzip`. ScopeDB Go SDK `v0.7.0` applies it to direct append requests and supplies outcome classification and `Retry-After` parsing. Telescope's HTTP clients refuse HTTPS-to-HTTP redirects.

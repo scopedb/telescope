@@ -77,6 +77,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	s.handler.ServeHTTP(w, request)
 }
 
+// SetCollectorRunning binds readiness to the receiver lifecycle. Call before serving.
+func (s *Server) SetCollectorRunning(running func() bool) {
+	s.service.collectorRunning = running
+}
+
 func (s *Server) Ready(ctx context.Context) bool {
 	_, ready := s.service.Readiness(ctx)
 	return ready

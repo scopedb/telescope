@@ -44,7 +44,7 @@ func TestGetPrometheusMetrics(t *testing.T) {
 				LastWriteSuccess:        lastSuccess,
 				ConfirmedWrittenRecords: 7,
 				PermanentFailedRecords:  2,
-				PermanentExportRecords:  1,
+				RetryExhaustedRecords:   2,
 				InvalidItemsByReason: map[string]uint64{
 					"unsupported_number_value_type": 1,
 					"unsupported_metric_type":       2,
@@ -73,7 +73,11 @@ func TestGetPrometheusMetrics(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.Equal(t, string(expfmt.NewFormat(expfmt.TypeTextPlain)), recorder.Header().Get("Content-Type"))
-	assert.Equal(t, `# HELP telescope_ingestion_received_total Telemetry items accepted by Telescope, in each signal's native unit.
+	assert.Equal(t, `# HELP telescope_ingestion_unknown_total Telemetry items with an unknown append outcome, excluded from written and dropped items.
+# TYPE telescope_ingestion_unknown_total counter
+telescope_ingestion_unknown_total{signal="logs",table="scopedb.otel.logs"} 0
+telescope_ingestion_unknown_total{signal="traces",table="scopedb.otel.traces"} 0
+# HELP telescope_ingestion_received_total Telemetry items accepted by Telescope, in each signal's native unit.
 # TYPE telescope_ingestion_received_total counter
 telescope_ingestion_received_total{signal="logs",table="scopedb.otel.logs"} 10
 telescope_ingestion_received_total{signal="traces",table="scopedb.otel.traces"} 4

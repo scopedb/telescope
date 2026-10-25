@@ -59,7 +59,8 @@ func TestScopeDBTelescopeIntegration(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cleanupCancel()
 		for _, table := range createdTables {
-			assert.NoError(t, table.Drop(cleanupCtx))
+			_, cleanupErr := table.Catalog().Delete(cleanupCtx, scopedb.CatalogOptions{AllowDestructive: true})
+			assert.NoError(t, cleanupErr)
 		}
 	})
 	for _, signal := range []string{"logs", "traces", "metrics"} {

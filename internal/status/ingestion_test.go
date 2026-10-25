@@ -83,7 +83,8 @@ func TestGetIngestionStatus(t *testing.T) {
 				LastProbeSuccess:        now.Add(-time.Second),
 				ConfirmedWrittenRecords: 10,
 				PermanentFailedRecords:  2,
-				PermanentExportRecords:  1,
+				RetryExhaustedRecords:   2,
+				UnknownRecords:          3,
 			},
 			"traces": {
 				Signal:              "traces",
@@ -98,7 +99,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, ExportFailed: 3, EnqueueFailed: 1, QueueCapacity: 5000},
+			"logs":   {Received: 10, ExportFailed: 6, EnqueueFailed: 1, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
@@ -124,6 +125,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	assert.True(t, response.Signals[0].DestinationVerified)
 	assert.Equal(t, []string{"probe-1", "probe-2"}, response.Signals[0].LastProbeIDs)
 	assert.Equal(t, uint64(10), response.Signals[0].Written)
+	assert.Equal(t, uint64(3), response.Signals[0].Unknown)
 	assert.Equal(t, uint64(5), response.Signals[0].Dropped)
 	assert.Equal(t, uint64(2), response.Signals[0].RetryExhausted)
 	assert.Equal(t, uint64(2), response.Signals[0].PermanentRejected)
@@ -187,6 +189,10 @@ func TestReadinessDoesNotDependOnScopeDBAvailability(t *testing.T) {
 	}}
 
 	server := newServer(service)
+	running := false
+	server.SetCollectorRunning(func() bool { return running })
+	require.False(t, server.Ready(context.Background()), "exporter readiness must not precede receiver startup")
+	running = true
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
@@ -239,7 +245,7 @@ otelcol_exporter_queue_capacity{exporter="scopedb",data_type="logs"} 5000
 func TestSignalDropCountsSeparatesFinalFailureReasons(t *testing.T) {
 	runtime := scopedbexporter.SignalRuntimeStatus{
 		PermanentFailedRecords: 5,
-		PermanentExportRecords: 3,
+		RetryExhaustedRecords:  4,
 	}
 	metrics := collectorSignalMetrics{ExportFailed: 7, EnqueueFailed: 1}
 

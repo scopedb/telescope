@@ -285,9 +285,9 @@ func TestRenderTablePlanScopeQLAddsColumns(t *testing.T) {
 func TestPlanIngestionTablesCreatesMissingDatabaseAndSchema(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/databases/analytics/schemas/otel/tables/logs",
-			"/v1/databases/analytics/schemas/otel",
-			"/v1/databases/analytics":
+		case "/v1/catalog/databases/analytics/schemas/otel/tables/logs",
+			"/v1/catalog/databases/analytics/schemas/otel",
+			"/v1/catalog/databases/analytics":
 			http.NotFound(w, r)
 		default:
 			t.Fatalf("unexpected catalog request: %s", r.URL.Path)
@@ -316,10 +316,11 @@ func TestPlanIngestionTablesCreatesMissingDatabaseAndSchema(t *testing.T) {
 func TestPlanIngestionTablesCreatesMissingSchemaInExistingDatabase(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/databases/analytics/schemas/otel/tables/logs", "/v1/databases/analytics/schemas/otel":
+		case "/v1/catalog/databases/analytics/schemas/otel/tables/logs", "/v1/catalog/databases/analytics/schemas/otel":
 			http.NotFound(w, r)
-		case "/v1/databases/analytics":
+		case "/v1/catalog/databases/analytics":
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("ETag", `"1"`)
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"name": "analytics", "comment": nil}))
 		default:
 			t.Fatalf("unexpected catalog request: %s", r.URL.Path)
@@ -371,14 +372,14 @@ func TestRenderTablePlanScopeQLDeduplicatesNamespaces(t *testing.T) {
 func missingTablePlanServer(t *testing.T, schema string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		schemaPath := "/v1/databases/scopedb/schemas/" + schema
+		schemaPath := "/v1/catalog/databases/scopedb/schemas/" + schema
 		switch {
 		case r.URL.Path == schemaPath:
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("ETag", `"1"`)
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-				"database": "scopedb",
-				"name":     schema,
-				"comment":  nil,
+				"name":    schema,
+				"comment": nil,
 			}))
 		case strings.HasPrefix(r.URL.Path, schemaPath+"/tables/"):
 			http.NotFound(w, r)
@@ -392,14 +393,13 @@ func tablePlanServer(t *testing.T, schema string, table string, columns []map[st
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", `"1"`)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"database":     "scopedb",
-			"schema":       schema,
 			"name":         table,
 			"columns":      columns,
 			"partition_by": []string{},
 			"cluster_by":   []string{},
-			"distinct_on":  map[string]any{"on": []string{}, "by": []string{}},
+			"distinct":     map[string]any{"on": []string{}, "by": []string{}},
 		}))
 	}))
 }

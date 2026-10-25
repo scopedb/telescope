@@ -140,7 +140,7 @@ func PlanIngestionTables(
 		Tables:  make([]TablePlan, 0, len(builders)),
 	}
 	for _, builder := range builders {
-		resource, describeErr := client.table(builder.ref).Describe(ctx)
+		resource, describeErr := client.table(builder.ref).Catalog().Get(ctx)
 		exists := describeErr == nil
 		if describeErr != nil && !isCatalogNotFound(describeErr) {
 			return IngestionTablePlan{}, fmt.Errorf("describe target table %s: %w", builder.ref.String(), describeErr)
@@ -154,7 +154,7 @@ func PlanIngestionTables(
 				return IngestionTablePlan{}, err
 			}
 		}
-		tablePlan := buildTablePlan(builder, exists, resource)
+		tablePlan := buildTablePlan(builder, exists, resource.Definition)
 		tablePlan.Database = database
 		tablePlan.Schema = schema
 		tablePlan.CreateDatabase = createDatabase
@@ -165,7 +165,7 @@ func PlanIngestionTables(
 }
 
 func missingNamespace(ctx context.Context, client *Client, database string, schema string) (bool, bool, error) {
-	_, err := client.sdk.FetchSchema(ctx, database, schema)
+	_, err := client.sdk.Catalog().Schema(database, schema).Get(ctx)
 	if err == nil {
 		return false, false, nil
 	}
@@ -173,7 +173,7 @@ func missingNamespace(ctx context.Context, client *Client, database string, sche
 		return false, false, fmt.Errorf("describe target schema %s.%s: %w", database, schema, err)
 	}
 
-	_, err = client.sdk.FetchDatabase(ctx, database)
+	_, err = client.sdk.Catalog().Database(database).Get(ctx)
 	if err == nil {
 		return false, true, nil
 	}
@@ -403,11 +403,11 @@ func groupTableRequirements(
 	return builders, nil
 }
 
-func buildTablePlan(builder tablePlanBuilder, exists bool, resource scopedb.TableResource) TablePlan {
+func buildTablePlan(builder tablePlanBuilder, exists bool, resource *scopedb.CatalogTable) TablePlan {
 	signals := sortedStringKeys(builder.signals)
 
-	actual := make(map[string]scopedb.DataType, len(resource.Columns))
-	if exists {
+	actual := make(map[string]scopedb.DataType)
+	if exists && resource != nil {
 		for _, column := range resource.Columns {
 			actual[column.Name] = column.DataType
 		}

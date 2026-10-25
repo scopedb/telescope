@@ -104,9 +104,10 @@ func TestPlanCommandWritesScopeQLWithoutASecondCatalogRead(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		if r.URL.Path == "/v1/databases/scopedb/schemas/app" {
+		if r.URL.Path == "/v1/catalog/databases/scopedb/schemas/app" {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"database": "scopedb", "name": "app", "comment": nil})
+			w.Header().Set("ETag", `"1"`)
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "app", "comment": nil})
 			return
 		}
 		http.NotFound(w, r)
@@ -332,11 +333,12 @@ func writeTablePlanConfig(t *testing.T, contents string) string {
 func missingTableCommandServer(t *testing.T, schema string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		schemaPath := "/v1/databases/scopedb/schemas/" + schema
+		schemaPath := "/v1/catalog/databases/scopedb/schemas/" + schema
 		switch {
 		case r.URL.Path == schemaPath:
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(map[string]any{"database": "scopedb", "name": schema, "comment": nil}); err != nil {
+			w.Header().Set("ETag", `"1"`)
+			if err := json.NewEncoder(w).Encode(map[string]any{"name": schema, "comment": nil}); err != nil {
 				t.Errorf("encode schema: %v", err)
 			}
 		case strings.HasPrefix(r.URL.Path, schemaPath+"/tables/"):

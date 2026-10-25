@@ -52,9 +52,15 @@ type SignalRuntimeStatus struct {
 	LastProbeIDs            []string
 	LastProbeSuccess        time.Time
 	ConfirmedWrittenRecords uint64
+	UnknownRecords          uint64
 	PermanentFailedRecords  uint64
-	PermanentExportRecords  uint64
+	RetryExhaustedRecords   uint64
 	InvalidItemsByReason    map[string]uint64
+}
+
+func (r *StatusRegistry) recordUnknown(signal string, records int, started time.Time, err error) {
+	r.recordWrite(signal, records, started, err, false)
+	r.update(signal, func(status *SignalRuntimeStatus) { status.UnknownRecords += uint64(records) })
 }
 
 func NewStatusRegistry() *StatusRegistry {
@@ -94,18 +100,6 @@ func (r *StatusRegistry) markReady(signal string) {
 		status.Ready = true
 		status.DestinationVerified = true
 		status.LastError = ""
-	})
-}
-
-func (r *StatusRegistry) markReadyDegraded(signal string, err error) {
-	if err == nil {
-		return
-	}
-	r.update(signal, func(status *SignalRuntimeStatus) {
-		status.Ready = true
-		status.DestinationVerified = false
-		status.LastWriteFailure = r.now()
-		status.LastError = err.Error()
 	})
 }
 
@@ -156,23 +150,12 @@ func (r *StatusRegistry) recordWrite(signal string, records int, started time.Ti
 	})
 }
 
-func (r *StatusRegistry) recordPermanentExport(signal string, records int) {
+func (r *StatusRegistry) recordRetryExhausted(signal string, records int) {
 	if r == nil || records <= 0 {
 		return
 	}
 	r.update(signal, func(status *SignalRuntimeStatus) {
-		status.PermanentExportRecords += uint64(records)
-	})
-}
-
-func (r *StatusRegistry) recordStartFailure(signal string, err error) {
-	if r == nil || err == nil {
-		return
-	}
-	r.update(signal, func(status *SignalRuntimeStatus) {
-		status.Ready = false
-		status.LastWriteFailure = r.now()
-		status.LastError = err.Error()
+		status.RetryExhaustedRecords += uint64(records)
 	})
 }
 

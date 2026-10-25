@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
+	"go.opentelemetry.io/collector/exporter/exporterhelper/xexporterhelper"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -74,17 +75,21 @@ func createLogsExporter(ctx context.Context, set exporter.Settings, cfg componen
 		return nil, err
 	}
 
-	logsExporter, err := exporterhelper.NewLogs(
+	logsExporter, err := xexporterhelper.NewLogsRequest(
 		ctx,
 		set,
-		cfg,
-		exp.pushLogs,
+		func(ctx context.Context, data plog.Logs) (xexporterhelper.Request, error) {
+			return requestFromData(ctx, data, exp), nil
+		},
+		func(ctx context.Context, request xexporterhelper.Request) error {
+			return request.(*deliveryRequest).send(ctx)
+		},
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &capturingLogsExporter{Logs: logsExporter, captures: captures}, nil
+	return &capturingLogsExporter{Logs: logsExporter, captures: captures, exp: exp}, nil
 }
 
 func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry, captures *CaptureRegistry) (exporter.Traces, error) {
@@ -94,17 +99,21 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 		return nil, err
 	}
 
-	tracesExporter, err := exporterhelper.NewTraces(
+	tracesExporter, err := xexporterhelper.NewTracesRequest(
 		ctx,
 		set,
-		cfg,
-		exp.pushTraces,
+		func(ctx context.Context, data ptrace.Traces) (xexporterhelper.Request, error) {
+			return requestFromData(ctx, data, exp), nil
+		},
+		func(ctx context.Context, request xexporterhelper.Request) error {
+			return request.(*deliveryRequest).send(ctx)
+		},
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &capturingTracesExporter{Traces: tracesExporter, captures: captures}, nil
+	return &capturingTracesExporter{Traces: tracesExporter, captures: captures, exp: exp}, nil
 }
 
 func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg component.Config, statuses *StatusRegistry, captures *CaptureRegistry) (exporter.Metrics, error) {
@@ -114,11 +123,15 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		return nil, err
 	}
 
-	metricsExporter, err := exporterhelper.NewMetrics(
+	metricsExporter, err := xexporterhelper.NewMetricsRequest(
 		ctx,
 		set,
-		cfg,
-		exp.pushMetrics,
+		func(ctx context.Context, data pmetric.Metrics) (xexporterhelper.Request, error) {
+			return requestFromData(ctx, data, exp), nil
+		},
+		func(ctx context.Context, request xexporterhelper.Request) error {
+			return request.(*deliveryRequest).send(ctx)
+		},
 		exporterOptions(baseCfg, exp)...,
 	)
 	if err != nil {
@@ -129,6 +142,7 @@ func createMetricsExporter(ctx context.Context, set exporter.Settings, cfg compo
 		statuses: statuses,
 		captures: captures,
 		logger:   set.Logger.Named("scopedbexporter"),
+		exp:      exp,
 	}, nil
 }
 
@@ -139,31 +153,34 @@ func exporterOptions(cfg *Config, exp *dbExporter) []exporterhelper.Option {
 		exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithTimeout(cfg.Timeout),
 		exporterhelper.WithRetry(cfg.RetryOnFailure),
-		exporterhelper.WithQueue(cfg.SendingQueue),
+		xexporterhelper.WithQueueBatch(cfg.SendingQueue, xexporterhelper.QueueBatchSettings{Encoding: deliveryEncoding{exp}, ReferenceCounter: deliveryReferenceCounter{}}),
 	}
 }
 
 type capturingLogsExporter struct {
+	exp *dbExporter
 	exporter.Logs
 	captures *CaptureRegistry
 }
 
 func (e *capturingLogsExporter) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
 	e.captures.ObserveLogs(logs)
-	return e.Logs.ConsumeLogs(ctx, logs)
+	return consumeWithDelivery(ctx, e.exp, func(ctx context.Context) error { return e.Logs.ConsumeLogs(ctx, logs) })
 }
 
 type capturingTracesExporter struct {
+	exp *dbExporter
 	exporter.Traces
 	captures *CaptureRegistry
 }
 
 func (e *capturingTracesExporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
 	e.captures.ObserveTraces(traces)
-	return e.Traces.ConsumeTraces(ctx, traces)
+	return consumeWithDelivery(ctx, e.exp, func(ctx context.Context) error { return e.Traces.ConsumeTraces(ctx, traces) })
 }
 
 type metricFilteringExporter struct {
+	exp *dbExporter
 	exporter.Metrics
 	statuses *StatusRegistry
 	captures *CaptureRegistry
@@ -174,12 +191,12 @@ func (e *metricFilteringExporter) ConsumeMetrics(ctx context.Context, metrics pm
 	e.captures.ObserveMetrics(metrics)
 	filtered, failures := filterInvalidMetrics(metrics)
 	if len(failures) == 0 {
-		return e.Metrics.ConsumeMetrics(ctx, metrics)
+		return consumeWithDelivery(ctx, e.exp, func(ctx context.Context) error { return e.Metrics.ConsumeMetrics(ctx, metrics) })
 	}
 
 	var sendErr error
 	if filtered.DataPointCount() > 0 {
-		sendErr = e.Metrics.ConsumeMetrics(ctx, filtered)
+		sendErr = consumeWithDelivery(ctx, e.exp, func(ctx context.Context) error { return e.Metrics.ConsumeMetrics(ctx, filtered) })
 	}
 
 	started := time.Now().UTC()
@@ -201,4 +218,19 @@ func (e *metricFilteringExporter) ConsumeMetrics(ctx context.Context, metrics pm
 		zap.Error(failures[0].err),
 	)
 	return sendErr
+}
+
+func (e *capturingLogsExporter) Shutdown(ctx context.Context) error {
+	e.exp.stopping.Store(true)
+	return e.Logs.Shutdown(ctx)
+}
+
+func (e *capturingTracesExporter) Shutdown(ctx context.Context) error {
+	e.exp.stopping.Store(true)
+	return e.Traces.Shutdown(ctx)
+}
+
+func (e *metricFilteringExporter) Shutdown(ctx context.Context) error {
+	e.exp.stopping.Store(true)
+	return e.Metrics.Shutdown(ctx)
 }
