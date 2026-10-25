@@ -17,7 +17,7 @@ telescope query --env-file deploy/.env \
 | Queue grows and `last_error` is set | Destination credentials, table schema, rate limits, or ScopeDB availability. |
 | Queue is empty but accepted items have no final outcome | Allow for Collector batching and an in-flight export; the queue does not include either. |
 | `dropped` increases | Inspect permanent rejection, enqueue failure, and exhausted retry counts. Preview a sample for mapping failures. |
-| `unknown` increases | Inspect append errors; these ambiguous outcomes are counted separately and are not automatically retried during the running export. |
+| `unknown` increases | Inspect append errors and the [unknown replay policy](exporter.md#append-and-retry-semantics); ambiguous outcomes are counted separately. |
 | Internal telemetry is unavailable | Check Collector health and its private metrics endpoint. |
 
 `verify` waits for an exact append acknowledgement, normally within its 45-second timeout, and prints `ScopeDB append committed synthetic probe` on success. It does not test application-specific values or query stored columns. `query` executes one ScopeQL statement from an argument, stdin, or `--file`; `--format json` and `--format jsonl` provide machine-readable results. It uses Telescope's ScopeDB connection and attempts cancellation after timeout or interruption.
@@ -81,42 +81,35 @@ Status lists only configured signals. Counts use each signal's native unit: log 
 
 An empty queue with `received > written + unknown + dropped` can reflect batching or an export in flight. `status` calls out these unsettled items; persistent entries retained at shutdown are not counted as dropped. Counters reset on restart and do not establish table queryability or resolve missing crash acknowledgements.
 
-To push self-metrics to an OTLP gateway, configure [`telemetry.otlp`](deployment.md#configuration-and-capacity) in the same YAML used by `telescope run`. This exports Collector receiver, exporter, and queue metrics together with `telescope_ingestion_written_total`, `telescope_ingestion_unknown_total`, `telescope_ingestion_dropped_total`, and `telescope_ingestion_invalid_items_total`. The latest successful append timestamp and destination verification gauges are included. `telescope_ingestion_unknown_replay_attempts_total` and `telescope_ingestion_unknown_replayed_records_total` expose opt-in replay separately from final unknown outcomes. Delivery counters use the same registry as the status API; dropped records are partitioned by `permanent_rejected`, `retry_exhausted`, and `enqueue_failed`. The default resource identifies `service.name=telescope`, the binary version, and a process instance ID; `telemetry.resource` adds deployment attributes. These metrics use a separate telemetry exporter and do not pass through the application ingestion pipeline.
+Scrape operational `/metrics` and load the [Prometheus rules](../deploy/prometheus-rules.yaml) for queue saturation, final drops, stalled delivery, unverified destinations, and disk high-water history. Also monitor Prometheus `up`, `telescope_ingestion_unknown_total`, and Collector `otelcol_receiver_refused_*`. Receiver refusals are excluded from final drops because the sender may retry. Byte metrics apply only to byte queues; utilization applies to every queue sizer.
 
-The local telemetry reader remains enabled for `/readyz`, `/v1/ingestion/status`, and `/metrics`. Gateway outages do not change readiness or block ingestion; metric export has its own timeout and no persistent queue. Counters reset on restart. OTLP metric names are emitted as defined by Collector; Prometheus readers can translate names and add unit or counter suffixes. Check OTLP names directly when migrating gateway queries. The pushed queue metrics use Collector's `otelcol_exporter_queue_size` and `otelcol_exporter_queue_capacity` names; filesystem allocation remains available through the operational status API and Prometheus endpoint.
+Telescope reads Collector metrics at the resolved `telemetry.metrics_addr`, defaulting to `http://127.0.0.1:8888/metrics`. This private endpoint is not the stable Telescope metrics API. If it fails, status reports `internal_telemetry.available: false` and a degraded state. Signal states (`starting`, `ready`, `degraded`, `refusing`) describe component health rather than traffic flow. `TELESCOPE_INTERNAL_METRICS_URL` does not override `run` configuration.
 
-Scrape operational `/metrics` and load the [Prometheus rules](../deploy/prometheus-rules.yaml). They cover queue saturation, final drops, stalled delivery, unverified destinations, and queue disk high-water history. Also monitor Prometheus `up`, `telescope_ingestion_unknown_total`, and Collector `otelcol_receiver_refused_*` independently. Receiver refusals are excluded from final drops because the sender may retry; they can cause loss when the sender abandons them. The byte-size metrics are emitted only for byte queues; queue utilization works for every sizer.
+## Export self-metrics
 
-Telescope reads Collector metrics from `http://127.0.0.1:8888/metrics`; In `run`, the resolved `telemetry.metrics_addr` selects this endpoint; `TELESCOPE_INTERNAL_METRICS_URL` does not override it. The latter applies only to custom configurations outside `run`. Do not use that private endpoint as the stable Telescope metrics API. If it fails, status remains available with `internal_telemetry.available: false` and a degraded state. Signal states (`starting`, `ready`, `degraded`, `refusing`) describe component health, not inferred traffic flow.
-
-<details>
-<summary>Forward Collector metrics over OTLP</summary>
-
-An advanced configuration can add a periodic reader using standard [`service.telemetry`](https://opentelemetry.io/docs/collector/internal-telemetry/) settings. Retain the pull reader for Telescope status:
+Add this to the YAML used by `telescope run`:
 
 ```yaml
-service:
-  telemetry:
-    resource:
-      service.name: telescope
-    metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: 127.0.0.1
-                port: 8888
-        - periodic:
-            interval: 10000
-            exporter:
-              otlp:
-                protocol: http/protobuf
-                endpoint: https://metrics.example.com/v1/metrics
+telemetry:
+  resource:
+    deployment.environment: ${env:DEPLOYMENT_ENVIRONMENT}
+  otlp:
+    endpoint: https://metrics.example.com/v1/metrics
+    headers:
+      Authorization: ${env:METRICS_AUTHORIZATION}
 ```
 
-This forwards Collector metrics. Telescope's final-delivery counters still require scraping its operational `/metrics` endpoint.
+| Setting under `telemetry` | Contract |
+| --- | --- |
+| `resource` | String attributes, with `${env:NAME}` support. `service.name` defaults to `telescope`; Collector supplies the version and a process instance ID. |
+| `otlp.endpoint` | Empty disables push. HTTP(S) selects transport security. For HTTP, omit the path to use `/v1/metrics` or provide the complete metrics path. |
+| `otlp.protocol`, `otlp.compression` | `http/protobuf` or `grpc`; `none` or `gzip`. Defaults are `http/protobuf` and `none`. |
+| `otlp.interval`, `otlp.timeout` | Defaults `60s` and `10s`. |
+| `otlp.headers` | Request headers; values support `${env:NAME}` and are redacted in diagnostics. |
 
-</details>
+Push includes Collector receiver, exporter, and queue metrics plus Telescope's written, unknown, dropped, invalid-item, and unknown-replay counters. It also includes the latest successful append timestamp and destination verification gauge. The delivery counters come from the same registry as status; dropped records are partitioned by `permanent_rejected`, `retry_exhausted`, and `enqueue_failed`. Pushed queue metrics use `otelcol_exporter_queue_size` and `otelcol_exporter_queue_capacity`; filesystem allocation is available only through operational status and Prometheus.
+
+The local reader remains enabled for readiness, status, and `/metrics`. The OTLP reader has its own timeout and no persistent queue; gateway outages do not block ingestion or change readiness. Counters reset on restart. Prometheus readers may translate metric names and add unit or counter suffixes, so check OTLP names when migrating gateway queries. Custom Collector distributions configure readers through `service.telemetry` and register the [ScopeDB exporter](exporter.md).
 
 ## Drain and upgrade
 

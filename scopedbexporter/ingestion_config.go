@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"strings"
 
-	"go.opentelemetry.io/collector/config/configopaque"
-	"go.uber.org/zap"
+	scopedb "github.com/scopedb/goscopedb"
+	"github.com/scopedb/telescope/internal/httpclient"
 )
 
 // SignalIngestionConfig routes one OpenTelemetry signal into a user-owned
@@ -109,6 +109,12 @@ func (cfg IngestionConfig) ContractDigest() (string, error) {
 }
 
 func (cfg IngestionConfig) Validate() error {
+	_, err := cfg.compile()
+	return err
+}
+
+func (cfg IngestionConfig) compile() ([]*mappingPlan, error) {
+	var plans []*mappingPlan
 	var errs []error
 	if len(cfg.EnabledSignals()) == 0 {
 		errs = append(errs, errors.New("at least one signal is required"))
@@ -125,11 +131,14 @@ func (cfg IngestionConfig) Validate() error {
 			errs = append(errs, fmt.Errorf("%s.table is required", prefix))
 			table = "placeholder"
 		}
-		if _, err := compileMappingPlan(signal, table, signalConfig.Mapping); err != nil {
+		plan, err := compileMappingPlan(signal, table, signalConfig.Mapping)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", prefix, err))
+		} else {
+			plans = append(plans, plan)
 		}
 	}
-	return errors.Join(errs...)
+	return plans, errors.Join(errs...)
 }
 
 // EnabledSignals returns configured signals in stable OTLP order.
@@ -175,45 +184,88 @@ func InspectIngestionDestinations(
 	apiKey string,
 	ingestion IngestionConfig,
 ) ([]SignalDestinationValidation, error) {
-	if err := ingestion.Validate(); err != nil {
+	plans, err := ingestion.compile()
+	if err != nil {
 		return nil, err
 	}
-	client, err := newIngestionClient(endpoint, apiKey, ingestion)
+	client, err := newCatalogClient(endpoint, apiKey)
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
 
 	var errs []error
-	validations := make([]SignalDestinationValidation, 0, len(ingestion.EnabledSignals()))
-	for _, signal := range ingestion.EnabledSignals() {
-		validation, err := client.inspectDestination(ctx, signal)
+	validations := make([]SignalDestinationValidation, 0, len(plans))
+	for _, plan := range plans {
+		validation, err := plan.inspectDestination(ctx, client.Client)
 		if validation.Signal != "" {
 			validations = append(validations, validation)
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", signal, err))
+			errs = append(errs, fmt.Errorf("%s: %w", plan.signal, err))
 		}
 	}
 	return validations, errors.Join(errs...)
 }
 
-func newIngestionClient(endpoint string, apiKey string, ingestion IngestionConfig) (*appendClient, error) {
-	cfg := createDefaultConfig().(*Config)
-	cfg.Endpoint = endpoint
-	cfg.APIKey = configopaque.String(apiKey)
-	cfg.Tables = TableRoutingConfig{
-		Logs:    ingestion.Signals.Logs.Table,
-		Traces:  ingestion.Signals.Traces.Table,
-		Metrics: ingestion.Signals.Metrics.Table,
+func newCatalogClient(endpoint, apiKey string) (*httpclient.ScopeDBClient, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, errors.New("endpoint is required")
 	}
-	cfg.Mappings = SignalMappingConfig{
-		Logs:    ingestion.Signals.Logs.Mapping,
-		Traces:  ingestion.Signals.Traces.Mapping,
-		Metrics: ingestion.Signals.Metrics.Mapping,
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, errors.New("api_key is required")
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
+	return httpclient.NewScopeDB(scopedb.Config{Endpoint: endpoint, APIKey: apiKey})
+}
+
+func (plan *mappingPlan) inspectDestination(ctx context.Context, client *scopedb.Client) (SignalDestinationValidation, error) {
+	description, err := plan.table.table(client).Catalog().Get(ctx)
+	if err != nil {
+		return SignalDestinationValidation{}, fmt.Errorf("describe target table %s: %w", plan.table.String(), err)
 	}
-	return newClient(cfg, zap.NewNop())
+	available := make(map[string]scopedb.DataType, len(description.Definition.Columns))
+	for _, column := range description.Definition.Columns {
+		available[column.Name] = column.DataType
+	}
+	var missing []string
+	var incompatible []string
+	validation := SignalDestinationValidation{
+		Signal:  plan.signal,
+		Columns: make([]DestinationColumnValidation, 0, len(plan.columns)),
+	}
+	for _, column := range plan.columns {
+		dataType, ok := available[column.name]
+		if !ok {
+			missing = append(missing, column.name)
+			validation.Columns = append(validation.Columns, DestinationColumnValidation{
+				MappingColumnDescription: describeMappedColumn(column),
+				Compatibility:            MappingMissing,
+			})
+			continue
+		}
+		compatibility := column.outputType.compatibilityWith(dataType)
+		validation.Columns = append(validation.Columns, DestinationColumnValidation{
+			MappingColumnDescription: describeMappedColumn(column),
+			TargetType:               string(dataType),
+			Compatibility:            compatibility,
+		})
+		if compatibility == MappingIncompatible {
+			incompatible = append(incompatible, fmt.Sprintf(
+				"%s (%s produces %s, table has %s)",
+				column.name, column.source, column.outputType, dataType,
+			))
+		}
+	}
+	var validationErrors []error
+	if len(missing) > 0 {
+		validationErrors = append(validationErrors, fmt.Errorf(
+			"target table %s is missing mapped columns: %s", plan.table.String(), strings.Join(missing, ", "),
+		))
+	}
+	if len(incompatible) > 0 {
+		validationErrors = append(validationErrors, fmt.Errorf(
+			"target table %s has incompatible mapped columns: %s", plan.table.String(), strings.Join(incompatible, "; "),
+		))
+	}
+	return validation, errors.Join(validationErrors...)
 }

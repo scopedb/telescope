@@ -127,7 +127,7 @@ func PlanIngestionTables(
 		return IngestionTablePlan{}, err
 	}
 
-	client, err := newIngestionClient(endpoint, apiKey, ingestion)
+	client, err := newCatalogClient(endpoint, apiKey)
 	if err != nil {
 		return IngestionTablePlan{}, err
 	}
@@ -142,7 +142,7 @@ func PlanIngestionTables(
 		Tables:  make([]TablePlan, 0, len(builders)),
 	}
 	for _, builder := range builders {
-		resource, describeErr := client.table(builder.ref).Catalog().Get(ctx)
+		resource, describeErr := builder.ref.table(client.Client).Catalog().Get(ctx)
 		exists := describeErr == nil
 		if describeErr != nil && !isCatalogNotFound(describeErr) {
 			return IngestionTablePlan{}, fmt.Errorf("describe target table %s: %w", builder.ref.String(), describeErr)
@@ -151,7 +151,7 @@ func PlanIngestionTables(
 		createDatabase := false
 		createSchema := false
 		if !exists {
-			createDatabase, createSchema, err = missingNamespace(ctx, client, database, schema)
+			createDatabase, createSchema, err = missingNamespace(ctx, client.Client, database, schema)
 			if err != nil {
 				return IngestionTablePlan{}, err
 			}
@@ -166,8 +166,8 @@ func PlanIngestionTables(
 	return result, nil
 }
 
-func missingNamespace(ctx context.Context, client *appendClient, database string, schema string) (bool, bool, error) {
-	_, err := client.sdk.Catalog().Schema(database, schema).Get(ctx)
+func missingNamespace(ctx context.Context, client *scopedb.Client, database string, schema string) (bool, bool, error) {
+	_, err := client.Catalog().Schema(database, schema).Get(ctx)
 	if err == nil {
 		return false, false, nil
 	}
@@ -175,7 +175,7 @@ func missingNamespace(ctx context.Context, client *appendClient, database string
 		return false, false, fmt.Errorf("describe target schema %s.%s: %w", database, schema, err)
 	}
 
-	_, err = client.sdk.Catalog().Database(database).Get(ctx)
+	_, err = client.Catalog().Database(database).Get(ctx)
 	if err == nil {
 		return false, true, nil
 	}
@@ -315,16 +315,10 @@ func tablePlanNamespace(plan TablePlan) (string, string, error) {
 	return database, schema, nil
 }
 
-type tableColumnRequirement struct {
-	signal      string
-	description MappingColumnDescription
-	preview     *MappingColumnPreview
-}
-
 type tablePlanBuilder struct {
 	ref          tableRef
 	signals      map[string]struct{}
-	requirements map[string][]tableColumnRequirement
+	requirements map[string][]TableColumnRequirement
 }
 
 func indexTablePlanPreviews(
@@ -367,24 +361,27 @@ func groupTableRequirements(
 			builder = &tablePlanBuilder{
 				ref:          ref,
 				signals:      make(map[string]struct{}),
-				requirements: make(map[string][]tableColumnRequirement),
+				requirements: make(map[string][]TableColumnRequirement),
 			}
 			byTable[description.Table] = builder
 		}
 		builder.signals[description.Signal] = struct{}{}
 		for _, column := range description.Columns {
-			var preview *MappingColumnPreview
-			if previewColumns := previews[description.Signal]; previewColumns != nil {
-				if value, ok := previewColumns[column.Column]; ok {
-					copy := value
-					preview = &copy
+			requirement := TableColumnRequirement{
+				Signal: description.Signal, Mapping: column.Source, OutputType: column.OutputType,
+			}
+			if preview, ok := previews[description.Signal][column.Column]; ok {
+				requirement.Sampled = true
+				requirement.Present = preview.Present
+				requirement.Total = preview.Total
+				requirement.Errors = preview.Errors
+				requirement.ObservedTypes = slices.Clone(preview.ObservedTypes)
+				requirement.Selections = slices.Clone(preview.Selections)
+				if _, resolved := scopeDBTableType(column.OutputType); !resolved && preview.Errors == 0 && len(preview.ObservedTypes) == 1 && supportedMappingCast(preview.ObservedTypes[0]) {
+					requirement.SuggestedCast = preview.ObservedTypes[0]
 				}
 			}
-			builder.requirements[column.Column] = append(builder.requirements[column.Column], tableColumnRequirement{
-				signal:      description.Signal,
-				description: column,
-				preview:     preview,
-			})
+			builder.requirements[column.Column] = append(builder.requirements[column.Column], requirement)
 		}
 	}
 
@@ -440,102 +437,68 @@ func buildTablePlan(builder tablePlanBuilder, exists bool, resource *scopedb.Cat
 
 func planTableColumn(
 	name string,
-	requirements []tableColumnRequirement,
+	requirements []TableColumnRequirement,
 	exists bool,
 	actual map[string]scopedb.DataType,
 ) TableColumnPlan {
-	slices.SortFunc(requirements, func(left, right tableColumnRequirement) int { return strings.Compare(left.signal, right.signal) })
+	slices.SortFunc(requirements, func(left, right TableColumnRequirement) int { return strings.Compare(left.Signal, right.Signal) })
 	column := TableColumnPlan{Name: name}
-	details := make([]TableColumnRequirement, 0, len(requirements))
 	includeDetails := len(requirements) > 1
 	types := make(map[string]struct{}, len(requirements))
+	observed := make(map[string]struct{})
 	var unresolved bool
 	var sampleErrors []string
-	observed := make(map[string]struct{})
 	for _, requirement := range requirements {
-		detail := TableColumnRequirement{
-			Signal:     requirement.signal,
-			Mapping:    requirement.description.Source,
-			OutputType: requirement.description.OutputType,
-		}
-		_, resolvedType := scopeDBTableType(requirement.description.OutputType)
-		if resolvedType {
-			types[requirement.description.OutputType] = struct{}{}
+		if _, resolved := scopeDBTableType(requirement.OutputType); resolved {
+			types[requirement.OutputType] = struct{}{}
 		} else {
 			unresolved = true
-			includeDetails = true
 		}
-		if requirement.preview == nil {
-			details = append(details, detail)
-			continue
-		}
-		includeDetails = true
-		detail.Sampled = true
-		detail.Present = requirement.preview.Present
-		detail.Total = requirement.preview.Total
-		detail.Errors = requirement.preview.Errors
-		detail.ObservedTypes = append([]string(nil), requirement.preview.ObservedTypes...)
-		detail.Selections = append([]MappingSelectionPreview(nil), requirement.preview.Selections...)
-		if !resolvedType && requirement.preview.Errors == 0 && len(detail.ObservedTypes) == 1 && supportedMappingCast(detail.ObservedTypes[0]) {
-			detail.SuggestedCast = detail.ObservedTypes[0]
-		}
-		for _, valueType := range requirement.preview.ObservedTypes {
+		includeDetails = includeDetails || requirement.Sampled || unresolved
+		for _, valueType := range requirement.ObservedTypes {
 			observed[valueType] = struct{}{}
 		}
-		if requirement.preview.Errors > 0 {
-			sampleErrors = append(sampleErrors, fmt.Sprintf("%s=%d", requirement.signal, requirement.preview.Errors))
+		if requirement.Errors > 0 {
+			sampleErrors = append(sampleErrors, fmt.Sprintf("%s=%d", requirement.Signal, requirement.Errors))
 		}
-		details = append(details, detail)
 	}
 	column.ObservedTypes = slices.Sorted(maps.Keys(observed))
-	finish := func() TableColumnPlan {
-		if includeDetails {
-			column.Requirements = details
+	if !unresolved && len(types) == 1 {
+		for valueType := range types {
+			column.RequiredType = valueType
 		}
-		return column
 	}
-
-	if len(types) > 1 {
-		includeDetails = true
+	actualType, found := actual[name]
+	switch {
+	case len(types) > 1:
 		parts := make([]string, 0, len(requirements))
 		for _, requirement := range requirements {
-			parts = append(parts, requirement.signal+"="+requirement.description.OutputType)
+			parts = append(parts, requirement.Signal+"="+requirement.OutputType)
 		}
 		column.Status = TableColumnConflict
 		column.Reason = "signals require different output types: " + strings.Join(parts, ", ")
-		return finish()
-	}
-	if unresolved {
+	case unresolved:
 		column.Status = TableColumnBlocked
 		column.Reason = "output type is runtime-dependent; add an explicit cast to the mapping"
-		return finish()
-	}
-	for valueType := range types {
-		column.RequiredType = valueType
-	}
-	if len(sampleErrors) > 0 {
+	case len(sampleErrors) > 0:
 		column.Status = TableColumnBlocked
 		column.Reason = "sample mapping failed: " + strings.Join(sampleErrors, ", ")
-		return finish()
-	}
-	if !exists {
+	case !exists:
 		column.Status = TableColumnCreate
-		return finish()
-	}
-	actualType, found := actual[name]
-	if !found {
+	case !found:
 		column.Status = TableColumnAdd
-		return finish()
+	default:
+		column.ActualType = string(actualType)
+		column.Status = TableColumnExists
+		if selectorType(column.RequiredType).compatibilityWith(actualType) == MappingIncompatible {
+			column.Status = TableColumnConflict
+			column.Reason = fmt.Sprintf("mapping requires %s but the table has %s", column.RequiredType, actualType)
+		}
 	}
-	column.ActualType = string(actualType)
-	if selectorType(column.RequiredType).compatibilityWith(actualType) == MappingIncompatible {
-		includeDetails = true
-		column.Status = TableColumnConflict
-		column.Reason = fmt.Sprintf("mapping requires %s but the table has %s", column.RequiredType, actualType)
-		return finish()
+	if includeDetails || column.Status == TableColumnConflict {
+		column.Requirements = requirements
 	}
-	column.Status = TableColumnExists
-	return finish()
+	return column
 }
 
 func scopeDBTableType(value string) (scopedb.DataType, bool) {

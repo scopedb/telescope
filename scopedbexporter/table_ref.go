@@ -19,6 +19,8 @@ package scopedbexporter
 import (
 	"fmt"
 	"strings"
+
+	scopedb "github.com/scopedb/goscopedb"
 )
 
 type tableRef struct {
@@ -64,4 +66,11 @@ func (r tableRef) String() string {
 	}
 	parts = append(parts, r.Table)
 	return strings.Join(parts, ".")
+}
+
+func (r tableRef) table(client *scopedb.Client) *scopedb.Table {
+	table := client.Table(r.Table)
+	table.Database = r.Database
+	table.Schema = r.Schema
+	return table
 }

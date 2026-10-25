@@ -28,80 +28,77 @@ import (
 	scopedb "github.com/scopedb/goscopedb"
 )
 
-var commonSourceSelectors = []string{
-	"record",
-	"record.id",
-	"resource.attributes",
-	"resource.schema_url",
-	"resource.dropped_attributes_count",
-	"scope.name",
-	"scope.version",
-	"scope.attributes",
-	"scope.schema_url",
-	"scope.dropped_attributes_count",
-}
-
-var signalSourceSelectors = map[string][]string{
-	signalLogs: {
-		"log.timestamp",
-		"log.observed_timestamp",
-		"log.timestamp_unix_nano",
-		"log.observed_timestamp_unix_nano",
-		"log.trace_id",
-		"log.span_id",
-		"log.event_name",
-		"log.severity_text",
-		"log.severity_number",
-		"log.flags",
-		"log.dropped_attributes_count",
-		"log.body",
-		"log.message",
-		"log.attributes",
-	},
-	signalTraces: {
-		"span.trace_id",
-		"span.span_id",
-		"span.parent_span_id",
-		"span.trace_state",
-		"span.flags",
-		"span.name",
-		"span.kind",
-		"span.start_time",
-		"span.end_time",
-		"span.start_time_unix_nano",
-		"span.end_time_unix_nano",
-		"span.duration_ns",
-		"span.status.code",
-		"span.status.message",
-		"span.attributes",
-		"span.dropped_attributes_count",
-		"span.events",
-		"span.dropped_events_count",
-		"span.links",
-		"span.dropped_links_count",
-	},
-	signalMetrics: {
-		"metric.name",
-		"metric.description",
-		"metric.unit",
-		"metric.type",
-		"metric.metadata",
-		"metric.temporality",
-		"metric.is_monotonic",
-		"datapoint.timestamp",
-		"datapoint.start_time",
-		"datapoint.timestamp_unix_nano",
-		"datapoint.start_time_unix_nano",
-		"datapoint.flags",
-		"datapoint.attributes",
-		"datapoint.value",
-		"datapoint.value_type",
-		"datapoint.int_value",
-		"datapoint.double_value",
-		"datapoint.number_value",
-		"datapoint.distribution",
-		"datapoint.exemplars",
-	},
+// Each selector defines its type and record access in one place for mapping,
+// sample inspection, and typo suggestions. record.id is bound to its signal
+// when the mapping is compiled.
+var sourceSelectors = map[string]struct {
+	valueType selectorType
+	get       recordGetter
+}{
+	"record":                            {selectorTypeObject, func(record telemetryRecord) (any, bool) { return record, true }},
+	"record.id":                         {selectorTypeString, nil},
+	"resource.attributes":               {selectorTypeObject, pathGetter("resource")},
+	"resource.schema_url":               {selectorTypeString, pathGetter("resource_schema_url")},
+	"resource.dropped_attributes_count": {selectorTypeUInt, pathGetter("resource_dropped_attributes_count")},
+	"scope.name":                        {selectorTypeString, pathGetter("scope", "name")},
+	"scope.version":                     {selectorTypeString, pathGetter("scope", "version")},
+	"scope.attributes":                  {selectorTypeObject, pathGetter("scope", "attributes")},
+	"scope.schema_url":                  {selectorTypeString, pathGetter("scope_schema_url")},
+	"scope.dropped_attributes_count":    {selectorTypeUInt, pathGetter("scope", "dropped_attributes_count")},
+	"log.timestamp":                     {selectorTypeTimestamp, timestampGetter("timestamp_unix_nano")},
+	"log.observed_timestamp":            {selectorTypeTimestamp, timestampGetter("observed_timestamp_unix_nano")},
+	"log.timestamp_unix_nano":           {selectorTypeString, pathGetter("timestamp_unix_nano")},
+	"log.observed_timestamp_unix_nano":  {selectorTypeString, pathGetter("observed_timestamp_unix_nano")},
+	"log.trace_id":                      {selectorTypeString, pathGetter("trace_id")},
+	"log.span_id":                       {selectorTypeString, pathGetter("span_id")},
+	"log.event_name":                    {selectorTypeString, pathGetter("event_name")},
+	"log.severity_text":                 {selectorTypeString, pathGetter("status")},
+	"log.severity_number":               {selectorTypeInt, pathGetter("severity_number")},
+	"log.flags":                         {selectorTypeUInt, pathGetter("flags")},
+	"log.dropped_attributes_count":      {selectorTypeUInt, pathGetter("dropped_attributes_count")},
+	"log.body":                          {selectorTypeDynamic, pathGetter("body")},
+	"log.message":                       {selectorTypeString, pathGetter("message")},
+	"log.attributes":                    {selectorTypeObject, pathGetter("attributes")},
+	"span.trace_id":                     {selectorTypeString, pathGetter("trace_id")},
+	"span.span_id":                      {selectorTypeString, pathGetter("span_id")},
+	"span.parent_span_id":               {selectorTypeString, pathGetter("parent_span_id")},
+	"span.trace_state":                  {selectorTypeString, pathGetter("trace_state")},
+	"span.flags":                        {selectorTypeUInt, pathGetter("flags")},
+	"span.name":                         {selectorTypeString, pathGetter("name")},
+	"span.kind":                         {selectorTypeString, pathGetter("kind")},
+	"span.start_time":                   {selectorTypeTimestamp, timestampGetter("start_time_unix_nano")},
+	"span.end_time":                     {selectorTypeTimestamp, timestampGetter("end_time_unix_nano")},
+	"span.start_time_unix_nano":         {selectorTypeString, pathGetter("start_time_unix_nano")},
+	"span.end_time_unix_nano":           {selectorTypeString, pathGetter("end_time_unix_nano")},
+	"span.duration_ns":                  {selectorTypeInt, pathGetter("duration_ns")},
+	"span.status.code":                  {selectorTypeString, pathGetter("status_code")},
+	"span.status.message":               {selectorTypeString, pathGetter("status_message")},
+	"span.attributes":                   {selectorTypeObject, pathGetter("attributes")},
+	"span.dropped_attributes_count":     {selectorTypeUInt, pathGetter("dropped_attributes_count")},
+	"span.events":                       {selectorTypeArray, pathGetter("events")},
+	"span.dropped_events_count":         {selectorTypeUInt, pathGetter("dropped_events_count")},
+	"span.links":                        {selectorTypeArray, pathGetter("links")},
+	"span.dropped_links_count":          {selectorTypeUInt, pathGetter("dropped_links_count")},
+	"metric.name":                       {selectorTypeString, pathGetter("metric_name")},
+	"metric.description":                {selectorTypeString, pathGetter("description")},
+	"metric.unit":                       {selectorTypeString, pathGetter("unit")},
+	"metric.type":                       {selectorTypeString, pathGetter("type")},
+	"metric.metadata":                   {selectorTypeObject, pathGetter("metadata")},
+	"metric.temporality":                {selectorTypeString, pathGetter("temporality")},
+	"metric.is_monotonic":               {selectorTypeBoolean, pathGetter("is_monotonic")},
+	"datapoint.timestamp":               {selectorTypeTimestamp, timestampGetter("timestamp_unix_nano")},
+	"datapoint.start_time":              {selectorTypeTimestamp, timestampGetter("start_timestamp_unix_nano")},
+	"datapoint.timestamp_unix_nano":     {selectorTypeString, pathGetter("timestamp_unix_nano")},
+	"datapoint.start_time_unix_nano":    {selectorTypeString, pathGetter("start_timestamp_unix_nano")},
+	"datapoint.flags":                   {selectorTypeUInt, pathGetter("flags")},
+	"datapoint.attributes":              {selectorTypeObject, pathGetter("attributes")},
+	"datapoint.value":                   {selectorTypeNumber, pathGetter("value")},
+	"datapoint.value_type":              {selectorTypeString, pathGetter("value_type")},
+	"datapoint.int_value":               {selectorTypeInt, pathGetter("int_value")},
+	"datapoint.double_value":            {selectorTypeFloat, pathGetter("double_value")},
+	"datapoint.number_value":            {selectorTypeFloat, pathGetter("number_value")},
+	"datapoint.distribution":            {selectorTypeObject, pathGetter("distribution")},
+	"datapoint.exemplars":               {selectorTypeArray, pathGetter("exemplars")},
 }
 
 type recordGetter func(telemetryRecord) (any, bool)
@@ -198,45 +195,10 @@ func (p *mappingPlan) project(record telemetryRecord) (map[string]any, error) {
 }
 
 func selectorTypeFor(source string) selectorType {
-	base, steps, err := parseSelectorPath(source)
-	if err != nil || len(steps) > 0 {
-		return selectorTypeDynamic
+	if selector, ok := sourceSelectors[strings.TrimSpace(source)]; ok {
+		return selector.valueType
 	}
-
-	switch base {
-	case "record", "resource.attributes", "scope.attributes", "log.attributes", "span.attributes",
-		"metric.metadata", "datapoint.attributes", "datapoint.distribution":
-		return selectorTypeObject
-	case "span.events", "span.links", "datapoint.exemplars":
-		return selectorTypeArray
-	case "log.timestamp", "log.observed_timestamp", "span.start_time", "span.end_time",
-		"datapoint.timestamp", "datapoint.start_time":
-		return selectorTypeTimestamp
-	case "log.severity_number", "span.duration_ns", "datapoint.int_value":
-		return selectorTypeInt
-	case "resource.dropped_attributes_count", "scope.dropped_attributes_count",
-		"log.flags", "log.dropped_attributes_count", "span.flags", "span.dropped_attributes_count",
-		"span.dropped_events_count", "span.dropped_links_count", "datapoint.flags":
-		return selectorTypeUInt
-	case "datapoint.double_value", "datapoint.number_value":
-		return selectorTypeFloat
-	case "metric.is_monotonic":
-		return selectorTypeBoolean
-	case "datapoint.value":
-		return selectorTypeNumber
-	case "log.body":
-		return selectorTypeDynamic
-	case "record.id", "resource.schema_url", "scope.name", "scope.version", "scope.schema_url",
-		"log.timestamp_unix_nano", "log.observed_timestamp_unix_nano", "log.trace_id", "log.span_id",
-		"log.event_name", "log.severity_text", "log.message", "span.trace_id", "span.span_id",
-		"span.parent_span_id", "span.trace_state", "span.name", "span.kind", "span.start_time_unix_nano",
-		"span.end_time_unix_nano", "span.status.code", "span.status.message", "metric.name",
-		"metric.description", "metric.unit", "metric.type", "metric.temporality", "datapoint.timestamp_unix_nano",
-		"datapoint.start_time_unix_nano", "datapoint.value_type":
-		return selectorTypeString
-	default:
-		return selectorTypeDynamic
-	}
+	return selectorTypeDynamic
 }
 
 func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatibility {
@@ -253,26 +215,14 @@ func (t selectorType) compatibilityWith(actual scopedb.DataType) MappingCompatib
 		return MappingIncompatible
 	}
 
-	compatible := false
+	compatible := string(t) == string(actual)
 	switch t {
-	case selectorTypeString:
-		compatible = actual == scopedb.StringDataType
 	case selectorTypeTimestamp:
-		compatible = actual == scopedb.TimestampDataType || actual == scopedb.StringDataType
-	case selectorTypeInt:
-		compatible = actual == scopedb.IntDataType
+		compatible = compatible || actual == scopedb.StringDataType
 	case selectorTypeUInt:
-		compatible = actual == scopedb.UIntDataType || actual == scopedb.IntDataType
-	case selectorTypeFloat:
-		compatible = actual == scopedb.FloatDataType
-	case selectorTypeBoolean:
-		compatible = actual == scopedb.BooleanDataType
-	case selectorTypeObject:
-		compatible = actual == scopedb.ObjectDataType
+		compatible = compatible || actual == scopedb.IntDataType
 	case selectorTypeArray:
-		compatible = actual == scopedb.ArrayDataType || actual == scopedb.ObjectDataType
-	case selectorTypeAny:
-		compatible = actual == scopedb.AnyDataType
+		compatible = compatible || actual == scopedb.ObjectDataType
 	}
 	if compatible {
 		return MappingCompatible
@@ -289,36 +239,28 @@ func compileRecordGetter(signal string, source string) (recordGetter, error) {
 		return nil, fmt.Errorf("source is required")
 	}
 
-	getter := commonRecordGetter(base)
-	if base == "record.id" {
-		getter = func(record telemetryRecord) (any, bool) { return recordID(signal, record) }
+	if signal != signalLogs && signal != signalTraces && signal != signalMetrics {
+		return nil, fmt.Errorf("unsupported signal %q", signal)
 	}
-	if getter == nil {
-		switch signal {
-		case signalLogs:
-			getter = logRecordGetter(base)
-		case signalTraces:
-			getter = traceRecordGetter(base)
-		case signalMetrics:
-			getter = metricRecordGetter(base)
-		default:
-			return nil, fmt.Errorf("unsupported signal %q", signal)
-		}
+	if expected := selectorSignal(base); expected != "" && expected != signal {
+		return nil, fmt.Errorf("source %q is only valid for %s", source, expected)
 	}
-	if getter == nil {
-		if expected := selectorSignal(base); expected != "" && expected != signal {
-			return nil, fmt.Errorf("source %q is only valid for %s", source, expected)
-		}
+	selector, ok := sourceSelectors[base]
+	if !ok {
 		if suggestion := suggestSource(signal, source); suggestion != "" {
 			return nil, fmt.Errorf("unsupported %s source %q; did you mean %q?", signal, source, suggestion)
 		}
 		return nil, fmt.Errorf("unsupported %s source %q", signal, source)
 	}
+	getter := selector.get
+	if base == "record.id" {
+		getter = func(record telemetryRecord) (any, bool) { return recordID(signal, record) }
+	}
 	if len(steps) == 0 {
 		return getter, nil
 	}
 
-	baseType := selectorTypeFor(base)
+	baseType := selector.valueType
 	first := steps[0]
 	switch baseType {
 	case selectorTypeObject:
@@ -457,19 +399,13 @@ func selectorPathGetter(base recordGetter, steps []selectorPathStep) recordGette
 				current = value.Index(step.index).Interface()
 				continue
 			}
-			switch values := current.(type) {
-			case map[string]any:
-				current, ok = values[step.key]
-			case telemetryRecord:
-				current, ok = values[step.key]
-			default:
-				return nil, false
-			}
+			values, ok := current.(map[string]any)
 			if !ok {
 				return nil, false
 			}
+			current = values[step.key]
 		}
-		return presentValue(current, true)
+		return current, current != nil
 	}
 }
 
@@ -483,12 +419,12 @@ func suggestSource(signal string, source string) string {
 		comparedSource = source[:bracket]
 		suffix = source[bracket:]
 	}
-	candidates := make([]string, 0, len(commonSourceSelectors)+len(signalSourceSelectors[signal]))
-	candidates = append(candidates, commonSourceSelectors...)
-	candidates = append(candidates, signalSourceSelectors[signal]...)
 	best := ""
 	bestDistance := len(comparedSource) + 1
-	for _, candidate := range candidates {
+	for _, candidate := range slices.Sorted(maps.Keys(sourceSelectors)) {
+		if expected := selectorSignal(candidate); expected != "" && expected != signal {
+			continue
+		}
 		distance := editDistance(comparedSource, candidate)
 		if distance < bestDistance {
 			best = candidate
@@ -530,163 +466,9 @@ func editDistance(left string, right string) int {
 	return previous[len(right)]
 }
 
-func commonRecordGetter(source string) recordGetter {
-	switch source {
-	case "record":
-		return func(record telemetryRecord) (any, bool) { return map[string]any(record), true }
-	case "resource.attributes":
-		return pathGetter("resource")
-	case "resource.schema_url":
-		return pathGetter("resource_schema_url")
-	case "resource.dropped_attributes_count":
-		return pathGetter("resource_dropped_attributes_count")
-	case "scope.name":
-		return nestedPathGetter("scope", "name")
-	case "scope.version":
-		return nestedPathGetter("scope", "version")
-	case "scope.attributes":
-		return nestedPathGetter("scope", "attributes")
-	case "scope.schema_url":
-		return pathGetter("scope_schema_url")
-	case "scope.dropped_attributes_count":
-		return nestedPathGetter("scope", "dropped_attributes_count")
-	default:
-		return nil
-	}
-}
-
-func logRecordGetter(source string) recordGetter {
-	switch source {
-	case "log.timestamp":
-		return timestampGetter("timestamp_unix_nano")
-	case "log.observed_timestamp":
-		return timestampGetter("observed_timestamp_unix_nano")
-	case "log.timestamp_unix_nano":
-		return pathGetter("timestamp_unix_nano")
-	case "log.observed_timestamp_unix_nano":
-		return pathGetter("observed_timestamp_unix_nano")
-	case "log.trace_id":
-		return pathGetter("trace_id")
-	case "log.span_id":
-		return pathGetter("span_id")
-	case "log.event_name":
-		return pathGetter("event_name")
-	case "log.severity_text":
-		return pathGetter("status")
-	case "log.severity_number":
-		return pathGetter("severity_number")
-	case "log.flags":
-		return pathGetter("flags")
-	case "log.dropped_attributes_count":
-		return pathGetter("dropped_attributes_count")
-	case "log.body":
-		return pathGetter("body")
-	case "log.message":
-		return pathGetter("message")
-	case "log.attributes":
-		return pathGetter("attributes")
-	default:
-		return nil
-	}
-}
-
-func traceRecordGetter(source string) recordGetter {
-	switch source {
-	case "span.trace_id":
-		return pathGetter("trace_id")
-	case "span.span_id":
-		return pathGetter("span_id")
-	case "span.parent_span_id":
-		return pathGetter("parent_span_id")
-	case "span.trace_state":
-		return pathGetter("trace_state")
-	case "span.flags":
-		return pathGetter("flags")
-	case "span.name":
-		return pathGetter("name")
-	case "span.kind":
-		return pathGetter("kind")
-	case "span.start_time":
-		return timestampGetter("start_time_unix_nano")
-	case "span.end_time":
-		return timestampGetter("end_time_unix_nano")
-	case "span.start_time_unix_nano":
-		return pathGetter("start_time_unix_nano")
-	case "span.end_time_unix_nano":
-		return pathGetter("end_time_unix_nano")
-	case "span.duration_ns":
-		return pathGetter("duration_ns")
-	case "span.status.code":
-		return pathGetter("status_code")
-	case "span.status.message":
-		return pathGetter("status_message")
-	case "span.attributes":
-		return pathGetter("attributes")
-	case "span.dropped_attributes_count":
-		return pathGetter("dropped_attributes_count")
-	case "span.events":
-		return pathGetter("events")
-	case "span.dropped_events_count":
-		return pathGetter("dropped_events_count")
-	case "span.links":
-		return pathGetter("links")
-	case "span.dropped_links_count":
-		return pathGetter("dropped_links_count")
-	default:
-		return nil
-	}
-}
-
-func metricRecordGetter(source string) recordGetter {
-	switch source {
-	case "metric.name":
-		return pathGetter("metric_name")
-	case "metric.description":
-		return pathGetter("description")
-	case "metric.unit":
-		return pathGetter("unit")
-	case "metric.type":
-		return pathGetter("type")
-	case "metric.metadata":
-		return pathGetter("metadata")
-	case "metric.temporality":
-		return pathGetter("temporality")
-	case "metric.is_monotonic":
-		return pathGetter("is_monotonic")
-	case "datapoint.timestamp":
-		return timestampGetter("timestamp_unix_nano")
-	case "datapoint.start_time":
-		return timestampGetter("start_timestamp_unix_nano")
-	case "datapoint.timestamp_unix_nano":
-		return pathGetter("timestamp_unix_nano")
-	case "datapoint.start_time_unix_nano":
-		return pathGetter("start_timestamp_unix_nano")
-	case "datapoint.flags":
-		return pathGetter("flags")
-	case "datapoint.attributes":
-		return pathGetter("attributes")
-	case "datapoint.value":
-		return pathGetter("value")
-	case "datapoint.value_type":
-		return pathGetter("value_type")
-	case "datapoint.int_value":
-		return pathGetter("int_value")
-	case "datapoint.double_value":
-		return pathGetter("double_value")
-	case "datapoint.number_value":
-		return pathGetter("number_value")
-	case "datapoint.distribution":
-		return pathGetter("distribution")
-	case "datapoint.exemplars":
-		return pathGetter("exemplars")
-	default:
-		return nil
-	}
-}
-
 func timestampGetter(key string) recordGetter {
 	return func(record telemetryRecord) (any, bool) {
-		raw, ok := pathGetter(key)(record)
+		raw, ok := record[key]
 		if !ok {
 			return nil, false
 		}
@@ -699,37 +481,17 @@ func timestampGetter(key string) recordGetter {
 	}
 }
 
-func pathGetter(key string) recordGetter {
-	return func(record telemetryRecord) (any, bool) {
-		value, ok := record[key]
-		return presentValue(value, ok)
+func pathGetter(key string, nested ...string) recordGetter {
+	get := func(record telemetryRecord) (any, bool) {
+		value := record[key]
+		return value, value != nil
 	}
-}
-
-func nestedPathGetter(path ...string) recordGetter {
-	return func(record telemetryRecord) (any, bool) {
-		var current any = map[string]any(record)
-		for _, key := range path {
-			values, ok := current.(map[string]any)
-			if !ok {
-				if typed, recordOK := current.(telemetryRecord); recordOK {
-					values = map[string]any(typed)
-				} else {
-					return nil, false
-				}
-			}
-			current, ok = values[key]
-			if !ok {
-				return nil, false
-			}
-		}
-		return presentValue(current, true)
+	if len(nested) == 0 {
+		return get
 	}
-}
-
-func presentValue(value any, ok bool) (any, bool) {
-	if !ok || value == nil {
-		return nil, false
+	steps := make([]selectorPathStep, len(nested))
+	for i, key := range nested {
+		steps[i].key = key
 	}
-	return value, true
+	return selectorPathGetter(get, steps)
 }

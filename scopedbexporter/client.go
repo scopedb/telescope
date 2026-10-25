@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -40,8 +39,7 @@ const (
 )
 
 type appendClient struct {
-	sdk    *scopedb.Client
-	http   *http.Client
+	*httpclient.ScopeDBClient
 	logger *zap.Logger
 	plans  map[string]*mappingPlan
 	batch  AppendBatchConfig
@@ -61,105 +59,33 @@ type sendOutcome struct {
 }
 
 func newClient(cfg *Config, logger *zap.Logger) (*appendClient, error) {
-	httpClient := httpclient.New()
-	sdkClient, err := scopedb.NewClient(scopedb.Config{
+	compiled, err := cfg.ingestionConfig().compile()
+	if err != nil {
+		return nil, err
+	}
+	sdkClient, err := httpclient.NewScopeDB(scopedb.Config{
 		Endpoint:    cfg.Endpoint,
 		APIKey:      string(cfg.APIKey),
 		Compression: sdkCompression(cfg.compressionMode()),
 		// Collector's per-attempt context owns the timeout, including mapping
 		// and all chunks. Do not add the SDK's independent 30-second deadline.
 		WriteTimeout: new(time.Duration(0)),
-		HTTPClient:   httpClient,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	plans := make(map[string]*mappingPlan, 3)
-	ingestion := cfg.ingestionConfig()
-	for _, signal := range ingestion.EnabledSignals() {
-		signalConfig, _ := ingestion.Signal(signal)
-		plan, err := compileMappingPlan(signal, signalConfig.Table, signalConfig.Mapping)
-		if err != nil {
-			sdkClient.Close()
-			return nil, fmt.Errorf("compile %s mapping: %w", signal, err)
-		}
-		plans[signal] = plan
+	plans := make(map[string]*mappingPlan, len(compiled))
+	for _, plan := range compiled {
+		plans[plan.signal] = plan
 	}
 
 	return &appendClient{
-		sdk:    sdkClient,
-		http:   httpClient,
-		logger: logger.Named("scopedbexporter/client"),
-		plans:  plans,
-		batch:  cfg.AppendBatch,
+		ScopeDBClient: sdkClient,
+		logger:        logger.Named("scopedbexporter/client"),
+		plans:         plans,
+		batch:         cfg.AppendBatch,
 	}, nil
-}
-
-func (c *appendClient) Close() {
-	if c.sdk != nil {
-		c.sdk.Close()
-	}
-	if c.http != nil {
-		c.http.CloseIdleConnections()
-	}
-}
-
-func (c *appendClient) inspectDestination(ctx context.Context, signal string) (SignalDestinationValidation, error) {
-	plan, ok := c.plans[signal]
-	if !ok {
-		return SignalDestinationValidation{}, fmt.Errorf("no mapping plan for signal %q", signal)
-	}
-
-	description, err := c.table(plan.table).Catalog().Get(ctx)
-	if err != nil {
-		return SignalDestinationValidation{}, fmt.Errorf("describe target table %s: %w", plan.table.String(), err)
-	}
-	available := make(map[string]scopedb.DataType, len(description.Definition.Columns))
-	for _, column := range description.Definition.Columns {
-		available[column.Name] = column.DataType
-	}
-	var missing []string
-	var incompatible []string
-	validation := SignalDestinationValidation{
-		Signal:  signal,
-		Columns: make([]DestinationColumnValidation, 0, len(plan.columns)),
-	}
-	for _, column := range plan.columns {
-		dataType, ok := available[column.name]
-		if !ok {
-			missing = append(missing, column.name)
-			validation.Columns = append(validation.Columns, DestinationColumnValidation{
-				MappingColumnDescription: describeMappedColumn(column),
-				Compatibility:            MappingMissing,
-			})
-			continue
-		}
-		compatibility := column.outputType.compatibilityWith(dataType)
-		validation.Columns = append(validation.Columns, DestinationColumnValidation{
-			MappingColumnDescription: describeMappedColumn(column),
-			TargetType:               string(dataType),
-			Compatibility:            compatibility,
-		})
-		if compatibility == MappingIncompatible {
-			incompatible = append(incompatible, fmt.Sprintf(
-				"%s (%s produces %s, table has %s)",
-				column.name, column.source, column.outputType, dataType,
-			))
-		}
-	}
-	var validationErrors []error
-	if len(missing) > 0 {
-		validationErrors = append(validationErrors, fmt.Errorf(
-			"target table %s is missing mapped columns: %s", plan.table.String(), strings.Join(missing, ", "),
-		))
-	}
-	if len(incompatible) > 0 {
-		validationErrors = append(validationErrors, fmt.Errorf(
-			"target table %s has incompatible mapped columns: %s", plan.table.String(), strings.Join(incompatible, "; "),
-		))
-	}
-	return validation, errors.Join(validationErrors...)
 }
 
 func (c *appendClient) send(ctx context.Context, signal string, payload *ingestPayload, replay *unknownRetryState) sendOutcome {
@@ -178,7 +104,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 	}
 
 	outcome := sendOutcome{}
-	table := c.table(plan.table)
+	table := plan.table.table(c.Client)
 	maxBytes, maxRows := c.batch.limits()
 	body := make([]byte, 0, min(maxBytes, len(payload.Records)*256))
 	chunkIndexes := make([]int, 0, min(maxRows, len(payload.Records)))
@@ -409,13 +335,6 @@ func recordIndexes(from int, to int) []int {
 		indexes = append(indexes, index)
 	}
 	return indexes
-}
-
-func (c *appendClient) table(ref tableRef) *scopedb.Table {
-	table := c.sdk.Table(ref.Table)
-	table.Database = ref.Database
-	table.Schema = ref.Schema
-	return table
 }
 
 func classifyAppendError(err error) error {

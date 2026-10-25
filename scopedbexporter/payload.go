@@ -43,7 +43,7 @@ type ingestPayload struct {
 	Records []telemetryRecord
 }
 
-type telemetryRecord map[string]any
+type telemetryRecord = map[string]any
 
 // recordID identifies mapped content independently of batch position, queue
 // replay, and arrival time. Equal records intentionally have equal IDs.

@@ -26,33 +26,41 @@ import (
 )
 
 func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error {
-	var received []*dto.Metric
-	var written []*dto.Metric
-	var unknown []*dto.Metric
-	var replayAttempts, replayedRecords []*dto.Metric
-	var dropped []*dto.Metric
-	var invalid []*dto.Metric
-	var queueBytes []*dto.Metric
-	var queueCapacity []*dto.Metric
-	var queueUtilization []*dto.Metric
-	var lastSuccess []*dto.Metric
-	var destinationVerified []*dto.Metric
+	families := make(map[string]*dto.MetricFamily)
+	add := func(name, help string, metric *dto.Metric) {
+		family := families[name]
+		if family == nil {
+			kind := dto.MetricType_GAUGE
+			if metric.Counter != nil {
+				kind = dto.MetricType_COUNTER
+			}
+			family = &dto.MetricFamily{Name: &name, Help: &help, Type: &kind}
+			families[name] = family
+		}
+		family.Metric = append(family.Metric, metric)
+	}
 
 	for _, signal := range snapshot.Signals {
 		labels := []*dto.LabelPair{{Name: new("signal"), Value: new(signal.Signal)}, {Name: new("table"), Value: new(signal.Table)}}
-		received = append(received, prometheusCounter(float64(signal.Received), labels...))
-		written = append(written, prometheusCounter(float64(signal.Written), labels...))
-		unknown = append(unknown, prometheusCounter(float64(signal.Unknown), labels...))
-		replayAttempts = append(replayAttempts, prometheusCounter(float64(signal.UnknownReplayAttempts), labels...))
-		replayedRecords = append(replayedRecords, prometheusCounter(float64(signal.UnknownReplayedRecords), labels...))
-		dropped = append(dropped,
-			prometheusCounter(float64(signal.RetryExhausted), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("retry_exhausted")})...),
-			prometheusCounter(float64(signal.EnqueueFailed), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("enqueue_failed")})...),
-			prometheusCounter(float64(signal.PermanentRejected), append(labels, &dto.LabelPair{Name: new("reason"), Value: new("permanent_rejected")})...),
-		)
+		add("telescope_ingestion_received_total", "Telemetry items accepted by Telescope, in each signal's native unit.", prometheusCounter(float64(signal.Received), labels...))
+		add("telescope_ingestion_written_total", "Telemetry items confirmed written to ScopeDB, in each signal's native unit.", prometheusCounter(float64(signal.Written), labels...))
+		add("telescope_ingestion_unknown_total", "Telemetry items with an unknown append outcome, excluded from written and dropped items.", prometheusCounter(float64(signal.Unknown), labels...))
+		add("telescope_ingestion_unknown_replay_attempts_total", "Append attempts replaying a chunk with a previous unknown outcome.", prometheusCounter(float64(signal.UnknownReplayAttempts), labels...))
+		add("telescope_ingestion_unknown_replayed_records_total", "Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery.", prometheusCounter(float64(signal.UnknownReplayedRecords), labels...))
+		for _, drop := range []struct {
+			reason string
+			count  uint64
+		}{
+			{"retry_exhausted", signal.RetryExhausted},
+			{"enqueue_failed", signal.EnqueueFailed},
+			{"permanent_rejected", signal.PermanentRejected},
+		} {
+			add("telescope_ingestion_dropped_total", "Telemetry items ultimately dropped, partitioned by final reason.",
+				prometheusCounter(float64(drop.count), append(labels, &dto.LabelPair{Name: new("reason"), Value: new(drop.reason)})...))
+		}
 
 		for _, reason := range slices.Sorted(maps.Keys(signal.InvalidItemsByReason)) {
-			invalid = append(invalid, prometheusCounter(
+			add("telescope_ingestion_invalid_items_total", "Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason.", prometheusCounter(
 				float64(signal.InvalidItemsByReason[reason]),
 				&dto.LabelPair{Name: new("signal"), Value: new(signal.Signal)},
 				&dto.LabelPair{Name: new("reason"), Value: new(reason)},
@@ -60,107 +68,35 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 		}
 
 		if signal.Queue.Enabled && signal.Queue.Capacity > 0 {
-			queueUtilization = append(queueUtilization, prometheusGauge(
+			add("telescope_ingestion_queue_utilization", "Fraction of the configured exporter queue capacity currently retained, for every queue sizer.", prometheusGauge(
 				float64(signal.Queue.Size)/float64(signal.Queue.Capacity),
 				labels...,
 			))
 		}
 
 		if signal.Queue.Enabled && signal.Queue.Unit == "bytes" {
-			queueBytes = append(queueBytes, prometheusGauge(float64(signal.Queue.Size), labels...))
-			queueCapacity = append(queueCapacity, prometheusGauge(float64(signal.Queue.Capacity), labels...))
+			add("telescope_ingestion_queue_bytes", "Logical serialized bytes currently retained in the exporter queue.", prometheusGauge(float64(signal.Queue.Size), labels...))
+			add("telescope_ingestion_queue_capacity_bytes", "Configured logical byte capacity of the exporter queue.", prometheusGauge(float64(signal.Queue.Capacity), labels...))
 		}
 
 		lastSuccessValue := float64(0)
 		if signal.LastWriteSuccess != nil {
 			lastSuccessValue = float64(signal.LastWriteSuccess.UnixNano()) / float64(1e9)
 		}
-		lastSuccess = append(lastSuccess, prometheusGauge(lastSuccessValue, labels...))
+		add("telescope_ingestion_last_success_timestamp_seconds", "Unix timestamp of the latest ScopeDB append success, or zero before the first success.", prometheusGauge(lastSuccessValue, labels...))
 		destinationValue := float64(0)
 		if signal.DestinationVerified {
 			destinationValue = 1
 		}
-		destinationVerified = append(destinationVerified, prometheusGauge(destinationValue, labels...))
+		add("telescope_ingestion_destination_verified", "Whether the ScopeDB destination has been verified by validation or a successful append.", prometheusGauge(destinationValue, labels...))
 	}
 
-	families := []*dto.MetricFamily{
-		{Name: new("telescope_ingestion_unknown_replay_attempts_total"), Help: new("Append attempts replaying a chunk with a previous unknown outcome."), Type: new(dto.MetricType_COUNTER), Metric: replayAttempts},
-		{Name: new("telescope_ingestion_unknown_replayed_records_total"), Help: new("Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery."), Type: new(dto.MetricType_COUNTER), Metric: replayedRecords},
-		{
-			Name:   new("telescope_ingestion_unknown_total"),
-			Help:   new("Telemetry items with an unknown append outcome, excluded from written and dropped items."),
-			Type:   new(dto.MetricType_COUNTER),
-			Metric: unknown,
-		},
-		{
-			Name:   new("telescope_ingestion_received_total"),
-			Help:   new("Telemetry items accepted by Telescope, in each signal's native unit."),
-			Type:   new(dto.MetricType_COUNTER),
-			Metric: received,
-		},
-		{
-			Name:   new("telescope_ingestion_written_total"),
-			Help:   new("Telemetry items confirmed written to ScopeDB, in each signal's native unit."),
-			Type:   new(dto.MetricType_COUNTER),
-			Metric: written,
-		},
-		{
-			Name:   new("telescope_ingestion_dropped_total"),
-			Help:   new("Telemetry items ultimately dropped, partitioned by final reason."),
-			Type:   new(dto.MetricType_COUNTER),
-			Metric: dropped,
-		},
-		{
-			Name:   new("telescope_ingestion_invalid_items_total"),
-			Help:   new("Invalid OpenTelemetry items rejected locally before ScopeDB append, partitioned by reason."),
-			Type:   new(dto.MetricType_COUNTER),
-			Metric: invalid,
-		},
-		{
-			Name:   new("telescope_ingestion_queue_bytes"),
-			Help:   new("Logical serialized bytes currently retained in the exporter queue."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: queueBytes,
-		},
-		{
-			Name:   new("telescope_ingestion_queue_capacity_bytes"),
-			Help:   new("Configured logical byte capacity of the exporter queue."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: queueCapacity,
-		},
-		{
-			Name:   new("telescope_ingestion_queue_utilization"),
-			Help:   new("Fraction of the configured exporter queue capacity currently retained, for every queue sizer."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: queueUtilization,
-		},
-		{
-			Name:   new("telescope_ingestion_last_success_timestamp_seconds"),
-			Help:   new("Unix timestamp of the latest ScopeDB append success, or zero before the first success."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: lastSuccess,
-		},
-		{
-			Name:   new("telescope_ingestion_destination_verified"),
-			Help:   new("Whether the ScopeDB destination has been verified by validation or a successful append."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: destinationVerified,
-		},
-	}
 	if snapshot.QueueStorage.Available {
-		families = append(families, &dto.MetricFamily{
-			Name:   new("telescope_queue_storage_allocated_bytes"),
-			Help:   new("Filesystem blocks currently allocated to files in the Telescope queue directory."),
-			Type:   new(dto.MetricType_GAUGE),
-			Metric: []*dto.Metric{prometheusGauge(float64(snapshot.QueueStorage.AllocatedBytes))},
-		})
+		add("telescope_queue_storage_allocated_bytes", "Filesystem blocks currently allocated to files in the Telescope queue directory.",
+			prometheusGauge(float64(snapshot.QueueStorage.AllocatedBytes)))
 	}
-
-	for _, family := range families {
-		if len(family.Metric) == 0 {
-			continue
-		}
-		if _, err := expfmt.MetricFamilyToText(w, family); err != nil {
+	for _, name := range slices.Sorted(maps.Keys(families)) {
+		if _, err := expfmt.MetricFamilyToText(w, families[name]); err != nil {
 			return err
 		}
 	}

@@ -116,7 +116,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
-	_, validationErr := client.inspectDestination(ctx, signalLogs)
+	_, validationErr := client.plans[signalLogs].inspectDestination(ctx, client.Client)
 	require.NoError(t, validationErr)
 
 	logs := plog.NewLogs()
@@ -222,7 +222,7 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 			client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 			require.NoError(t, err)
 			defer client.Close()
-			_, validationErr := client.inspectDestination(ctx, signal)
+			_, validationErr := client.plans[signal].inspectDestination(ctx, client.Client)
 			require.NoError(t, validationErr)
 			outcome := client.send(ctx, signal, payload, nil)
 			require.NoError(t, outcome.err)

@@ -48,13 +48,8 @@ type MappingRule struct {
 	valueSet   bool
 }
 
-type rawMappingRule struct {
-	Source  string   `mapstructure:"source" yaml:"source,omitempty"`
-	Sources []string `mapstructure:"sources" yaml:"sources,omitempty"`
-	Cast    string   `mapstructure:"cast" yaml:"cast,omitempty"`
-	Default any      `mapstructure:"default" yaml:"default,omitempty"`
-	Value   any      `mapstructure:"value" yaml:"value,omitempty"`
-}
+// Decode the same fields without invoking MappingRule's custom unmarshallers.
+type rawMappingRule MappingRule
 
 func (r *MappingRule) UnmarshalText(text []byte) error {
 	*r = MappingRule{Source: string(text), sourceSet: true}
@@ -92,17 +87,11 @@ func (r *MappingRule) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	*r = MappingRule{
-		Source:     raw.Source,
-		Sources:    raw.Sources,
-		Cast:       raw.Cast,
-		Default:    raw.Default,
-		Value:      raw.Value,
-		sourceSet:  seen["source"],
-		sourcesSet: seen["sources"],
-		defaultSet: seen["default"],
-		valueSet:   seen["value"],
-	}
+	*r = MappingRule(raw)
+	r.sourceSet = seen["source"]
+	r.sourcesSet = seen["sources"]
+	r.defaultSet = seen["default"]
+	r.valueSet = seen["value"]
 	return nil
 }
 
@@ -111,17 +100,11 @@ func (r *MappingRule) Unmarshal(conf *confmap.Conf) error {
 	if err := conf.Unmarshal(&raw); err != nil {
 		return err
 	}
-	*r = MappingRule{
-		Source:     raw.Source,
-		Sources:    raw.Sources,
-		Cast:       raw.Cast,
-		Default:    raw.Default,
-		Value:      raw.Value,
-		sourceSet:  conf.IsSet("source"),
-		sourcesSet: conf.IsSet("sources"),
-		defaultSet: conf.IsSet("default"),
-		valueSet:   conf.IsSet("value"),
-	}
+	*r = MappingRule(raw)
+	r.sourceSet = conf.IsSet("source")
+	r.sourcesSet = conf.IsSet("sources")
+	r.defaultSet = conf.IsSet("default")
+	r.valueSet = conf.IsSet("value")
 	return nil
 }
 
@@ -133,13 +116,7 @@ func (r MappingRule) MarshalYAML() (any, error) {
 	if rule.Source != "" && len(rule.Sources) == 0 && rule.Cast == "" && !rule.hasDefault() {
 		return rule.Source, nil
 	}
-	return rawMappingRule{
-		Source:  rule.Source,
-		Sources: rule.Sources,
-		Cast:    rule.Cast,
-		Default: rule.Default,
-		Value:   rule.Value,
-	}, nil
+	return rawMappingRule(rule), nil
 }
 
 func (r MappingRule) hasDefault() bool {
@@ -205,11 +182,7 @@ func (r MappingRule) normalized() (MappingRule, error) {
 	return r, nil
 }
 
-func (r MappingRule) description() string {
-	rule, err := r.normalized()
-	if err != nil {
-		return ""
-	}
+func (rule MappingRule) description() string {
 	var expression string
 	if rule.hasValue() {
 		expression = "value(" + mappingLiteralDescription(rule.Value) + ")"
@@ -327,52 +300,32 @@ func compileMappingRule(signal string, configured MappingRule) (compiledMappingR
 		}
 	}
 
-	var evaluator mappingEvaluator
+	fallback := mappingEvaluation{resolution: mappingResolutionMissing}
 	if rule.hasValue() {
-		evaluator = func(telemetryRecord) (mappingEvaluation, error) {
-			return mappingEvaluation{value: value, present: true, resolution: 0}, nil
-		}
-	} else {
-		evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
-			for index, getter := range getters {
-				if selected, ok := getter(record); ok {
-					return mappingEvaluation{value: selected, present: true, resolution: index}, nil
-				}
+		fallback = mappingEvaluation{value: value, present: true, resolution: 0}
+	} else if rule.hasDefault() {
+		fallback = mappingEvaluation{value: defaultValue, present: true, resolution: len(getters)}
+	}
+	evaluator := func(record telemetryRecord) (mappingEvaluation, error) {
+		for index, getter := range getters {
+			selected, ok := getter(record)
+			if !ok {
+				continue
 			}
-			return mappingEvaluation{resolution: mappingResolutionMissing}, nil
-		}
-		if rule.Cast != "" {
-			inner := evaluator
-			evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
-				evaluation, err := inner(record)
-				if err != nil || !evaluation.present {
-					return evaluation, err
-				}
-				cast, err := castMappingValue(evaluation.value, targetType)
+			evaluation := mappingEvaluation{value: selected, present: true, resolution: index}
+			if targetType != "" {
+				cast, err := castMappingValue(selected, targetType)
 				if err != nil {
 					return evaluation, &mappingError{
 						reason: mappingReasonCastFailed,
-						err:    mappingConversionError(evaluation.value, targetType),
+						err:    mappingConversionError(selected, targetType),
 					}
 				}
 				evaluation.value = cast
-				return evaluation, nil
 			}
+			return evaluation, nil
 		}
-		if rule.hasDefault() {
-			inner := evaluator
-			evaluator = func(record telemetryRecord) (mappingEvaluation, error) {
-				evaluation, err := inner(record)
-				if err != nil || evaluation.present {
-					return evaluation, err
-				}
-				return mappingEvaluation{
-					value:      defaultValue,
-					present:    true,
-					resolution: len(getters),
-				}, nil
-			}
-		}
+		return fallback, nil
 	}
 
 	return compiledMappingRule{
@@ -439,7 +392,7 @@ func selectorTypeForValue(value any) selectorType {
 		return selectorTypeUInt
 	case float32, float64:
 		return selectorTypeFloat
-	case map[string]any, telemetryRecord:
+	case map[string]any:
 		return selectorTypeObject
 	case []any, []map[string]any:
 		return selectorTypeArray
@@ -578,11 +531,7 @@ func mappingString(value any) (string, error) {
 
 func mappingInt(value any) (int64, error) {
 	if text, ok := value.(string); ok {
-		parsed, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
+		return strconv.ParseInt(strings.TrimSpace(text), 10, 64)
 	}
 	reflected := reflect.ValueOf(value)
 	if !reflected.IsValid() {
@@ -616,11 +565,7 @@ func floatToInt(value float64) (int64, error) {
 
 func mappingUInt(value any) (uint64, error) {
 	if text, ok := value.(string); ok {
-		parsed, err := strconv.ParseUint(strings.TrimSpace(text), 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
+		return strconv.ParseUint(strings.TrimSpace(text), 10, 64)
 	}
 	reflected := reflect.ValueOf(value)
 	if !reflected.IsValid() {
@@ -687,11 +632,7 @@ func mappingBoolean(value any) (bool, error) {
 	case bool:
 		return typed, nil
 	case string:
-		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
-		if err != nil {
-			return false, err
-		}
-		return parsed, nil
+		return strconv.ParseBool(strings.TrimSpace(typed))
 	default:
 		return false, fmt.Errorf("expected a boolean or boolean string")
 	}

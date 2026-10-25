@@ -56,10 +56,10 @@ func TestClientValidateDestination(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	_, validationErr := client.inspectDestination(context.Background(), signalLogs)
+	_, validationErr := client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
 
 	require.NoError(t, validationErr)
-	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	validation, err := client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
 	require.NoError(t, err)
 	require.Len(t, validation.Columns, 1)
 	assert.Equal(t, "string", validation.Columns[0].TargetType)
@@ -68,7 +68,7 @@ func TestClientValidateDestination(t *testing.T) {
 	client, err = newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
 	require.NoError(t, err)
 	defer client.Close()
-	_, err = client.inspectDestination(context.Background(), signalLogs)
+	_, err = client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "missing mapped columns: service")
 }
@@ -99,7 +99,7 @@ func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	validation, err := client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "severity (log.severity_number produces int, table has string)")
 	assert.NotContains(t, err.Error(), "tenant")
@@ -122,7 +122,7 @@ func TestClientValidateDestinationUsesCastOutputType(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	validation, err := client.inspectDestination(context.Background(), signalLogs)
+	validation, err := client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
 	require.NoError(t, err)
 	require.Len(t, validation.Columns, 1)
 	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
