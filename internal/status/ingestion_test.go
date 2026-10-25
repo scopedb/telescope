@@ -84,6 +84,7 @@ func TestGetIngestionStatus(t *testing.T) {
 				ConfirmedWrittenRecords: 10,
 				PermanentFailedRecords:  2,
 				RetryExhaustedRecords:   2,
+				EnqueueFailedRecords:    1,
 				UnknownRecords:          3,
 			},
 			"traces": {
@@ -99,7 +100,7 @@ func TestGetIngestionStatus(t *testing.T) {
 	service.ingestionMetrics = fakeCollectorMetricsReader{
 		endpoint: "http://collector:8888/metrics",
 		snapshot: collectorMetricsSnapshot{Signals: map[string]collectorSignalMetrics{
-			"logs":   {Received: 10, ExportFailed: 6, EnqueueFailed: 1, QueueCapacity: 5000},
+			"logs":   {Received: 10, ExportFailed: 6, EnqueueFailed: 99, QueueCapacity: 5000},
 			"traces": {Received: 4, QueueSize: 2, QueueCapacity: 5000},
 		}},
 	}
@@ -246,10 +247,10 @@ func TestSignalDropCountsSeparatesFinalFailureReasons(t *testing.T) {
 	runtime := scopedbexporter.SignalRuntimeStatus{
 		PermanentFailedRecords: 5,
 		RetryExhaustedRecords:  4,
+		EnqueueFailedRecords:   1,
 	}
-	metrics := collectorSignalMetrics{ExportFailed: 7, EnqueueFailed: 1}
 
-	dropped, retryExhausted := signalDropCounts(runtime, metrics)
+	dropped, retryExhausted := signalDropCounts(runtime)
 
 	assert.Equal(t, uint64(10), dropped)
 	assert.Equal(t, uint64(4), retryExhausted)

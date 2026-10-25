@@ -53,6 +53,7 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	if err != nil {
 		return err
 	}
+	printRuntimeWarnings(stderr, ingestion)
 	collectorConfigURI, err := collector.ConfigURI(ingestion)
 	if err != nil {
 		return fmt.Errorf("render Telescope config: %w", err)

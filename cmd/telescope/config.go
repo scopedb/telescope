@@ -86,6 +86,16 @@ func runConfigCommand(
 
 	printConfigPlan(stdout, descriptions)
 	printConfigurationSummary(stdout, descriptions)
+	if !preview {
+		settings, err := ingestion.RuntimeSettings()
+		if err != nil {
+			return err
+		}
+		for _, setting := range settings {
+			fmt.Fprintf(stdout, "runtime.%s: %q (source: %s)\n", setting.Path, setting.Value, setting.Source)
+		}
+	}
+	printRuntimeWarnings(stderr, ingestion)
 
 	var destinations []scopedbexporter.SignalDestinationValidation
 	var validationErrors []error
@@ -129,7 +139,21 @@ func loadTelescopeConfig(
 		return "", collector.Config{}, err
 	}
 	config, err := collector.LoadConfig(path)
+	if err == nil {
+		if strings.TrimSpace(valueOf(bootstrap.scopedbEndpoint)) != "" {
+			config.Sources["destination.endpoint"] = "--scopedb-endpoint"
+		}
+		if strings.TrimSpace(valueOf(bootstrap.scopedbAPIKey)) != "" {
+			config.Sources["destination.api_key"] = "--scopedb-api-key"
+		}
+	}
 	return path, config, err
+}
+
+func printRuntimeWarnings(w io.Writer, config collector.Config) {
+	for _, warning := range config.Warnings() {
+		fmt.Fprintf(w, "warning: %s\n", warning)
+	}
 }
 
 func telescopeConfigPath(flags *flag.FlagSet) (string, error) {

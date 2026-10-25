@@ -19,6 +19,7 @@ package collector
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -41,6 +42,8 @@ type Config struct {
 	Batch                           BatchConfig       `yaml:"batch"`
 	Resources                       ResourceConfig    `yaml:"resources"`
 	Telemetry                       TelemetryConfig   `yaml:"telemetry"`
+	Sources                         map[string]string `yaml:"-"`
+	overridden                      []string
 }
 
 type DestinationConfig struct {
@@ -89,15 +92,18 @@ type ResourceConfig struct {
 type TelemetryConfig struct {
 	// The local reader also supplies operational status and readiness.
 	MetricsAddr string            `yaml:"metrics_addr"`
+	Resource    map[string]string `yaml:"resource"`
+	Level       string            `yaml:"level"`
 	OTLP        OTLPMetricsConfig `yaml:"otlp"`
 }
 
 type OTLPMetricsConfig struct {
-	Endpoint string            `yaml:"endpoint"`
-	Protocol string            `yaml:"protocol"`
-	Headers  map[string]string `yaml:"headers"`
-	Interval time.Duration     `yaml:"interval"`
-	Timeout  time.Duration     `yaml:"timeout"`
+	Endpoint    string            `yaml:"endpoint"`
+	Protocol    string            `yaml:"protocol"`
+	Compression string            `yaml:"compression"`
+	Headers     map[string]string `yaml:"headers"`
+	Interval    time.Duration     `yaml:"interval"`
+	Timeout     time.Duration     `yaml:"timeout"`
 }
 
 func defaultConfig() Config {
@@ -111,8 +117,8 @@ func defaultConfig() Config {
 		},
 		Batch:     BatchConfig{Size: 2000, MaxSize: 2000, Timeout: 30 * time.Second},
 		Resources: ResourceConfig{MemoryLimitMiB: 512, MemorySpikeMiB: 128},
-		Telemetry: TelemetryConfig{MetricsAddr: "127.0.0.1:8888", OTLP: OTLPMetricsConfig{
-			Protocol: "http/protobuf", Interval: time.Minute, Timeout: 10 * time.Second,
+		Telemetry: TelemetryConfig{MetricsAddr: "127.0.0.1:8888", Level: "normal", Resource: map[string]string{"service.name": "telescope"}, OTLP: OTLPMetricsConfig{
+			Protocol: "http/protobuf", Compression: "none", Interval: time.Minute, Timeout: 10 * time.Second,
 		}},
 	}
 }
@@ -153,8 +159,8 @@ func (c Config) Validate() error {
 	if q.Type == "file" && strings.TrimSpace(q.Directory) == "" {
 		return errors.New("delivery.queue.directory is required for file queues")
 	}
-	if q.MaxBytes <= 0 || q.Consumers <= 0 {
-		return errors.New("delivery.queue.max_bytes and consumers must be positive")
+	if q.MaxBytes <= 0 || q.Consumers <= 0 || q.MaxBytes > math.MaxInt64/int64(len(c.EnabledSignals())) {
+		return errors.New("delivery.queue.max_bytes and consumers must be positive, and total queue bytes must fit in int64")
 	}
 	r := c.Delivery.Retry
 	if r.InitialInterval <= 0 || r.MaxInterval < r.InitialInterval || r.MaxElapsedTime < 0 {
@@ -163,8 +169,19 @@ func (c Config) Validate() error {
 	if c.Batch.Size < 1 || c.Batch.MaxSize < c.Batch.Size || c.Batch.Timeout <= 0 {
 		return errors.New("batch requires positive size and timeout, and max_size >= size")
 	}
-	if c.Resources.MemoryLimitMiB <= 0 || c.Resources.MemorySpikeMiB < 0 || c.Resources.MemorySpikeMiB >= c.Resources.MemoryLimitMiB {
+	if c.Resources.MemoryLimitMiB <= 0 || int64(c.Resources.MemoryLimitMiB) > math.MaxInt64>>20 || c.Resources.MemorySpikeMiB < 0 || c.Resources.MemorySpikeMiB >= c.Resources.MemoryLimitMiB {
 		return errors.New("resources requires memory_limit_mib > memory_spike_mib >= 0")
+	}
+	if q.Type == "memory" && q.MaxBytes >= c.memorySoftLimitBytes()/int64(len(c.EnabledSignals())) {
+		return errors.New("combined memory queue capacity must be below the memory soft limit (memory_limit_mib - memory_spike_mib); reserve additional memory for decoded data, batches, and requests")
+	}
+	if c.Telemetry.Level != "normal" && c.Telemetry.Level != "detailed" {
+		return errors.New("telemetry.level must be normal or detailed; operational status requires normal metrics")
+	}
+	for key := range c.Telemetry.Resource {
+		if strings.TrimSpace(key) == "" {
+			return errors.New("telemetry.resource keys must not be empty")
+		}
 	}
 	m := c.Telemetry.OTLP
 	if m.Protocol != "http/protobuf" && m.Protocol != "grpc" {
@@ -173,28 +190,41 @@ func (c Config) Validate() error {
 	if m.Interval < time.Millisecond || m.Timeout < time.Millisecond {
 		return errors.New("telemetry.otlp.interval and timeout must be at least 1ms")
 	}
+	if m.Compression != "none" && m.Compression != "gzip" {
+		return errors.New("telemetry.otlp.compression must be none or gzip")
+	}
 	return nil
 }
 
 // Environment overrides retain the existing CLI deployment interface. Values
 // are parsed as scalars, never interpolated into YAML or ingestion mappings.
 func (c *Config) applyEnvironment() error {
-	for key, target := range map[string]any{
-		"TELESCOPE_SCOPEDB_ENDPOINT": &c.Destination.Endpoint, "TELESCOPE_SCOPEDB_API_KEY": &c.Destination.APIKey,
-		"TELESCOPE_OTLP_GRPC_ADDR": &c.Receivers.GRPCAddr, "TELESCOPE_OTLP_HTTP_ADDR": &c.Receivers.HTTPAddr,
-		"TELESCOPE_HTTP_ADDR": &c.HTTPAddr,
-		"TELESCOPE_QUEUE_DIR": &c.Delivery.Queue.Directory, "TELESCOPE_QUEUE_MAX_BYTES": &c.Delivery.Queue.MaxBytes,
-		"TELESCOPE_QUEUE_CONSUMERS": &c.Delivery.Queue.Consumers, "TELESCOPE_WRITE_TIMEOUT": &c.Delivery.Timeout,
-		"TELESCOPE_APPEND_MAX_ROWS": &c.Delivery.MaxRows, "TELESCOPE_APPEND_MAX_BYTES": &c.Delivery.MaxBytes,
-		"TELESCOPE_OTEL_BATCH_TIMEOUT": &c.Batch.Timeout, "TELESCOPE_OTEL_BATCH_SIZE": &c.Batch.Size,
-		"TELESCOPE_OTEL_BATCH_MAX_SIZE": &c.Batch.MaxSize,
+	if c.Sources == nil {
+		c.Sources = make(map[string]string)
+	}
+	for key, setting := range map[string]struct {
+		path   string
+		target any
+	}{
+		"TELESCOPE_SCOPEDB_ENDPOINT": {"destination.endpoint", &c.Destination.Endpoint}, "TELESCOPE_SCOPEDB_API_KEY": {"destination.api_key", &c.Destination.APIKey},
+		"TELESCOPE_OTLP_GRPC_ADDR": {"receivers.grpc_addr", &c.Receivers.GRPCAddr}, "TELESCOPE_OTLP_HTTP_ADDR": {"receivers.http_addr", &c.Receivers.HTTPAddr},
+		"TELESCOPE_HTTP_ADDR": {"http_addr", &c.HTTPAddr},
+		"TELESCOPE_QUEUE_DIR": {"delivery.queue.directory", &c.Delivery.Queue.Directory}, "TELESCOPE_QUEUE_MAX_BYTES": {"delivery.queue.max_bytes", &c.Delivery.Queue.MaxBytes},
+		"TELESCOPE_QUEUE_CONSUMERS": {"delivery.queue.consumers", &c.Delivery.Queue.Consumers}, "TELESCOPE_WRITE_TIMEOUT": {"delivery.timeout", &c.Delivery.Timeout},
+		"TELESCOPE_APPEND_MAX_ROWS": {"delivery.max_rows", &c.Delivery.MaxRows}, "TELESCOPE_APPEND_MAX_BYTES": {"delivery.max_bytes", &c.Delivery.MaxBytes},
+		"TELESCOPE_OTEL_BATCH_TIMEOUT": {"batch.timeout", &c.Batch.Timeout}, "TELESCOPE_OTEL_BATCH_SIZE": {"batch.size", &c.Batch.Size},
+		"TELESCOPE_OTEL_BATCH_MAX_SIZE": {"batch.max_size", &c.Batch.MaxSize},
 	} {
 		value := strings.TrimSpace(os.Getenv(key))
 		if value == "" {
 			continue
 		}
 		var err error
-		switch target := target.(type) {
+		if c.Sources[setting.path] == "YAML" {
+			c.overridden = append(c.overridden, setting.path)
+		}
+		c.Sources[setting.path] = key
+		switch target := setting.target.(type) {
 		case *string:
 			*target = value
 		case *int:
@@ -208,7 +238,8 @@ func (c *Config) applyEnvironment() error {
 			return fmt.Errorf("invalid value for %s", key)
 		}
 	}
-	for _, target := range []*string{&c.Destination.Endpoint, &c.Destination.APIKey, &c.Delivery.Queue.Directory, &c.Telemetry.OTLP.Endpoint} {
+	for path, target := range map[string]*string{"destination.endpoint": &c.Destination.Endpoint, "destination.api_key": &c.Destination.APIKey, "delivery.queue.directory": &c.Delivery.Queue.Directory, "telemetry.otlp.endpoint": &c.Telemetry.OTLP.Endpoint} {
+		c.recordReferences(path, *target)
 		value, err := resolveEnvironment(*target)
 		if err != nil {
 			return err
@@ -216,11 +247,20 @@ func (c *Config) applyEnvironment() error {
 		*target = value
 	}
 	for name, value := range c.Telemetry.OTLP.Headers {
+		c.recordReferences("telemetry.otlp.headers."+name, value)
 		resolved, err := resolveEnvironment(value)
 		if err != nil {
 			return err
 		}
 		c.Telemetry.OTLP.Headers[name] = resolved
+	}
+	for name, value := range c.Telemetry.Resource {
+		c.recordReferences("telemetry.resource."+name, value)
+		resolved, err := resolveEnvironment(value)
+		if err != nil {
+			return err
+		}
+		c.Telemetry.Resource[name] = resolved
 	}
 	return nil
 }

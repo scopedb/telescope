@@ -49,8 +49,18 @@ func LoadConfig(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("decode Telescope config %s: %w", path, err)
 	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return Config{}, err
+	}
+	config.Sources = make(map[string]string)
+	walkRuntimeSettings(&document, "", func(path, _ string) { config.Sources[path] = "YAML" })
 	if err := config.applyEnvironment(); err != nil {
 		return Config{}, err
+	}
+	if config.Delivery.Queue.Type == "memory" && config.Sources["delivery.queue.max_bytes"] == "" && len(config.EnabledSignals()) > 0 {
+		config.Delivery.Queue.MaxBytes = config.memorySoftLimitBytes() / 4 / int64(len(config.EnabledSignals()))
+		config.Sources["delivery.queue.max_bytes"] = "derived from memory soft limit and enabled signals"
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, fmt.Errorf("validate Telescope config %s: %w", path, err)
@@ -96,7 +106,7 @@ func ConfigURI(config Config) (string, error) {
 		}
 		readers = append(readers, map[string]any{"periodic": map[string]any{
 			"interval": m.Interval.Milliseconds(), "timeout": m.Timeout.Milliseconds(),
-			"exporter": map[string]any{"otlp": map[string]any{"endpoint": m.Endpoint, "protocol": m.Protocol, "headers": headers, "timeout": m.Timeout.Milliseconds()}},
+			"exporter": map[string]any{"otlp": map[string]any{"endpoint": m.Endpoint, "protocol": m.Protocol, "compression": m.Compression, "headers": headers, "timeout": m.Timeout.Milliseconds()}},
 		}})
 	}
 	r := config.Delivery.Retry
@@ -118,7 +128,7 @@ func ConfigURI(config Config) (string, error) {
 		}},
 		"service": map[string]any{
 			"extensions": enabledExtensions, "pipelines": pipelines,
-			"telemetry": map[string]any{"resource": map[string]any{"service.name": "telescope"}, "logs": map[string]any{"level": "warn"}, "metrics": map[string]any{"readers": readers}},
+			"telemetry": map[string]any{"resource": config.Telemetry.Resource, "logs": map[string]any{"level": "warn"}, "metrics": map[string]any{"level": config.Telemetry.Level, "readers": readers}},
 		},
 	}
 	data, err := yaml.Marshal(rendered)

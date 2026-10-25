@@ -110,6 +110,14 @@ signals:
 	}
 }
 
+func TestDefaultConfigAcceptsEnvironmentOverrides(t *testing.T) {
+	t.Setenv("TELESCOPE_QUEUE_DIR", "/var/lib/telescope/instance")
+	config := defaultConfig()
+	require.NoError(t, config.applyEnvironment())
+	require.Equal(t, "/var/lib/telescope/instance", config.Delivery.Queue.Directory)
+	require.Equal(t, "TELESCOPE_QUEUE_DIR", config.Sources["delivery.queue.directory"])
+}
+
 func mapKeys(values map[string]any) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -213,6 +221,8 @@ func TestRuntimeConfigurationRejectsInvalidPolicy(t *testing.T) {
 		"telemetry: {otlp: {interval: 0s}}",
 		"telemetry: {otlp: {protocol: udp}}",
 		"telemetry: {otlp: {unknown_option: true}}",
+		"telemetry: {otlp: {compression: zstd}}",
+		"telemetry: {level: none}",
 	} {
 		t.Run(policy, func(t *testing.T) {
 			for _, name := range []string{"TELESCOPE_QUEUE_MAX_BYTES", "TELESCOPE_WRITE_TIMEOUT", "TELESCOPE_OTEL_BATCH_SIZE", "TELESCOPE_OTEL_BATCH_MAX_SIZE"} {
@@ -224,4 +234,34 @@ func TestRuntimeConfigurationRejectsInvalidPolicy(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestMemoryQueueBudgetAcrossSignals(t *testing.T) {
+	t.Setenv("TELESCOPE_QUEUE_MAX_BYTES", "")
+	load := func(policy, signals string) (Config, error) {
+		path := filepath.Join(t.TempDir(), "telescope.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(policy+"\nsignals:\n"+signals), 0o600))
+		return LoadConfig(path)
+	}
+	one := "  logs: {table: logs, mapping: {message: log.message}}\n"
+	three := one + "  traces: {table: traces, mapping: {name: span.name}}\n  metrics: {table: metrics, mapping: {name: metric.name}}\n"
+	policy := "delivery: {queue: {type: memory}}"
+	single, err := load(policy, one)
+	require.NoError(t, err)
+	multi, err := load(policy, three)
+	require.NoError(t, err)
+	require.Less(t, multi.Delivery.Queue.MaxBytes, single.Delivery.Queue.MaxBytes)
+	require.Equal(t, single.Delivery.Queue.MaxBytes, 3*multi.Delivery.Queue.MaxBytes)
+	require.Less(t, single.Delivery.Queue.MaxBytes, single.memorySoftLimitBytes())
+	require.Empty(t, multi.Warnings())
+	_, err = load("delivery: {queue: {type: memory, max_bytes: 134217728}}", three)
+	require.ErrorContains(t, err, "combined memory queue capacity")
+	_, err = load("delivery: {queue: {type: file, max_bytes: 134217728}}", three)
+	require.NoError(t, err)
+	explicit, err := load("delivery: {queue: {type: memory, max_bytes: 67108864}}", three)
+	require.NoError(t, err)
+	require.Len(t, explicit.Warnings(), 1)
+	t.Setenv("TELESCOPE_QUEUE_MAX_BYTES", "134217728")
+	_, err = load(policy, three)
+	require.ErrorContains(t, err, "combined memory queue capacity")
 }

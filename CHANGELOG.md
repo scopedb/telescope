@@ -15,8 +15,8 @@ All notable changes to this project will be documented in this file.
 
 * Map logs, traces, and metrics into selected ScopeDB columns, with ordered fallback sources, defaults, constants, and explicit casts. Inspect samples, preview rows, plan additive table changes, and validate destinations before receiving traffic.
 * Capture bounded OTLP samples with a standalone listener or from a running instance. Verify synthetic delivery, inspect local delivery status, and execute a single ScopeQL statement from the CLI.
-* Preserve pending telemetry in disk-backed queues across restarts, or select an explicit memory queue. Configure receiver addresses, memory limits, batching, delivery, retries, and self-metrics in the same YAML as signal mappings.
-* Report confirmed writes, known drops, and unknown append outcomes separately. Push delivery and Collector metrics to an OTLP gateway while retaining operational HTTP and Prometheus metrics.
+* Preserve pending telemetry in disk-backed queues across restarts, or select an explicit memory queue. Configure receiver addresses, memory limits, batching, delivery, retries, and self-metrics in the same YAML as signal mappings. Inspect effective values and sources with `validate`, receive warnings about environment overrides, and derive memory queue defaults from the shared process budget.
+* Report confirmed writes, known drops, and unknown append outcomes separately. Push delivery and Collector metrics to an OTLP gateway with configurable resource attributes and gzip compression while retaining operational HTTP and Prometheus metrics with consistent delivery counters.
 * Provide Docker Compose and Kubernetes StatefulSet examples, Linux amd64/arm64 images, and self-contained archives for macOS arm64 and Linux amd64/arm64.
 
 ### Improvements

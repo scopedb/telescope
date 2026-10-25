@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -46,6 +47,7 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 		}
 	}
 	t.Setenv("TEST_METRICS_TOKEN", "Bearer token$literal")
+	t.Setenv("TEST_DEPLOYMENT", "test")
 	var gatewayUnavailable, failedPush atomic.Bool
 	var mu sync.Mutex
 	observed := map[string]int64{}
@@ -60,7 +62,11 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 			w.WriteHeader(503)
 			return
 		}
-		body, err := io.ReadAll(r.Body)
+		require.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
+		reader, err := gzip.NewReader(r.Body)
+		require.NoError(t, err)
+		defer reader.Close()
+		body, err := io.ReadAll(reader)
 		require.NoError(t, err)
 		request := pmetricotlp.NewExportRequest()
 		require.NoError(t, request.UnmarshalProto(body))
@@ -71,12 +77,15 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 			resource := resources.At(i)
 			name, _ := resource.Resource().Attributes().Get("service.name")
 			require.Equal(t, "telescope", name.Str())
+			deployment, ok := resource.Resource().Attributes().Get("deployment.environment")
+			require.True(t, ok)
+			require.Equal(t, "test", deployment.Str())
 			scopes := resource.ScopeMetrics()
 			for j := 0; j < scopes.Len(); j++ {
 				metrics := scopes.At(j).Metrics()
 				for k := 0; k < metrics.Len(); k++ {
 					m := metrics.At(k)
-					key := strings.ReplaceAll(m.Name(), ".", "_")
+					key := m.Name()
 					if m.Type() == pmetric.MetricTypeSum {
 						for n := 0; n < m.Sum().DataPoints().Len(); n++ {
 							point := m.Sum().DataPoints().At(n)
@@ -134,9 +143,13 @@ batch:
 resources:
   memory_limit_mib: 1500
 telemetry:
+  level: detailed
+  resource:
+    deployment.environment: ${env:TEST_DEPLOYMENT}
   metrics_addr: %q
   otlp:
     endpoint: %q
+    compression: gzip
     interval: 50ms
     timeout: 100ms
     headers:

@@ -257,7 +257,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	for _, signal := range configuredSignalNames(runtime) {
 		runtimeStatus := runtime.Signals[signal]
 		metricStatus := metrics.Signals[signal]
-		dropped, retryExhausted := signalDropCounts(runtimeStatus, metricStatus)
+		dropped, retryExhausted := signalDropCounts(runtimeStatus)
 		queueCapacity := runtimeStatus.QueueCapacity
 		if metricsAvailable && metricStatus.QueueCapacity > 0 {
 			queueCapacity = metricStatus.QueueCapacity
@@ -274,7 +274,7 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 			Unknown:              runtimeStatus.UnknownRecords,
 			Dropped:              dropped,
 			RetryExhausted:       retryExhausted,
-			EnqueueFailed:        metricStatus.EnqueueFailed,
+			EnqueueFailed:        runtimeStatus.EnqueueFailedRecords,
 			PermanentRejected:    runtimeStatus.PermanentFailedRecords,
 			InvalidItemsByReason: runtimeStatus.InvalidItemsByReason,
 			Queue: IngestionQueueStatus{
@@ -310,9 +310,9 @@ func (s *service) IngestionStatus(ctx context.Context) IngestionStatusResponse {
 	return response
 }
 
-func signalDropCounts(runtime scopedbexporter.SignalRuntimeStatus, metrics collectorSignalMetrics) (uint64, uint64) {
+func signalDropCounts(runtime scopedbexporter.SignalRuntimeStatus) (uint64, uint64) {
 	retryExhausted := runtime.RetryExhaustedRecords
-	return retryExhausted + metrics.EnqueueFailed + runtime.PermanentFailedRecords, retryExhausted
+	return retryExhausted + runtime.EnqueueFailedRecords + runtime.PermanentFailedRecords, retryExhausted
 }
 
 func configuredSignalNames(snapshot scopedbexporter.StatusSnapshot) []string {
