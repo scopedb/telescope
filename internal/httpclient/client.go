@@ -19,6 +19,8 @@ package httpclient
 import (
 	"errors"
 	"net/http"
+
+	scopedb "github.com/scopedb/goscopedb"
 )
 
 // New returns an owned transport with the standard redirect limit and no HTTPS downgrade.
@@ -37,4 +39,26 @@ func New() *http.Client {
 			return nil
 		},
 	}
+}
+
+// ScopeDBClient closes both the SDK and the HTTP transport supplied to it.
+type ScopeDBClient struct {
+	*scopedb.Client
+	HTTP *http.Client
+}
+
+func NewScopeDB(config scopedb.Config) (*ScopeDBClient, error) {
+	transport := New()
+	config.HTTPClient = transport
+	client, err := scopedb.NewClient(config)
+	if err != nil {
+		transport.CloseIdleConnections()
+		return nil, err
+	}
+	return &ScopeDBClient{Client: client, HTTP: transport}, nil
+}
+
+func (c *ScopeDBClient) Close() {
+	c.Client.Close()
+	c.HTTP.CloseIdleConnections()
 }

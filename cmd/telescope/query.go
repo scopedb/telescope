@@ -82,9 +82,7 @@ func runQueryCommand(
 		return errors.New("ScopeDB endpoint is required; set TELESCOPE_SCOPEDB_ENDPOINT or SCOPEDB_ENDPOINT, or pass --scopedb-endpoint")
 	}
 
-	httpClient := httpclient.New()
-	defer httpClient.CloseIdleConnections()
-	client, err := scopedb.NewClient(scopedb.Config{Endpoint: endpoint, APIKey: apiKey, HTTPClient: httpClient})
+	client, err := httpclient.NewScopeDB(scopedb.Config{Endpoint: endpoint, APIKey: apiKey})
 	if err != nil {
 		return err
 	}

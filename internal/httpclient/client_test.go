@@ -19,9 +19,11 @@ package httpclient
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 
+	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,13 +38,13 @@ func TestRedirectDoesNotSendCredentialsOverHTTP(t *testing.T) {
 		http.Redirect(w, r, plaintext.URL, http.StatusTemporaryRedirect)
 	}))
 	defer tlsServer.Close()
-	client := New()
-	defer client.CloseIdleConnections()
-	client.Transport.(*http.Transport).TLSClientConfig = tlsServer.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
-	request, err := http.NewRequest(http.MethodGet, tlsServer.URL, nil)
+	client, err := NewScopeDB(scopedb.Config{Endpoint: tlsServer.URL, APIKey: "test-key"})
 	require.NoError(t, err)
-	request.Header.Set("Authorization", "Bearer test-key")
-	_, err = client.Do(request)
-	require.ErrorContains(t, err, "refusing HTTPS downgrade redirect")
+	defer client.Close()
+	client.HTTP.Transport.(*http.Transport).TLSClientConfig = tlsServer.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	_, err = client.Table("logs").Catalog().Get(t.Context())
+	var redirectErr *url.Error
+	require.ErrorAs(t, err, &redirectErr)
+	require.ErrorContains(t, redirectErr, "refusing HTTPS downgrade redirect")
 	require.Zero(t, calls.Load())
 }

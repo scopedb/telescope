@@ -99,16 +99,12 @@ type MappingPreview struct {
 }
 
 func DescribeIngestionMappings(ingestion IngestionConfig) ([]SignalMappingDescription, error) {
-	if err := ingestion.Validate(); err != nil {
+	plans, err := ingestion.compile()
+	if err != nil {
 		return nil, err
 	}
-	descriptions := make([]SignalMappingDescription, 0, len(ingestion.EnabledSignals()))
-	for _, signal := range ingestion.EnabledSignals() {
-		config, _ := ingestion.Signal(signal)
-		plan, err := compileMappingPlan(signal, config.Table, config.Mapping)
-		if err != nil {
-			return nil, fmt.Errorf("signals.%s: %w", signal, err)
-		}
+	descriptions := make([]SignalMappingDescription, 0, len(plans))
+	for _, plan := range plans {
 		descriptions = append(descriptions, describeMappingPlan(plan))
 	}
 	return descriptions, nil

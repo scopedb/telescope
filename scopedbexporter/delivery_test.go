@@ -204,7 +204,7 @@ func TestExporterTimeoutOverridesSDKDefault(t *testing.T) {
 	cfg := testExporterConfig("https://scopedb.invalid")
 	cfg.Timeout.Timeout = time.Minute
 	exp, _ := startTestLogsExporter(t, cfg)
-	exp.(*capturingLogsExporter).exp.client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	exp.(*capturingLogsExporter).exp.client.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		deadline, ok := r.Context().Deadline()
 		require.True(t, ok)
 		require.Greater(t, time.Until(deadline), 50*time.Second)

@@ -72,9 +72,6 @@ func runConfigCommand(
 	if err != nil {
 		return err
 	}
-	if _, err := collector.ConfigURI(ingestion); err != nil {
-		return fmt.Errorf("render Telescope config: %w", err)
-	}
 	descriptions, err := scopedbexporter.DescribeIngestionMappings(ingestion.IngestionConfig)
 	if err != nil {
 		return err

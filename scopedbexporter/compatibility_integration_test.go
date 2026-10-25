@@ -28,6 +28,8 @@ import (
 	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/config/configopaque"
+	"go.uber.org/zap"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -59,19 +61,22 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 				assert.NoError(t, err)
 			}()
 			configured, _ := cfg.Signal(signal)
-			configured.Table = table.Name
+			exporterConfig := &Config{
+				Endpoint: endpoint, APIKey: configopaque.String(apiKey),
+			}
 			switch signal {
 			case signalLogs:
-				cfg.Signals.Logs = configured
+				exporterConfig.Tables.Logs, exporterConfig.Mappings.Logs = table.Name, configured.Mapping
 			case signalTraces:
-				cfg.Signals.Traces = configured
+				exporterConfig.Tables.Traces, exporterConfig.Mappings.Traces = table.Name, configured.Mapping
 			case signalMetrics:
-				cfg.Signals.Metrics = configured
+				exporterConfig.Tables.Metrics, exporterConfig.Mappings.Metrics = table.Name, configured.Mapping
 			}
-			exporter, err := newIngestionClient(endpoint, apiKey, cfg)
+			exporter, err := newClient(exporterConfig, zap.NewNop())
 			require.NoError(t, err)
 			defer exporter.Close()
-			_, validationErr := exporter.inspectDestination(ctx, signal)
+			plan := exporter.plans[signal]
+			_, validationErr := plan.inspectDestination(ctx, client)
 			require.NoError(t, validationErr)
 			payload, err := mapOTLPSample(signal, readGoldenFile(t, signal+".otlp.json"))
 			require.NoError(t, err)
@@ -87,8 +92,6 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 			for _, row := range objects {
 				byID[row["row_id"].(string)] = row
 			}
-			plan, err := compileMappingPlan(signal, table.Name, configured.Mapping)
-			require.NoError(t, err)
 			for _, record := range payload.Records {
 				expected, err := plan.project(record)
 				require.NoError(t, err)

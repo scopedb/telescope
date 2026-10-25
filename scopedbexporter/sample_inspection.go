@@ -65,17 +65,18 @@ func InspectSample(signal string, sample []byte) (SampleInspection, error) {
 		return SampleInspection{}, fmt.Errorf("%s OTLP sample contains no records", signal)
 	}
 
-	selectors := append([]string(nil), commonSourceSelectors...)
-	selectors = append(selectors, signalSourceSelectors[signal]...)
-	compiled := make([]sampleSelector, 0, len(selectors))
-	for _, selector := range selectors {
+	compiled := make([]sampleSelector, 0, len(sourceSelectors))
+	for selector := range sourceSelectors {
+		if expected := selectorSignal(selector); expected != "" && expected != signal {
+			continue
+		}
 		getter, err := compileRecordGetter(signal, selector)
 		if err != nil {
 			return SampleInspection{}, err
 		}
 		compiled = append(compiled, sampleSelector{name: selector, get: getter})
 	}
-	observed := make(map[string]*sampleFieldObservation, len(selectors))
+	observed := make(map[string]*sampleFieldObservation, len(compiled))
 	for _, record := range payload.Records {
 		for _, selector := range compiled {
 			value, present := selector.get(record)
@@ -129,11 +130,7 @@ func observeSampleField(observed map[string]*sampleFieldObservation, selector st
 func expandSampleObject(observed map[string]*sampleFieldObservation, selector string, value any) {
 	values, ok := value.(map[string]any)
 	if !ok {
-		if record, recordOK := value.(telemetryRecord); recordOK {
-			values = map[string]any(record)
-		} else {
-			return
-		}
+		return
 	}
 	for key, child := range values {
 		childSelector := selector + "[" + strconv.Quote(key) + "]"

@@ -8,7 +8,7 @@ Prepare and validate the ScopeDB tables with the [quickstart](quickstart.md) bef
 telescope run --env-file deploy/.env deploy/telescope.yaml
 ```
 
-Run under your service manager and send SIGTERM for a graceful stop. The default file queue uses `~/.telescope/queue`; configure `delivery.queue.directory` or `TELESCOPE_QUEUE_DIR` for each instance. Keep the directory across binary upgrades and follow the [drain procedure](operations.md#drain-and-upgrade) before changing mappings.
+Run under your service manager and send SIGTERM for a graceful stop. Keep the queue directory across binary upgrades and follow the [drain procedure](operations.md#drain-and-upgrade) before changing mappings.
 
 ## Docker Compose
 
@@ -24,70 +24,34 @@ Compose publishes OTLP on ports 4317/4318 and operational HTTP on `127.0.0.1:808
 
 ## Kubernetes
 
-Use the [StatefulSet guide](../deploy/kubernetes/README.md). Each replica gets an independent queue volume; the Service exposes OTLP. The example overlay is the starting point for your image tag, mapping, storage class, and tuning.
+Use the [StatefulSet guide](../deploy/kubernetes/README.md). Each replica gets an independent queue volume; the Service exposes OTLP. The example overlay contains the image tag, mapping, storage class, and tuning.
 
 ## Configuration and capacity
 
-`telescope.yaml` contains both `signals` and runtime settings. Omitted runtime fields use the defaults below. `telescope validate --offline` checks mappings, runtime policy, and environment references without connecting to ScopeDB.
+`telescope.yaml` contains [signal mappings](table-management.md) and runtime settings. `telescope validate --offline` checks both, resolves environment references, and prints effective runtime values and their sources. API keys and OTLP headers are redacted. Runtime settings do not change the ingestion contract digest.
 
-```yaml
-destination:
-  endpoint: https://region.scopedb.com
-  api_key: ${env:SCOPEDB_API_KEY}
-receivers:
-  grpc_addr: 0.0.0.0:4317
-  http_addr: 0.0.0.0:4318
-http_addr: 127.0.0.1:8080
-resources:
-  memory_limit_mib: 512
-  memory_spike_mib: 128
-batch:
-  size: 2000
-  max_size: 2000
-  timeout: 30s
-delivery:
-  timeout: 30s
-  max_rows: 8000
-  max_bytes: 4194304
-  queue:
-    type: file
-    directory: /var/lib/telescope/queue
-    max_bytes: 536870912
-    consumers: 1
-  unknown_retry:
-    enabled: false
-    max_retries: 3
-    max_elapsed_time: 5m
-  retry:
-    initial_interval: 5s
-    max_interval: 60s
-    max_elapsed_time: 0s
-telemetry:
-  resource:
-    deployment.environment: ${env:DEPLOYMENT_ENVIRONMENT}
-  level: normal
-  metrics_addr: 127.0.0.1:8888
-  otlp:
-    endpoint: https://metrics.example.com/v1/metrics
-    protocol: http/protobuf
-    compression: gzip
-    headers:
-      Authorization: ${env:METRICS_AUTHORIZATION}
-    interval: 60s
-    timeout: 10s
-# Add the signals block from your mapping configuration.
-```
+| YAML settings | Defaults and meaning |
+| --- | --- |
+| `destination.endpoint`, `destination.api_key` | ScopeDB connection; required for delivery and online validation. |
+| `receivers.grpc_addr`, `receivers.http_addr` | `0.0.0.0:4317`, `0.0.0.0:4318`. |
+| `http_addr` | `127.0.0.1:8080`; [operational endpoints](operations.md#status-and-metrics-reference). |
+| `resources.memory_limit_mib`, `resources.memory_spike_mib` | `512`, `128`; the spike allowance must be smaller than the limit. |
+| `batch.size`, `batch.max_size`, `batch.timeout` | `2000`, `2000`, `30s`; flush by count or time. |
+| `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes` | `30s`, `8000`, `4194304`; attempt deadline and uncompressed NDJSON chunk limits. A zero timeout disables the deadline. |
+| `delivery.queue.type`, `directory`, `max_bytes`, `consumers` | `file`, `~/.telescope/queue`, 512 MiB per signal, `1`. Memory queue capacity is derived as described below. |
+| `delivery.retry.initial_interval`, `max_interval`, `max_elapsed_time` | `5s`, `60s`, `0s`; zero elapsed time permits unlimited retries. Use a finite duration such as `5m` to expire known-unwritten records as dropped. |
+| `delivery.unknown_retry` | Disabled by default; opt-in replay requires finite count and elapsed budgets. See [delivery semantics](exporter.md#append-and-retry-semantics). |
+| `telemetry.metrics_addr`, `telemetry.level` | `127.0.0.1:8888`, `normal`. Level also accepts `detailed`; lower levels lack observations required by status. |
+| `telemetry.resource`, `telemetry.otlp` | Resource attributes and optional [OTLP self-metrics](operations.md#export-self-metrics). |
 
-The example selects a container queue directory and enables optional OTLP self-metrics. The native queue directory defaults to `~/.telescope/queue`; self-metrics push is disabled until `telemetry.otlp.endpoint` is set. OTLP supports `http/protobuf` and `grpc`, with TLS selected by the URL scheme. For HTTP, omit the path to use `/v1/metrics`, or provide the complete metrics path. OTLP compression accepts `none` (default) or `gzip`. `telemetry.resource` adds string resource attributes; `service.name` defaults to `telescope`, and Collector supplies the binary version and a process instance ID. `telemetry.level` accepts `normal` (default) or `detailed`; lower levels omit observations required by operational status. Headers and resource attributes support `${env:NAME}` substitution. Missing referenced variables fail validation. API keys and all OTLP header values are redacted in configuration diagnostics.
+Precedence is command flags, nonempty Telescope environment variables, YAML, then defaults. Connection settings also accept `SCOPEDB_ENDPOINT` / `SCOPEDB_API_KEY` as environment fallbacks before YAML. `--env-file` fills unset values from literal `KEY=VALUE` lines with optional matching quotes; shell expansion and inline comments are unsupported. The [environment example](../deploy/.env.example) lists the overrides forwarded by Compose. `validate` and `run` warn when an override replaces an explicit YAML field; remove obsolete overrides when moving settings into YAML.
 
-Precedence is command flags, nonempty Telescope environment variables, YAML, then built-in defaults. Connection settings additionally accept `SCOPEDB_ENDPOINT` / `SCOPEDB_API_KEY` as environment fallbacks before YAML. An `--env-file` fills unset values using literal `KEY=VALUE` lines and optional matching quotes; it performs no shell expansion and does not support inline comments. `${env:NAME}` references are supported in destination settings, the queue directory, and OTLP endpoint, headers, and resource attributes. Mapping values remain literal. `validate`, including `--offline`, reports resolved runtime values and their sources, plus total queue capacity across enabled signals. `validate` and `run` warn when an environment override replaces an explicitly configured YAML field. Remove obsolete deployment environment overrides when moving settings into YAML. Operational settings do not change the ingestion contract digest.
+`${env:NAME}` references work in destination settings, the queue directory, and telemetry endpoint, headers, and resource attributes. Missing variables fail validation. Mapping values remain literal. Keep credentials in your deployment secret store.
 
-[The environment example](../deploy/.env.example) lists the existing batching, append, timeout, and queue overrides. Compose forwards these variables. Keep credentials in your deployment secret store and tune memory, retries, and self-metrics in YAML. `memory_spike_mib` must be smaller than `memory_limit_mib`; raise the limit to match the process budget. `delivery.timeout: 0s` disables the per-attempt deadline, and `delivery.retry.max_elapsed_time: 0s` permits unlimited retries. Set a finite duration, such as `5m`, when delivery must expire; exhausted known-unwritten records count as dropped. `delivery.unknown_retry` is a separate, default-disabled policy for applications that accept possible duplicates. Enabling it requires finite count and elapsed budgets; see [unknown replay semantics](exporter.md#append-and-retry-semantics), including the restart boundary.
+### Queue ownership and sizing
 
-Queue capacity (`delivery.queue.max_bytes`) is **per signal**, measured in logical serialized bytes. File queues default to 512 MiB per signal. Size a file volume above the sum for enabled signals, plus queue database overhead. File queues require exclusive ownership: never share a directory between live processes. Each replacement must reopen the same directory only after its previous owner stops. A task-local file directory avoids shared locks, but data survives only as long as that directory does. `delivery.queue.type: memory` explicitly selects volatile buffering and needs no volume; pending data is lost when the process exits. A shared filesystem is not a shared queue service: separate directories isolate live instances, but a replacement can recover pending data only by reopening its predecessor's directory after the predecessor stops. Increasing the file lock wait does not establish ownership or coordinate rolling deployment. Shared queue takeover is not provided. On network storage, validate locking, sync behavior, and startup latency in the actual deployment.
+Queue `max_bytes` is a **per-signal logical serialized byte capacity**. A file volume must hold the sum for enabled signals plus queue database overhead. File queues enable `fsync` and require exclusive ownership: a replacement may reopen its predecessor's directory only after that process stops. Separate directories on shared storage isolate live instances; they do not arrange recovery or ownership transfer. Increasing the file lock wait cannot coordinate a rolling deployment. Validate locking, sync, and startup latency on network storage.
 
-For memory queues, omitting `max_bytes` shares one quarter of the memory soft limit equally among enabled signals. The soft limit is `memory_limit_mib - memory_spike_mib`; the default 512/128 MiB settings give a 96 MiB total serialized queue budget, or 32 MiB each with three signals. Explicit capacities remain per signal. Validation rejects a combined capacity at or above the soft limit and warns above the default budget. These are sizing guards, not an RSS bound: decoded pdata, batching, concurrent requests, and runtime allocations also consume memory. Size the process/container above the configured heap limit and measure representative payloads under sustained backpressure. Monitor receiver refusals separately; a sender that does not retry refused telemetry loses those items before queue admission.
+A task-local directory retains data only as long as that directory exists. `delivery.queue.type: memory` needs no volume and loses pending data on process exit. A graceful stop attempts to drain it with further retries disabled; a failed final attempt counts as `retry_exhausted`. Allow enough termination time for batching and queued requests, or use an exclusively owned, retained file directory.
 
-A graceful stop attempts to drain memory queues, with further retries disabled. A slow destination can outlast the process manager's termination grace period; a failed final attempt counts as `retry_exhausted`. A forced termination loses remaining memory entries. Allow time for batching and queued requests to drain, or use a file queue with a retained, exclusively owned directory.
-
-Use [health, readiness, and metrics](operations.md#status-and-metrics-reference) to distinguish a running process from a destination that is accepting writes.
+For memory queues, omitting `max_bytes` divides one quarter of the soft memory limit (`memory_limit_mib - memory_spike_mib`) among enabled signals. Defaults give a 96 MiB total queue budget, or 32 MiB each with three signals. Validation rejects combined capacity at or above the soft limit and warns above the default budget. This is not an RSS bound: decoded data, batches, concurrent requests, and runtime allocations also consume memory. Size the container above the configured heap limit and test representative payloads under sustained backpressure. Monitor receiver refusals separately; those items never reach the queue and depend on the sender retrying them.

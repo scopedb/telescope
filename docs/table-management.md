@@ -73,19 +73,7 @@ The output includes sample evidence and suggests a cast when it can do so unambi
 
 Review and apply the script in the intended ScopeDB workspace. It contains only missing `CREATE DATABASE`, `CREATE SCHEMA`, `CREATE TABLE`, and `ALTER TABLE ... ADD COLUMN` statements, ordered by dependency. Telescope does not execute the plan or infer retention, clustering, distinct keys, indexes, nullability, or column defaults.
 
-<details>
-<summary>Apply with the ScopeQL CLI</summary>
-
-ScopeQL uses its own connection settings. Telescope's environment file does not configure it:
-
-```bash
-scopeql config set-connection telescope-target
-scopeql config use-connection telescope-target
-scopeql config get-connections
-scopeql run -f tables.scopeql
-```
-
-</details>
+The [quickstart](quickstart.md#2-prepare-the-table) shows how to apply the script in the SQL editor or with ScopeQL CLI.
 
 Validate the applied table contract before starting or deploying:
 
@@ -97,11 +85,6 @@ Validation checks column existence and known type compatibility, reporting all i
 
 ## Change an existing mapping
 
-1. Preview the candidate mapping with representative traffic.
-2. Plan, review, and apply its additive DDL.
-3. Stop new traffic to the old instance; wait for its queue and accepted-without-final-outcome count to reach zero.
-4. Validate and restart with the new mapping.
-
-The queue stores OTLP before mapping. A non-empty queue must drain under its original configuration; otherwise older telemetry would be projected through the new rules. A binary-only upgrade can reuse the queue when the config digest is unchanged. To avoid an ingestion pause, use a separate deployment and queue volume while the old one drains. See [v0.2 migration](migration-v0.2.md) for the version boundary.
+Preview representative samples, plan and apply additive DDL, then follow the [drain and upgrade procedure](operations.md#drain-and-upgrade) before restarting with the new mapping. Queued OTLP must drain under its original mapping. See [v0.2 migration](migration-v0.2.md) when crossing that version boundary.
 
 For an incompatible layout, create a new table and switch the route. Telescope does not dual-write, backfill, or reconcile schemas. Use upstream Collector processors for filtering, sampling, arithmetic, regex, aggregation, or content-based routing; this mapping changes only the destination row.

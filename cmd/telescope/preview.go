@@ -126,7 +126,17 @@ func printMappingPreview(
 	preview := sample.preview
 	fmt.Fprintf(w, "sample %s <- %s (%d records)\n", preview.Signal, sample.path, preview.Records)
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	hasDestination := slices.ContainsFunc(destinations, func(v scopedbexporter.SignalDestinationValidation) bool { return v.Signal == preview.Signal })
+	var targets map[string]scopedbexporter.DestinationColumnValidation
+	for _, destination := range destinations {
+		if destination.Signal == preview.Signal {
+			targets = make(map[string]scopedbexporter.DestinationColumnValidation, len(destination.Columns))
+			for _, column := range destination.Columns {
+				targets[column.Column] = column
+			}
+			break
+		}
+	}
+	hasDestination := targets != nil
 	if hasDestination {
 		fmt.Fprintln(table, "COLUMN\tTARGET\tOBSERVED\tCOVERAGE\tSELECTED\tRESULT")
 	} else {
@@ -136,21 +146,16 @@ func printMappingPreview(
 	var warnings []string
 	errorCount := preview.ErrorCount
 	for _, column := range preview.Columns {
-		result := previewColumnResultWithoutDestination(column)
-		targetType := ""
+		// An unconstrained target checks only the sample's own mapping and coverage.
+		target := scopedbexporter.DestinationColumnValidation{Compatibility: scopedbexporter.MappingCompatible}
 		if hasDestination {
-			targetType = "-"
-			target := findDestinationColumn(destinations, preview.Signal, column.Column)
-			if target == nil {
-				result = "ERROR missing column"
-			} else {
-				targetType = target.TargetType
-				if targetType == "" {
-					targetType = "-"
-				}
-				result = previewColumnResult(column, *target)
+			var ok bool
+			target, ok = targets[column.Column]
+			if !ok {
+				target.Compatibility = scopedbexporter.MappingMissing
 			}
 		}
+		result := previewColumnResult(column, target)
 		if strings.HasPrefix(result, "ERROR") {
 			failures = append(failures, fmt.Sprintf("%s (%s)", column.Column, strings.TrimPrefix(result, "ERROR ")))
 			if !strings.HasPrefix(result, "ERROR mapping") {
@@ -160,28 +165,15 @@ func printMappingPreview(
 		if strings.HasPrefix(result, "WARN") {
 			warnings = append(warnings, fmt.Sprintf("%s (%s)", column.Column, strings.TrimPrefix(result, "WARN ")))
 		}
-		observed := "-"
-		if len(column.ObservedTypes) > 0 {
-			observed = strings.Join(column.ObservedTypes, "|")
-		}
+		fmt.Fprint(table, column.Column+"\t")
 		if hasDestination {
-			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				column.Column,
-				targetType,
-				observed,
-				formatCoverage(column.Present, column.Total),
-				formatSelections(column.Selections),
-				result,
-			)
-		} else {
-			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",
-				column.Column,
-				observed,
-				formatCoverage(column.Present, column.Total),
-				formatSelections(column.Selections),
-				result,
-			)
+			fmt.Fprint(table, planValue(target.TargetType)+"\t")
 		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n",
+			planValue(strings.Join(column.ObservedTypes, "|")),
+			formatCoverage(column.Present, column.Total),
+			formatSelections(column.Selections), result,
+		)
 	}
 	if err := table.Flush(); err != nil {
 		return err
@@ -224,24 +216,6 @@ func printMappingPreview(
 	return errors.Join(resultErrors...)
 }
 
-func findDestinationColumn(
-	validations []scopedbexporter.SignalDestinationValidation,
-	signal string,
-	column string,
-) *scopedbexporter.DestinationColumnValidation {
-	for validationIndex := range validations {
-		if validations[validationIndex].Signal != signal {
-			continue
-		}
-		for columnIndex := range validations[validationIndex].Columns {
-			if validations[validationIndex].Columns[columnIndex].Column == column {
-				return &validations[validationIndex].Columns[columnIndex]
-			}
-		}
-	}
-	return nil
-}
-
 func previewColumnResult(
 	preview scopedbexporter.MappingColumnPreview,
 	destination scopedbexporter.DestinationColumnValidation,
@@ -275,16 +249,6 @@ func previewColumnResult(
 		if uncertain {
 			return "WARN review type"
 		}
-	}
-	return previewCoverageResult(preview)
-}
-
-func previewColumnResultWithoutDestination(preview scopedbexporter.MappingColumnPreview) string {
-	if preview.Errors > 0 {
-		return fmt.Sprintf("ERROR mapping (%d)", preview.Errors)
-	}
-	if preview.Present == 0 {
-		return "WARN unobserved"
 	}
 	return previewCoverageResult(preview)
 }
