@@ -85,4 +85,6 @@ A later success confirms at least one copy was written. A later rejection cannot
 
 The persistent queue retains the original OTLP request until export completes. A crash between a partial append and queue acknowledgement can replay previously committed or unknown chunks. Replay state and budgets are process-local and restart on recovery; they are not a lifetime limit across restarts. Counters also reset and cannot resolve missing crash acknowledgements. This is an at-least-once crash boundary; request deduplication and shared queue takeover are not provided.
 
+Collector's generic `Dropping data` logs describe failed export requests, including unknown outcomes and file entries retained at shutdown. Telescope logs terminal unknown outcomes and retained requests separately, and reports final record counts in its shutdown summary. Use those counts and delivery metrics to measure loss; a retained original request may also contain already committed chunks.
+
 See [deployment](deployment.md#queue-ownership-and-sizing) for storage ownership, capacity, and memory queue shutdown, and [operations](operations.md#drain-and-upgrade) for draining before a mapping change.

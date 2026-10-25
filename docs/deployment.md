@@ -39,7 +39,7 @@ Use the [StatefulSet guide](../deploy/kubernetes/README.md). Each replica gets a
 | `batch.size`, `batch.max_size`, `batch.timeout` | `2000`, `2000`, `30s`; flush by count or time. |
 | `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes` | `30s`, `8000`, `4194304`; attempt deadline and uncompressed NDJSON chunk limits. A zero timeout disables the deadline. |
 | `delivery.queue.type`, `directory`, `max_bytes`, `consumers` | `file`, `~/.telescope/queue`, 512 MiB per signal, `1`. Memory queue capacity is derived as described below. |
-| `delivery.retry.initial_interval`, `max_interval`, `max_elapsed_time` | `5s`, `60s`, `0s`; zero elapsed time permits unlimited retries. Use a finite duration such as `5m` to expire known-unwritten records as dropped. |
+| `delivery.retry.initial_interval`, `max_interval`, `max_elapsed_time` | `5s`, `60s`, `0s`; zero elapsed time permits unlimited retries. A finite elapsed limit must be at least `max_interval`; it expires known-unwritten records as dropped. |
 | `delivery.unknown_retry` | Disabled by default; opt-in replay requires finite count and elapsed budgets. See [delivery semantics](exporter.md#append-and-retry-semantics). |
 | `telemetry.metrics_addr`, `telemetry.level` | `127.0.0.1:8888`, `normal`. Level also accepts `detailed`; lower levels lack observations required by status. |
 | `telemetry.resource`, `telemetry.otlp` | Resource attributes and optional [OTLP self-metrics](operations.md#export-self-metrics). |

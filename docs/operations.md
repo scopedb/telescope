@@ -109,7 +109,7 @@ telemetry:
 
 Push includes Collector receiver, exporter, and queue metrics plus Telescope's written, unknown, dropped, invalid-item, and unknown-replay counters. It also includes the latest successful append timestamp and destination verification gauge. The delivery counters come from the same registry as status; dropped records are partitioned by `permanent_rejected`, `retry_exhausted`, and `enqueue_failed`. Pushed queue metrics use `otelcol_exporter_queue_size` and `otelcol_exporter_queue_capacity`; filesystem allocation is available only through operational status and Prometheus.
 
-The local reader remains enabled for readiness, status, and `/metrics`. The OTLP reader has its own timeout and no persistent queue; gateway outages do not block ingestion or change readiness. Counters reset on restart. Prometheus readers may translate metric names and add unit or counter suffixes, so check OTLP names when migrating gateway queries. Custom Collector distributions configure readers through `service.telemetry` and register the [ScopeDB exporter](exporter.md).
+The local reader remains enabled for readiness, status, and `/metrics`. The OTLP reader has its own timeout and no persistent queue; gateway outages do not block ingestion or change readiness. Graceful shutdown includes final delivery counters in the last OTLP export, including memory-queue drain failures. A forced exit or unavailable gateway can still prevent that export. Counters reset on restart. Prometheus readers may translate metric names and add unit or counter suffixes, so check OTLP names when migrating gateway queries. Custom Collector distributions configure readers through `service.telemetry` and register the [ScopeDB exporter](exporter.md).
 
 ## Drain and upgrade
 
