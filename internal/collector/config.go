@@ -57,11 +57,12 @@ type ReceiverConfig struct {
 }
 
 type DeliveryConfig struct {
-	Timeout  time.Duration `yaml:"timeout"`
-	MaxRows  int           `yaml:"max_rows"`
-	MaxBytes int           `yaml:"max_bytes"`
-	Queue    QueueConfig   `yaml:"queue"`
-	Retry    RetryConfig   `yaml:"retry"`
+	Timeout      time.Duration                      `yaml:"timeout"`
+	MaxRows      int                                `yaml:"max_rows"`
+	MaxBytes     int                                `yaml:"max_bytes"`
+	Queue        QueueConfig                        `yaml:"queue"`
+	Retry        RetryConfig                        `yaml:"retry"`
+	UnknownRetry scopedbexporter.UnknownRetryConfig `yaml:"unknown_retry"`
 }
 
 type QueueConfig struct {
@@ -112,8 +113,9 @@ func defaultConfig() Config {
 		HTTPAddr:  "127.0.0.1:8080",
 		Delivery: DeliveryConfig{
 			Timeout: 30 * time.Second, MaxRows: 8000, MaxBytes: 4 << 20,
-			Queue: QueueConfig{Type: "file", Directory: defaultQueueDir(), MaxBytes: 512 << 20, Consumers: 1},
-			Retry: RetryConfig{InitialInterval: 5 * time.Second, MaxInterval: time.Minute},
+			Queue:        QueueConfig{Type: "file", Directory: defaultQueueDir(), MaxBytes: 512 << 20, Consumers: 1},
+			Retry:        RetryConfig{InitialInterval: 5 * time.Second, MaxInterval: time.Minute},
+			UnknownRetry: scopedbexporter.UnknownRetryConfig{MaxRetries: 3, MaxElapsedTime: 5 * time.Minute},
 		},
 		Batch:     BatchConfig{Size: 2000, MaxSize: 2000, Timeout: 30 * time.Second},
 		Resources: ResourceConfig{MemoryLimitMiB: 512, MemorySpikeMiB: 128},
@@ -163,6 +165,9 @@ func (c Config) Validate() error {
 		return errors.New("delivery.queue.max_bytes and consumers must be positive, and total queue bytes must fit in int64")
 	}
 	r := c.Delivery.Retry
+	if err := c.Delivery.UnknownRetry.Validate(); err != nil {
+		return err
+	}
 	if r.InitialInterval <= 0 || r.MaxInterval < r.InitialInterval || r.MaxElapsedTime < 0 {
 		return errors.New("delivery.retry requires positive initial_interval, max_interval >= initial_interval, and nonnegative max_elapsed_time")
 	}

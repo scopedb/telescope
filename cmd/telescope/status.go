@@ -98,6 +98,9 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		if reasons := formatInvalidReasons(signal.InvalidItemsByReason); reasons != "" {
 			fmt.Fprintf(w, "%s invalid: %s\n", signal.Signal, reasons)
 		}
+		if signal.UnknownReplayAttempts > 0 {
+			fmt.Fprintf(w, "%s unknown replay: %d attempts, %d records (duplicates possible)\n", signal.Signal, signal.UnknownReplayAttempts, signal.UnknownReplayedRecords)
+		}
 		if unsettled := unsettledRecords(signal); unsettled > 0 {
 			fmt.Fprintf(
 				w,

@@ -58,6 +58,7 @@ type Config struct {
 	Compression    string                                                   `mapstructure:"compression"`
 	Timeout        exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
 	RetryOnFailure configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
+	UnknownRetry   UnknownRetryConfig                                       `mapstructure:"unknown_retry"`
 	SendingQueue   configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
 }
 
@@ -96,6 +97,7 @@ func createDefaultConfig() component.Config {
 		Compression:    defaultCompression,
 		Timeout:        exporterhelper.TimeoutConfig{Timeout: 10 * time.Second},
 		RetryOnFailure: retryCfg,
+		UnknownRetry:   UnknownRetryConfig{MaxRetries: 3, MaxElapsedTime: 5 * time.Minute},
 		SendingQueue:   configoptional.Some(queueCfg),
 	}
 }
@@ -140,6 +142,12 @@ func (cfg *Config) Validate() error {
 
 	if err := cfg.RetryOnFailure.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("retry_on_failure: %w", err))
+	}
+	if err := cfg.UnknownRetry.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.UnknownRetry.Enabled && !cfg.RetryOnFailure.Enabled {
+		errs = append(errs, errors.New("unknown_retry requires retry_on_failure.enabled"))
 	}
 
 	if cfg.SendingQueue.HasValue() {

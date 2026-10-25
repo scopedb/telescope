@@ -652,3 +652,46 @@ func TestConnectionRefusalKeepsPersistentQueueUntilRecovery(t *testing.T) {
 	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].ConfirmedWrittenRecords == 1 }, time.Second, 10*time.Millisecond)
 	require.Zero(t, statuses.Snapshot().Signals["logs"].UnknownRecords)
 }
+
+func TestPersistentUnknownRetryRecovery(t *testing.T) {
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		t.Run(signal, func(t *testing.T) {
+			var recovered atomic.Bool
+			var recoveredCalls atomic.Int32
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if recovered.Load() && recoveredCalls.Add(1) > 1 {
+					body, err := decodeRecoveryAppendBody(r)
+					require.NoError(t, err)
+					require.Contains(t, string(body), "unknown survives restart")
+					writeRecoveryAppendCommitted(t, w)
+					return
+				}
+				w.WriteHeader(503)
+				_, _ = io.WriteString(w, "unavailable")
+			}))
+			defer backend.Close()
+			address := freeTCPAddress(t)
+			config := recoveryCollectorConfig(backend.URL, address, t.TempDir(), signal)
+			config = strings.Replace(config, "    retry_on_failure:", "    unknown_retry: {enabled: true, max_retries: 2, max_elapsed_time: 5m}\n    retry_on_failure:", 1)
+			config = strings.Replace(config, "initial_interval: 1s", "initial_interval: 1h", 1)
+			config = strings.Replace(config, "max_interval: 1s", "max_interval: 1h", 1)
+			firstStatus := scopedbexporter.NewStatusRegistry()
+			first := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, firstStatus, scopedbexporter.NewCaptureRegistry()))
+			defer first.stop(t)
+			require.NoError(t, sendRecoverySignal(address, signal, "unknown survives restart"))
+			require.Eventually(t, func() bool { return firstStatus.Snapshot().Signals[signal].LastError != "" }, 5*time.Second, time.Millisecond)
+			first.stop(t)
+			require.Zero(t, firstStatus.Snapshot().Signals[signal].UnknownRecords)
+			require.Zero(t, firstStatus.Snapshot().Signals[signal].RetryExhaustedRecords)
+			recovered.Store(true)
+			config = strings.ReplaceAll(config, "interval: 1h", "interval: 1ms")
+			secondStatus := scopedbexporter.NewStatusRegistry()
+			second := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, secondStatus, scopedbexporter.NewCaptureRegistry()))
+			defer second.stop(t)
+			require.Eventually(t, func() bool { return secondStatus.Snapshot().Signals[signal].ConfirmedWrittenRecords == 1 }, 5*time.Second, time.Millisecond)
+			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].UnknownReplayAttempts)
+			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].UnknownReplayedRecords)
+			require.Zero(t, secondStatus.Snapshot().Signals[signal].UnknownRecords)
+		})
+	}
+}

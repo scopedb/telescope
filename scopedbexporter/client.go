@@ -182,6 +182,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 	}
 
 	outcome := sendOutcome{}
+	replay, _ := ctx.Value(unknownRetryContextKey{}).(*unknownRetryState)
 	table := c.table(plan.table)
 	maxBytes, maxRows := c.batch.limits()
 	body := make([]byte, 0, min(maxBytes, len(payload.Records)*256))
@@ -197,7 +198,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		outcome.uncommitted = append(outcome.uncommitted, recordIndexes(remainingFrom, len(payload.Records))...)
 		outcome.err = err
 	}
-	appendChunk := func(chunkBody []byte, rows int) error {
+	appendChunk := func(ctx context.Context, chunkBody []byte, rows int) error {
 		result, err := c.appendFn(ctx, table, chunkBody)
 		if err != nil {
 			return err
@@ -232,11 +233,15 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		if len(chunkIndexes) == 0 {
 			return true
 		}
-		err := appendChunk(body, len(chunkIndexes))
+		err := appendChunk(ctx, body, len(chunkIndexes))
 		if err == nil {
 			outcome.committed = append(outcome.committed, chunkIndexes...)
 			resetChunk()
 			return true
+		}
+		if replay.retain(ctx, body, len(chunkIndexes), err) {
+			setDeliveryError(unknownRetryError(err), remainingFrom)
+			return false
 		}
 		if settleUnknown(err) {
 			return true
@@ -262,7 +267,11 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 			resetChunk()
 			return true
 		}
-		if err := appendChunk(body, len(chunkIndexes)); err != nil {
+		if err := appendChunk(ctx, body, len(chunkIndexes)); err != nil {
+			if replay.retain(ctx, body, len(chunkIndexes), err) {
+				setDeliveryError(unknownRetryError(err), remainingFrom)
+				return false
+			}
 			if settleUnknown(err) {
 				return true
 			}
@@ -277,7 +286,34 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 		outcome.rejected = append(outcome.rejected, recordFailure{index: index, err: err})
 	}
 
-	for index, record := range payload.Records {
+	startIndex := 0
+	if replay != nil && replay.pending != nil {
+		pending := replay.pending
+		chunkIndexes = recordIndexes(0, pending.rows)
+		err := pending.err
+		// Shutdown ends scheduling; an unresolved file entry must remain recoverable.
+		if replay.canReplay(ctx) && !replay.exporter.stopping.Load() {
+			replay.recordReplay()
+			attemptCtx, cancel := context.WithDeadline(ctx, replay.started.Add(replay.config.MaxElapsedTime))
+			err = appendChunk(attemptCtx, pending.body, pending.rows)
+			cancel()
+		}
+		if err == nil {
+			outcome.committed = append(outcome.committed, chunkIndexes...)
+		} else {
+			pending.err = err
+			if replay.canRetryAfter(ctx, err) && retryableAfterUnknown(err) {
+				setDeliveryError(unknownRetryError(err), pending.rows)
+				return outcome
+			}
+			settleUnknown(unresolvedUnknown(err))
+		}
+		startIndex = pending.rows
+		replay.pending = nil
+		resetChunk()
+	}
+	for index := startIndex; index < len(payload.Records); index++ {
+		record := payload.Records[index]
 		row, err := plan.project(record)
 		if err != nil {
 			reject(index, fmt.Errorf("project mapped row %d: %w", index, err))
