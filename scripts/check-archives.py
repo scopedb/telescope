@@ -46,7 +46,11 @@ for archive in archives:
     directory = archive.name.removesuffix(".tar.gz")
     with tempfile.TemporaryDirectory(prefix="telescope-archive-") as scratch:
         with tarfile.open(archive) as tar:
-            actual = {member.name for member in tar.getmembers() if member.isfile()}
+            members = tar.getmembers()
+            for member in members:
+                if not member.isfile() or member.uid or member.gid or member.uname or member.gname or member.pax_headers:
+                    raise SystemExit(f"Non-portable archive entry: {member.name}")
+            actual = {member.name for member in members}
             expected = {f"{directory}/{name}" for name in files}
             if actual != expected:
                 raise SystemExit(f"Unexpected archive contents: {archive.name}: {actual ^ expected}")

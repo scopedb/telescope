@@ -196,4 +196,3 @@ service:
 ```
 
 This forwards Collector queue, receiver, and exporter metrics. Telescope-specific delivery counters remain on `/metrics`; scrape that endpoint to distinguish unknown outcomes from known drops.
-

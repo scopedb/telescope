@@ -21,4 +21,3 @@ config_name="$(sed -n '/^kind: ConfigMap$/,/^---$/s/^  name: //p' "$rendered")"
 test -n "$config_name"
 sed -n '/^kind: ConfigMap$/,/^---$/p' "$rendered" | grep --quiet '^  namespace: telescope$'
 test "$(grep -c "name: $config_name$" "$rendered")" -eq 2
-
