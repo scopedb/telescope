@@ -411,19 +411,24 @@ func restoreQueueFixture(t *testing.T, sourceDir string) string {
 }
 
 func TestConnectionRefusalKeepsPersistentQueueUntilRecovery(t *testing.T) {
-	backendAddress, receiverAddress := freeTCPAddress(t), freeTCPAddress(t)
+	// Reserve the backend port until the receiver has bound its own port.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	backendAddress, receiverAddress := listener.Addr().String(), freeTCPAddress(t)
 	statuses := scopedbexporter.NewStatusRegistry()
 	config := recoveryCollectorConfig("http://"+backendAddress, receiverAddress, t.TempDir(), "logs")
 	runtime := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, statuses, scopedbexporter.NewCaptureRegistry()))
 	defer runtime.stop(t)
+	require.NoError(t, listener.Close())
 	require.NoError(t, sendRecoverySignal(receiverAddress, "logs", "retained during connection outage"))
 	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].LastError != "" }, 5*time.Second, 10*time.Millisecond)
 	state := statuses.Snapshot().Signals["logs"]
-	require.Zero(t, state.UnknownRecords)
+	require.Zero(t, state.UnknownRecords, state.LastError)
 	require.Zero(t, state.PermanentFailedRecords)
 	require.Zero(t, state.RetryExhaustedRecords)
 
-	listener, err := net.Listen("tcp", backendAddress)
+	listener, err = net.Listen("tcp", backendAddress)
 	require.NoError(t, err)
 	committed := make(chan struct{}, 1)
 	backend := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
