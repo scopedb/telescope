@@ -1,6 +1,6 @@
 # Deploy Telescope
 
-Prepare and validate the ScopeDB tables with the [quickstart](quickstart.md) before routing application traffic. Pin the binary or image to a reviewed commit while v0.3 is unreleased, and to an immutable release tag once published.
+Prepare and validate the ScopeDB tables with the [quickstart](quickstart.md) before routing application traffic. Pin the binary or image to a release tag such as `v0.3.0`, or an exact commit when building from source.
 
 ## Native process
 
@@ -15,12 +15,11 @@ Run under your service manager and send SIGTERM for a graceful stop. Keep the qu
 With `deploy/.env` and `deploy/telescope.yaml` prepared:
 
 ```bash
-make docker-build
-IMAGE=scopedb-telescope:ci docker compose --env-file deploy/.env \
+docker compose --env-file deploy/.env \
   -f deploy/docker-compose.yaml up -d
 ```
 
-Compose publishes OTLP on ports 4317/4318 and operational HTTP on `127.0.0.1:8080`. Its named volume preserves the queue across container replacement. Use `docker compose --env-file deploy/.env -f deploy/docker-compose.yaml exec telescope telescope status` to inspect delivery. For a published release image, set `IMAGE=ghcr.io/scopedb/telescope:<version>` and omit the build step.
+Compose uses `ghcr.io/scopedb/telescope:v0.3.0`, publishes OTLP on ports 4317/4318, and binds operational HTTP to `127.0.0.1:8080`. Its named volume preserves the queue across container replacement. Use `docker compose --env-file deploy/.env -f deploy/docker-compose.yaml exec telescope telescope status` to inspect delivery. To use a local build, run `make docker-build` and prefix the Compose command with `IMAGE=scopedb-telescope:ci`.
 
 ## Kubernetes
 
