@@ -109,14 +109,13 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 	}))
 	t.Cleanup(gateway.Close)
 	var calls atomic.Int64
-	var throttled atomic.Bool
+	var stalled atomic.Bool
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		attempt := calls.Add(1)
-		if throttled.Load() {
-			w.Header().Set("Retry-After", "3600")
-			w.WriteHeader(http.StatusTooManyRequests)
+		if stalled.Load() {
+			<-r.Context().Done()
 			return
 		}
 		switch attempt {
@@ -133,7 +132,7 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 			_, _ = io.WriteString(w, `{"status":"committed","num_rows_inserted":1}`)
 		}
 	}))
-	t.Cleanup(backend.Close)
+	t.Cleanup(func() { backend.CloseClientConnections(); backend.Close() })
 	grpcAddress, httpAddress, opsAddress, metricsAddress := runtimeTestAddress(t), runtimeTestAddress(t), runtimeTestAddress(t), runtimeTestAddress(t)
 	path := filepath.Join(t.TempDir(), "telescope.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`
@@ -144,7 +143,9 @@ receivers:
   grpc_addr: %q
   http_addr: %q
 http_addr: %q
+shutdown_timeout: 1s
 delivery:
+  timeout: 1m
   unknown_retry:
     enabled: true
   retry:
@@ -152,6 +153,7 @@ delivery:
     max_interval: 10ms
   queue:
     type: memory
+    consumers: 1
 batch:
   size: 1
   max_size: 1
@@ -252,14 +254,15 @@ signals:
 	require.Eventually(t, failedPush.Load, 3*time.Second, 10*time.Millisecond)
 	require.True(t, ready())
 
-	// Only shutdown can settle these queued records: Retry-After prevents a
-	// periodic retry from consuming them before the final metrics collection.
+	// The shutdown budget must cancel the in-flight append, settle the unsent
+	// records, and leave time to export their final metrics.
 	gatewayUnavailable.Store(false)
-	throttled.Store(true)
+	stalled.Store(true)
 	for range 3 {
 		send()
 	}
 	require.Eventually(t, func() bool { return calls.Load() > 4 }, time.Second, time.Millisecond)
+	started := time.Now()
 	cancel()
 	select {
 	case err := <-done:
@@ -267,11 +270,13 @@ signals:
 	case <-time.After(10 * time.Second):
 		t.Fatal("run did not stop")
 	}
+	require.Less(t, time.Since(started), 2*time.Second)
+	require.Equal(t, int64(5), calls.Load())
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, int64(3), observed["telescope_ingestion_dropped_total/retry_exhausted"])
+	require.Equal(t, int64(2), observed["telescope_ingestion_dropped_total/retry_exhausted"])
 	require.Equal(t, int64(1), observed["telescope_ingestion_written_total"])
-	require.Equal(t, int64(1), observed["telescope_ingestion_unknown_total"])
+	require.Equal(t, int64(2), observed["telescope_ingestion_unknown_total"])
 }
 
 func runtimeTestAddress(t *testing.T) string {

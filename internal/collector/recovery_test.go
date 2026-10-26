@@ -210,6 +210,11 @@ func startCollectorWithSettings(t *testing.T, settings otelcol.CollectorSettings
 	t.Helper()
 	instance, err := otelcol.NewCollector(settings)
 	require.NoError(t, err)
+	return startCollectorInstance(t, instance)
+}
+
+func startCollectorInstance(t *testing.T, instance *otelcol.Collector) *recoveryCollector {
+	t.Helper()
 	runtime := &recoveryCollector{
 		collector: instance,
 		done:      make(chan error, 1),
@@ -235,6 +240,107 @@ func startCollectorWithSettings(t *testing.T, settings otelcol.CollectorSettings
 			}
 		}
 	}
+}
+
+func TestShutdownBudgetPreservesInFlightFileRequestsAcrossSignals(t *testing.T) {
+	var available atomic.Bool
+	entered := make(chan struct{}, 3)
+	committed := make(chan string, 6)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := decodeRecoveryAppendBody(r)
+		require.NoError(t, err)
+		if !available.Load() {
+			entered <- struct{}{}
+			<-r.Context().Done()
+			return
+		}
+		var row map[string]string
+		require.NoError(t, json.Unmarshal(bytes.TrimSpace(body), &row))
+		committed <- row["value"]
+		writeRecoveryAppendCommitted(t, w)
+	}))
+	t.Cleanup(func() { backend.CloseClientConnections(); backend.Close() })
+	address := freeTCPAddress(t)
+	config := recoveryCollectorConfig(backend.URL, address, t.TempDir(), "logs") + `
+    traces: {receivers: [otlp], exporters: [scopedb]}
+    metrics: {receivers: [otlp], exporters: [scopedb]}
+`
+	config = strings.Replace(config, "timeout: 1s", "timeout: 1m", 1)
+	statuses := scopedbexporter.NewStatusRegistry()
+	runtime, err := New("yaml:"+config, "test", statuses, nil)
+	require.NoError(t, err)
+	first := startCollectorInstance(t, runtime.Collector)
+	var want []string
+	for _, signal := range []string{"logs", "traces", "metrics"} {
+		for _, value := range []string{signal + " in flight", signal + " queued"} {
+			require.NoError(t, sendRecoverySignal(address, signal, value))
+			want = append(want, value)
+		}
+	}
+	for range 3 {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("not all signals started an append")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	runtime.Shutdown(ctx)
+	first.stop(t)
+	require.Less(t, time.Since(started), 2*time.Second)
+	for _, state := range statuses.Snapshot().Signals {
+		require.Zero(t, state.UnknownRecords+state.RetryExhaustedRecords)
+	}
+	available.Store(true)
+	restarted := startRecoveryCollector(t, config)
+	defer restarted.stop(t)
+	var got []string
+	for range want {
+		select {
+		case value := <-committed:
+			got = append(got, value)
+		case <-time.After(5 * time.Second):
+			t.Fatal("interrupted request was not restored")
+		}
+	}
+	require.ElementsMatch(t, want, got)
+}
+
+func TestShutdownBudgetIncludesFinalMetricsPush(t *testing.T) {
+	var pushed atomic.Bool
+	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		pushed.Store(true)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(func() { gateway.CloseClientConnections(); gateway.Close() })
+	config := defaultConfig()
+	config.Destination = DestinationConfig{Endpoint: "https://scopedb.invalid", APIKey: "test-key"}
+	config.Receivers = ReceiverConfig{GRPCAddr: freeTCPAddress(t), HTTPAddr: freeTCPAddress(t)}
+	config.Delivery.Queue.Type, config.Delivery.Queue.MaxBytes = "memory", 1<<20
+	config.Telemetry.MetricsAddr = freeTCPAddress(t)
+	config.Telemetry.OTLP.Endpoint = gateway.URL
+	config.Telemetry.OTLP.Interval, config.Telemetry.OTLP.Timeout = time.Hour, time.Minute
+	config.Signals.Logs = scopedbexporter.SignalIngestionConfig{Table: "logs", Mapping: scopedbexporter.MappingConfig{"value": {Source: "log.message"}}}
+	uri, err := ConfigURI(config)
+	require.NoError(t, err)
+	runtime, err := New(uri, "test", scopedbexporter.NewStatusRegistry(), nil)
+	require.NoError(t, err)
+	first := startCollectorInstance(t, runtime.Collector)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	runtime.Shutdown(ctx)
+	select {
+	case err := <-first.done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(3 * time.Second):
+		t.Fatal("final metrics push exceeded the shutdown budget")
+	}
+	require.Less(t, time.Since(started), 2*time.Second)
+	require.True(t, pushed.Load())
 }
 
 func (r *recoveryCollector) stop(t *testing.T) {
@@ -332,7 +438,8 @@ func sendRecoverySignal(address string, signal string, value string) error {
 		body, _ := io.ReadAll(response.Body)
 		return fmt.Errorf("OTLP HTTP returned %s: %s", response.Status, body)
 	}
-	return nil
+	_, err = io.Copy(io.Discard, response.Body)
+	return err
 }
 
 func marshalRecoverySignal(signal string, value string) ([]byte, error) {

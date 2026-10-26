@@ -190,7 +190,7 @@ func (c *appendClient) send(ctx context.Context, signal string, payload *ingestP
 			outcome.committed = append(outcome.committed, chunkIndexes...)
 		} else {
 			pending.err = err
-			if replay.canRetryAfter(ctx, err) && retryableAfterUnknown(err) {
+			if (replay.exporter.persistent && replay.exporter.stopping.Load()) || (replay.canRetryAfter(ctx, err) && retryableAfterUnknown(err)) {
 				setDeliveryError(unknownRetryError(err), pending.rows)
 				return outcome
 			}
