@@ -1,8 +1,6 @@
 module github.com/scopedb/telescope
 
-go 1.27.0
-
-toolchain go1.27.3
+go 1.27.3
 
 require (
 	github.com/klauspost/compress v1.19.1

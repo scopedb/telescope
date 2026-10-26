@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Improvements
+
+* Custom Go builds now require Go 1.27.3 or later.
+
 ## v0.3.0 (2026-10-26)
 
 ### Breaking changes
