@@ -24,7 +24,6 @@ includes = [
   "**/*.yaml",
   "**/*.yml",
   "**/Dockerfile",
-  "**/Makefile",
 ]
 
 [props]

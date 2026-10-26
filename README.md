@@ -12,17 +12,18 @@ Telescope is an OpenTelemetry Collector distribution for sending logs, traces, a
 
 ## Try it
 
-Download a binary archive from the [v0.3.0 release](https://github.com/scopedb/telescope/releases/tag/v0.3.0), or build from source with Go 1.27.3. Previewing the bundled trace needs no ScopeDB connection:
+Download a binary archive from the [v0.3.0 release](https://github.com/scopedb/telescope/releases/tag/v0.3.0), or build from source with [mise](https://mise.jdx.dev/). Previewing the bundled trace needs no ScopeDB connection:
 
 ```bash
 git clone --branch v0.3.0 --depth 1 https://github.com/scopedb/telescope.git
 cd telescope
-make build
+mise install
+mise run build
 ./bin/telescope preview --offline \
   --sample traces=deploy/samples/traces.otlp.json deploy/telescope.example.yaml
 ```
 
-In an extracted archive, skip the clone and build steps and use `./telescope` instead of `./bin/telescope`. The output shows the selected columns, sample coverage, and the row that would be written. Nothing is sent yet.
+In an extracted archive, run the preview command with `./telescope` instead of `./bin/telescope`. The output shows the selected columns, sample coverage, and the row that would be written. Nothing is sent yet.
 
 **[Send your first trace →](docs/quickstart.md)** Connect a ScopeDB workspace, prepare the table, start Telescope, and verify a write.
 

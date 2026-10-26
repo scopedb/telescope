@@ -1,0 +1,135 @@
+# Copyright 2026 ScopeDB, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[tools]
+"github:fast/hawkeye" = "7.1.0"
+go = "1.27.3"
+
+[task_config]
+shell = "bash -e -o pipefail -c"
+
+[tasks.fix]
+description = "Apply license headers, format Go source, and tidy modules"
+run = '''
+hawkeye format
+git ls-files -z --cached --others --exclude-standard -- '*.go' |
+  while IFS= read -r -d '' file; do
+    if [[ -f "$file" ]]; then gofmt -w "$file"; fi
+  done
+go mod tidy
+'''
+
+[tasks.check]
+description = "Check license headers, formatting, modules, static analysis, and vulnerabilities"
+run = '''
+hawkeye check
+unformatted="$(
+  git ls-files -z --cached --others --exclude-standard -- '*.go' |
+    while IFS= read -r -d '' file; do
+      if [[ -f "$file" ]]; then gofmt -l "$file"; fi
+    done
+)"
+if [[ -n "$unformatted" ]]; then
+  printf 'Unformatted Go files:\n%s\n' "$unformatted" >&2
+  exit 1
+fi
+go mod tidy -diff
+go mod verify
+go vet -tags=integration ./...
+go tool staticcheck -tags=integration ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+go test -tags=integration ./... -run '^$'
+'''
+
+[tasks.test]
+description = "Run unit tests"
+run = "go test ./..."
+
+[tasks."test:race"]
+description = "Run unit tests with the race detector"
+run = "go test -race ./..."
+
+[tasks.test-integration]
+description = "Run integration tests against a ScopeDB endpoint"
+run = '''
+test -n "$TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT" && test -n "$TELESCOPE_SCOPEDB_INTEGRATION_API_KEY" || {
+  echo "Set TELESCOPE_SCOPEDB_INTEGRATION_ENDPOINT and TELESCOPE_SCOPEDB_INTEGRATION_API_KEY" >&2
+  exit 1
+}
+go test -race -tags=integration ./... -count=1 -timeout=5m
+'''
+
+[tasks.build]
+description = "Build the Telescope binary"
+env.CGO_ENABLED = "0"
+run = '''
+version="${VERSION:-$(git describe --tags --always 2>/dev/null || printf development)}"
+go build -trimpath -ldflags "${LD_FLAGS:--s -w -X main.version=$version}" -o "${TELESCOPE:-./bin/telescope}" ./cmd/telescope
+'''
+
+[tasks.artifacts]
+description = "Build and verify release archives and checksums"
+run = '''
+version="${VERSION:-$(git describe --tags --always 2>/dev/null || printf development)}"
+dist_dir="${DIST_DIR:-dist}"
+read -r -a platforms <<< "${PLATFORMS:-darwin/arm64 linux/amd64 linux/arm64}"
+rm -rf "$dist_dir"
+mkdir -p "$dist_dir"
+python3 scripts/build-archives.py "$dist_dir" "$version" "${LD_FLAGS:--s -w -X main.version=$version}" "${platforms[@]}"
+(cd "$dist_dir" && shasum -a 256 *.tar.gz > SHA256SUMS)
+python3 scripts/check-archives.py "$dist_dir" "$version"
+'''
+
+[tasks.validate]
+description = "Validate example configurations and preview the compatibility mapping"
+depends = ["build"]
+run = '''
+binary="${TELESCOPE:-./bin/telescope}"
+"$binary" validate --offline deploy/telescope.example.yaml
+"$binary" validate --offline deploy/telescope.v0.2-compatible.yaml
+"$binary" preview --offline --sample traces=deploy/samples/traces.otlp.json deploy/telescope.v0.2-compatible.yaml
+'''
+
+[tasks.docker-build]
+description = "Build the runtime container image"
+run = '''
+version="${VERSION:-$(git describe --tags --always 2>/dev/null || printf development)}"
+docker build --build-arg VERSION="$version" -f Dockerfile -t "${TELESCOPE_IMAGE:-scopedb-telescope:ci}" .
+'''
+
+[tasks.docker-smoke]
+description = "Check container health, status, metrics, and version"
+depends = ["docker-build"]
+run = '''
+version="${VERSION:-$(git describe --tags --always 2>/dev/null || printf development)}"
+sh scripts/smoke-container.sh "$version"
+'''
+
+[tasks.kubernetes-validate]
+description = "Validate Kubernetes rendering"
+run = "sh scripts/check-kubernetes.sh"
+
+[tasks.compose-validate]
+description = "Validate Compose environment wiring"
+run = "python3 scripts/check-compose.py"
+
+[tasks.ci-runtime]
+description = "Check deployment examples, the container, and release archives"
+run = '''
+mise run validate
+mise run compose-validate
+mise run kubernetes-validate
+mise run docker-smoke
+mise run artifacts
+'''
