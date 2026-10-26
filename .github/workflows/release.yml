@@ -22,7 +22,7 @@ on:
       - .github/workflows/release.yml
       - Dockerfile
       - .dockerignore
-      - Makefile
+      - mise.toml
       - scripts/**
       - go.mod
       - go.sum
@@ -52,16 +52,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version-file: go.mod
           cache: false
-      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # v2.87.1
-        with:
-          tool: hawkeye@7.0.0
-      - run: make license-check
-      - run: make ci-go
-      - run: make ci-runtime
+      - run: mise run check
+      - run: mise run test:race
+      - run: mise run ci-runtime
 
   release-image-dry-run:
     name: Release image dry run
@@ -73,9 +69,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version-file: go.mod
           cache: false
       - name: Docker meta
         id: meta
@@ -88,8 +83,8 @@ jobs:
             type=raw,value={{date 'YYYYMMDD-HHmmss'}}
       - name: Build release artifacts
         env:
-          TELESCOPE_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
-        run: make artifacts VERSION="$TELESCOPE_RELEASE_VERSION"
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: mise run artifacts
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -114,9 +109,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version-file: go.mod
           cache: false
       - name: Docker meta
         id: meta
@@ -129,8 +123,8 @@ jobs:
             type=raw,value={{date 'YYYYMMDD-HHmmss'}}
       - name: Build release artifacts
         env:
-          TELESCOPE_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
-        run: make artifacts VERSION="$TELESCOPE_RELEASE_VERSION"
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: mise run artifacts
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:

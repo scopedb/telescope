@@ -19,7 +19,7 @@ docker compose --env-file deploy/.env \
   -f deploy/docker-compose.yaml up -d
 ```
 
-Compose uses `ghcr.io/scopedb/telescope:v0.3.0`, publishes OTLP on ports 4317/4318, and binds operational HTTP to `127.0.0.1:8080`. Its named volume preserves the queue across container replacement. Use `docker compose --env-file deploy/.env -f deploy/docker-compose.yaml exec telescope telescope status` to inspect delivery. To use a local build, run `make docker-build` and prefix the Compose command with `IMAGE=scopedb-telescope:ci`.
+Compose uses `ghcr.io/scopedb/telescope:v0.3.0`, publishes OTLP on ports 4317/4318, and binds operational HTTP to `127.0.0.1:8080`. Its named volume preserves the queue across container replacement. Use `docker compose --env-file deploy/.env -f deploy/docker-compose.yaml exec telescope telescope status` to inspect delivery. To use a local build, run `mise run docker-build` and prefix the Compose command with `IMAGE=scopedb-telescope:ci`.
 
 ## Kubernetes
 
