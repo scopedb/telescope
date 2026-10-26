@@ -129,7 +129,7 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), ingestion.ShutdownTimeout)
 	defer shutdownCancel()
-	otelCollector.Shutdown(shutdownCtx)
+	otelCollector.Shutdown()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil && runErr == nil {
 		runErr = fmt.Errorf("shutdown http: %w", err)
 	}

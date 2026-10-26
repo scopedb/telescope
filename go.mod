@@ -176,7 +176,3 @@ require (
 )
 
 tool honnef.co/go/tools/cmd/staticcheck
-
-// Preserve interrupted file entries and cancel sends at the shutdown deadline.
-// https://github.com/scopedb/opentelemetry-collector/pull/1
-replace go.opentelemetry.io/collector/exporter/exporterhelper => github.com/scopedb/opentelemetry-collector/exporter/exporterhelper v0.150.1-0.20261026043320-ba943e622ce9

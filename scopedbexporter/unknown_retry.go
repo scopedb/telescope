@@ -77,12 +77,6 @@ func (s *unknownRetryState) canRetryAfter(ctx context.Context, err error) bool {
 }
 
 func (s *unknownRetryState) retain(ctx context.Context, body []byte, rows int, err error) bool {
-	// Shutdown must leave an ambiguous append in the durable queue, even when
-	// replay during normal operation is disabled.
-	if s != nil && s.exporter.persistent && s.exporter.stopping.Load() && isUnknownAppend(err) {
-		s.pending = &unknownChunk{rows: rows, err: err}
-		return true
-	}
 	if !s.canReplay(ctx) || !replayableUnknown(err) {
 		return false
 	}

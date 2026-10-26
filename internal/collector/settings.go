@@ -94,3 +94,12 @@ func newSettings(
 		},
 	}
 }
+
+func New(
+	configURI string,
+	version string,
+	statuses *scopedbexporter.StatusRegistry,
+	captures *scopedbexporter.CaptureRegistry,
+) (*otelcol.Collector, error) {
+	return otelcol.NewCollector(newSettings(configURI, version, true, statuses, captures))
+}

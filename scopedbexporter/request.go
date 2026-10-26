@@ -92,9 +92,6 @@ func (r *deliveryRequest) OnError(err error) xexporterhelper.Request {
 }
 
 func (r *deliveryRequest) send(ctx context.Context) error {
-	if r.err = ctx.Err(); r.err != nil {
-		return r.err
-	}
 	switch data := r.data.(type) {
 	case plog.Logs:
 		r.err = pushSignal(r, ctx, data, data.LogRecordCount(), mapLogs, func(err error, indexes []int) error {
