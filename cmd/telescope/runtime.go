@@ -25,7 +25,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"go.opentelemetry.io/collector/otelcol"
@@ -98,21 +97,20 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	)
 
 	errCh := make(chan error, 2)
-	var services sync.WaitGroup
-	services.Go(func() {
-		if err := otelCollector.Run(ctx); err != nil {
+	go func() {
+		if err := otelCollector.Run(context.Background()); err != nil {
 			errCh <- fmt.Errorf("collector: %w", err)
 			return
 		}
 		errCh <- nil
-	})
-	services.Go(func() {
+	}()
+	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- fmt.Errorf("http: %w", err)
 			return
 		}
 		errCh <- nil
-	})
+	}()
 
 	readinessDone := make(chan struct{})
 	go func() {
@@ -121,22 +119,27 @@ func runTelescopeCommand(parent context.Context, args []string, stderr io.Writer
 	}()
 
 	var runErr error
+	remaining := 2
 	select {
 	case <-ctx.Done():
 	case runErr = <-errCh:
+		remaining--
 	}
 	cancel()
 
-	otelCollector.Shutdown()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), ingestion.ShutdownTimeout)
 	defer shutdownCancel()
+	otelCollector.Shutdown()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil && runErr == nil {
 		runErr = fmt.Errorf("shutdown http: %w", err)
 	}
-	services.Wait()
-	close(errCh)
-	for err := range errCh {
-		runErr = errors.Join(runErr, err)
+	for range remaining {
+		select {
+		case err := <-errCh:
+			runErr = errors.Join(runErr, err)
+		case <-shutdownCtx.Done():
+			return errors.Join(runErr, fmt.Errorf("shutdown exceeded %s: %w", ingestion.ShutdownTimeout, shutdownCtx.Err()))
+		}
 	}
 	<-readinessDone
 	if runErr == nil {

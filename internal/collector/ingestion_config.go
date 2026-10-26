@@ -129,7 +129,7 @@ func ConfigURI(config Config) (string, error) {
 		}},
 		"service": map[string]any{
 			"extensions": enabledExtensions, "pipelines": pipelines,
-			"telemetry": map[string]any{"resource": config.Telemetry.Resource, "logs": map[string]any{"level": "warn"}, "metrics": map[string]any{"level": config.Telemetry.Level, "readers": readers}},
+			"telemetry": map[string]any{"resource": config.Telemetry.Resource, "logs": map[string]any{"level": config.Telemetry.LogLevel}, "metrics": map[string]any{"level": config.Telemetry.Level, "readers": readers}},
 		},
 	}
 	data, err := yaml.Marshal(rendered)

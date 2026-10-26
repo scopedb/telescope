@@ -27,6 +27,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/otelcol"
+	"go.opentelemetry.io/collector/service/telemetry/otelconftelemetry"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestLoadAndRenderIngestionConfig(t *testing.T) {
@@ -108,6 +110,7 @@ delivery:
 resources:
   memory_limit_mib: 1500
 telemetry:
+  log_level: info
   otlp:
     endpoint: https://gateway.example/v1/metrics
     interval: 15s
@@ -136,6 +139,7 @@ signals:
 	require.NoError(t, err)
 	resolved, err := provider.Get(t.Context(), components)
 	require.NoError(t, err)
+	require.Equal(t, zapcore.InfoLevel, resolved.Service.Telemetry.(*otelconftelemetry.Config).Logs.Level)
 	for _, value := range resolved.Exporters {
 		exporter := value.(*scopedbexporter.Config)
 		require.Equal(t, "key:${literal}", string(exporter.APIKey))
@@ -156,6 +160,8 @@ signals:
 
 func TestRuntimeConfigurationRejectsInvalidPolicy(t *testing.T) {
 	for _, policy := range []string{
+		"shutdown_timeout: 0s",
+		"shutdown_timeout: -1s",
 		"delivery: {queue: {type: shared}}",
 		"delivery: {queue: {max_bytes: 0}}",
 		"delivery: {timeout: -1s}",
@@ -170,6 +176,7 @@ func TestRuntimeConfigurationRejectsInvalidPolicy(t *testing.T) {
 		"telemetry: {otlp: {unknown_option: true}}",
 		"telemetry: {otlp: {compression: zstd}}",
 		"telemetry: {level: none}",
+		"telemetry: {log_level: verbose}",
 	} {
 		t.Run(policy, func(t *testing.T) {
 			for _, name := range []string{"TELESCOPE_QUEUE_MAX_BYTES", "TELESCOPE_WRITE_TIMEOUT", "TELESCOPE_OTEL_BATCH_SIZE", "TELESCOPE_OTEL_BATCH_MAX_SIZE"} {

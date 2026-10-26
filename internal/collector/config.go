@@ -30,6 +30,7 @@ import (
 
 	"github.com/scopedb/telescope/scopedbexporter"
 	"go.opentelemetry.io/collector/config/configretry"
+	"go.uber.org/zap/zapcore"
 )
 
 // Config keeps ingestion mappings and runtime policy in one validated document.
@@ -39,6 +40,7 @@ type Config struct {
 	Destination                     DestinationConfig `yaml:"destination"`
 	Receivers                       ReceiverConfig    `yaml:"receivers"`
 	HTTPAddr                        string            `yaml:"http_addr"`
+	ShutdownTimeout                 time.Duration     `yaml:"shutdown_timeout"`
 	Delivery                        DeliveryConfig    `yaml:"delivery"`
 	Batch                           BatchConfig       `yaml:"batch"`
 	Resources                       ResourceConfig    `yaml:"resources"`
@@ -96,6 +98,7 @@ type TelemetryConfig struct {
 	MetricsAddr string            `yaml:"metrics_addr"`
 	Resource    map[string]string `yaml:"resource"`
 	Level       string            `yaml:"level"`
+	LogLevel    string            `yaml:"log_level"`
 	OTLP        OTLPMetricsConfig `yaml:"otlp"`
 }
 
@@ -110,8 +113,9 @@ type OTLPMetricsConfig struct {
 
 func defaultConfig() Config {
 	return Config{
-		Receivers: ReceiverConfig{GRPCAddr: "0.0.0.0:4317", HTTPAddr: "0.0.0.0:4318"},
-		HTTPAddr:  "127.0.0.1:8080",
+		ShutdownTimeout: 30 * time.Second,
+		Receivers:       ReceiverConfig{GRPCAddr: "0.0.0.0:4317", HTTPAddr: "0.0.0.0:4318"},
+		HTTPAddr:        "127.0.0.1:8080",
 		Delivery: DeliveryConfig{
 			Timeout: 30 * time.Second, MaxRows: 8000, MaxBytes: 4 << 20,
 			Queue:        QueueConfig{Type: "file", Directory: defaultQueueDir(), MaxBytes: 512 << 20, Consumers: 1},
@@ -120,13 +124,16 @@ func defaultConfig() Config {
 		},
 		Batch:     BatchConfig{Size: 2000, MaxSize: 2000, Timeout: 30 * time.Second},
 		Resources: ResourceConfig{MemoryLimitMiB: 512, MemorySpikeMiB: 128},
-		Telemetry: TelemetryConfig{MetricsAddr: "127.0.0.1:8888", Level: "normal", Resource: map[string]string{"service.name": "telescope"}, OTLP: OTLPMetricsConfig{
+		Telemetry: TelemetryConfig{MetricsAddr: "127.0.0.1:8888", Level: "normal", LogLevel: "warn", Resource: map[string]string{"service.name": "telescope"}, OTLP: OTLPMetricsConfig{
 			Protocol: "http/protobuf", Compression: "none", Interval: time.Minute, Timeout: 10 * time.Second,
 		}},
 	}
 }
 
 func (c Config) Validate() error {
+	if c.ShutdownTimeout <= 0 {
+		return errors.New("shutdown_timeout must be positive")
+	}
 	if err := c.IngestionConfig.Validate(); err != nil {
 		return err
 	}
@@ -188,6 +195,9 @@ func (c Config) Validate() error {
 	}
 	if c.Telemetry.Level != "normal" && c.Telemetry.Level != "detailed" {
 		return errors.New("telemetry.level must be normal or detailed; operational status requires normal metrics")
+	}
+	if _, err := zapcore.ParseLevel(c.Telemetry.LogLevel); err != nil {
+		return fmt.Errorf("telemetry.log_level: %w", err)
 	}
 	for key := range c.Telemetry.Resource {
 		if strings.TrimSpace(key) == "" {
