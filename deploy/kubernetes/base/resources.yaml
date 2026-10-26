@@ -76,7 +76,7 @@ spec:
         app.kubernetes.io/name: telescope
         app.kubernetes.io/instance: telescope
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       containers:
         - name: telescope
           image: ghcr.io/scopedb/telescope:latest

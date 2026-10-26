@@ -17,7 +17,7 @@ The compatibility tests compare all mapped columns with rows produced by the v0.
 
 ## Prepare and switch traffic
 
-1. Build from a reviewed commit, or an immutable release tag once published. Run offline validation and preview in CI; neither command needs a ScopeDB connection:
+1. Install the `v0.3.0` release or build from an exact commit. Run offline validation and preview in CI; neither command needs a ScopeDB connection:
 
    ```bash
    telescope validate --offline deploy/telescope.v0.2-compatible.yaml

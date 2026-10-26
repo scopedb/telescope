@@ -23,4 +23,4 @@ configMapGenerator:
       - telescope.yaml
 images:
   - name: ghcr.io/scopedb/telescope
-    newTag: latest
+    newTag: v0.3.0
