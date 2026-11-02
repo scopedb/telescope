@@ -134,3 +134,9 @@ func validTestConfig() *Config {
 	}
 	return cfg
 }
+
+func TestConfigRejectsRemovedReplayKey(t *testing.T) {
+	cfg := validTestConfig()
+	err := confmap.NewFromStringMap(map[string]any{"unknown_retry": map[string]any{"enabled": true}}).Unmarshal(cfg)
+	require.ErrorContains(t, err, "unknown_retry")
+}

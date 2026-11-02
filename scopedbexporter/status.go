@@ -34,33 +34,33 @@ type StatusSnapshot struct {
 }
 
 type SignalRuntimeStatus struct {
-	Signal                  string
-	Table                   string
-	QueueEnabled            bool
-	QueueCapacity           int64
-	QueueUnit               string
-	Ready                   bool
-	DestinationVerified     bool
-	LastWriteAttempt        time.Time
-	LastWriteSuccess        time.Time
-	LastWriteFailure        time.Time
-	LastWriteDuration       time.Duration
-	LastError               string
-	LastProbeIDs            []string
-	LastProbeSuccess        time.Time
-	ConfirmedWrittenRecords uint64
-	UnknownRecords          uint64
-	UnknownReplayAttempts   uint64
-	UnknownReplayedRecords  uint64
-	PermanentFailedRecords  uint64
-	RetryExhaustedRecords   uint64
-	EnqueueFailedRecords    uint64
-	InvalidItemsByReason    map[string]uint64
+	Signal                   string
+	Table                    string
+	QueueEnabled             bool
+	QueueCapacity            int64
+	QueueUnit                string
+	Ready                    bool
+	DestinationVerified      bool
+	LastWriteAttempt         time.Time
+	LastWriteSuccess         time.Time
+	LastWriteFailure         time.Time
+	LastWriteDuration        time.Duration
+	LastError                string
+	LastProbeIDs             []string
+	LastProbeSuccess         time.Time
+	ConfirmedWrittenRecords  uint64
+	AmbiguousRecords         uint64
+	AmbiguousReplayAttempts  uint64
+	AmbiguousReplayedRecords uint64
+	PermanentFailedRecords   uint64
+	RetryExhaustedRecords    uint64
+	EnqueueFailedRecords     uint64
+	InvalidItemsByReason     map[string]uint64
 }
 
-func (r *StatusRegistry) recordUnknown(signal string, records int, started time.Time, err error) {
+func (r *StatusRegistry) recordAmbiguous(signal string, records int, started time.Time, err error) {
 	r.recordWrite(signal, records, started, err, false)
-	r.update(signal, func(status *SignalRuntimeStatus) { status.UnknownRecords += uint64(records) })
+	r.update(signal, func(status *SignalRuntimeStatus) { status.AmbiguousRecords += uint64(records) })
 }
 
 func NewStatusRegistry() *StatusRegistry {

@@ -145,7 +145,7 @@ func exporterOptions(cfg *Config, exp *dbExporter) []exporterhelper.Option {
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
 		// The SDK applies the configured timeout to each HTTP append, leaving
-		// the delivery context active for retries after a request timeout.
+		// the delivery context active for subsequent batches and safe retries.
 		exporterhelper.WithTimeout(exporterhelper.TimeoutConfig{}),
 		exporterhelper.WithRetry(cfg.RetryOnFailure),
 		xexporterhelper.WithQueueBatch(cfg.SendingQueue, xexporterhelper.QueueBatchSettings{Encoding: deliveryEncoding{exp}, ReferenceCounter: deliveryReferenceCounter{}}),

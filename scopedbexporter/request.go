@@ -34,24 +34,26 @@ import (
 )
 
 // deliveryRequest tracks remaining items until Collector finishes its retries.
-// Its batch-level failure metric cannot distinguish settled rows from exhausted
-// retries, so final delivery counts are recorded at request completion.
+// Settled batches are counted as they complete; request completion accounts for
+// any remaining ambiguous batch and records whose retry budget was exhausted.
 // The persistent representation remains the original OTLP protobuf request.
 type deliveryRequest struct {
-	data     any
 	original any
 	err      error
 	once     sync.Once
 	exporter *dbExporter
-	replay   unknownRetryState
+	delivery *appendDelivery
 }
 
 func newDeliveryRequest(data any, exporter *dbExporter) *deliveryRequest {
-	return &deliveryRequest{data: data, original: data, exporter: exporter, replay: unknownRetryState{config: exporter.cfg.UnknownRetry, exporter: exporter}}
+	return &deliveryRequest{original: data, exporter: exporter}
 }
 
 func (r *deliveryRequest) ItemsCount() int {
-	switch data := r.data.(type) {
+	if r.delivery != nil {
+		return r.delivery.remaining()
+	}
+	switch data := r.original.(type) {
 	case plog.Logs:
 		return data.LogRecordCount()
 	case ptrace.Traces:
@@ -64,7 +66,7 @@ func (r *deliveryRequest) ItemsCount() int {
 }
 
 func (r *deliveryRequest) BytesSize() int {
-	switch data := r.data.(type) {
+	switch data := r.original.(type) {
 	case plog.Logs:
 		return (&plog.ProtoMarshaler{}).LogsSize(data)
 	case ptrace.Traces:
@@ -76,58 +78,57 @@ func (r *deliveryRequest) BytesSize() int {
 	}
 }
 
-func (r *deliveryRequest) OnError(err error) xexporterhelper.Request {
-	var logs consumererror.Logs
-	var traces consumererror.Traces
-	var metrics consumererror.Metrics
-	switch {
-	case errors.As(err, &logs):
-		r.data = logs.Data()
-	case errors.As(err, &traces):
-		r.data = traces.Data()
-	case errors.As(err, &metrics):
-		r.data = metrics.Data()
-	}
-	return r
-}
+// The delivery cursor retains the pending batch; retrying must not rebuild a
+// smaller OTLP request or remap bytes that may already have been written.
+func (r *deliveryRequest) OnError(error) xexporterhelper.Request { return r }
 
 func (r *deliveryRequest) send(ctx context.Context) error {
-	switch data := r.data.(type) {
-	case plog.Logs:
-		r.err = pushSignal(r, ctx, data, data.LogRecordCount(), mapLogs, func(err error, indexes []int) error {
-			return consumererror.NewLogs(err, logsFromRecords(data, indexes))
-		})
-	case ptrace.Traces:
-		r.err = pushSignal(r, ctx, data, data.SpanCount(), mapTraces, func(err error, indexes []int) error {
-			return consumererror.NewTraces(err, tracesFromRecords(data, indexes))
-		})
-	case pmetric.Metrics:
-		r.err = pushSignal(r, ctx, data, data.DataPointCount(), mapMetrics, func(err error, indexes []int) error {
-			return consumererror.NewMetrics(err, metricsFromRecords(data, indexes))
-		})
+	if r.delivery == nil {
+		var payload *ingestPayload
+		var err error
+		switch data := r.original.(type) {
+		case plog.Logs:
+			payload, err = mapLogs(data)
+		case ptrace.Traces:
+			payload, err = mapTraces(data)
+		case pmetric.Metrics:
+			payload, err = mapMetrics(data)
+		}
+		if err == nil {
+			r.delivery, err = r.exporter.client.newDelivery(r.exporter.signal, payload, r.exporter.cfg.AmbiguousRetry)
+		}
+		if err != nil {
+			r.err = consumererror.NewPermanent(err)
+			r.exporter.statuses.recordWrite(r.exporter.signal, r.ItemsCount(), time.Now(), r.err, true)
+			return r.err
+		}
 	}
+	if pending := r.delivery.pending; pending != nil && r.exporter.stopping.Load() {
+		r.err = pending.err
+		return r.err
+	}
+	started := time.Now()
+	result := r.delivery.send(ctx)
+	r.exporter.recordDelivery(r.delivery.payload, result, started)
+	r.err = result.err
 	return r.err
 }
 
 func (r *deliveryRequest) finish() {
 	r.once.Do(func() {
-		if r.err == nil {
+		if r.err == nil || consumererror.IsPermanent(r.err) {
 			return
 		}
-		if consumererror.IsPermanent(r.err) {
-			return
-		}
-		r.OnError(r.err)
 		remaining := r.ItemsCount()
 		if r.exporter.persistent && r.exporter.stopping.Load() {
 			r.exporter.logger.Warn("ScopeDB delivery interrupted; original request retained in file queue",
 				zap.String("signal", r.exporter.signal), zap.Int("remaining_records", remaining))
 			return
 		}
-		if pending := r.replay.pending; pending != nil {
-			r.exporter.recordUnknown(pending.rows, time.Now(), unresolvedUnknown(pending.err))
-			remaining -= pending.rows
-			r.replay.pending = nil
+		if r.delivery != nil && r.delivery.pending != nil && r.delivery.pending.ambiguous {
+			pending := r.delivery.pending
+			r.exporter.recordAmbiguous(len(pending.indexes), time.Now(), pending.err)
+			remaining -= len(pending.indexes)
 		}
 		r.exporter.statuses.recordRetryExhausted(r.exporter.signal, remaining)
 	})

@@ -4,8 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+* Rename delivery configuration `unknown_retry` to `ambiguous_retry`, status fields and metrics from `unknown` to `ambiguous`, and the permanent-drop reason `permanent_rejected` to `permanent_failed`. Old configuration keys are rejected. See the [v0.3 migration guide](docs/migration-v0.3.md) for Go APIs, JSON fields, metrics, and rollout steps.
+* Use whole-batch ScopeDB outcomes: permanent server rejection drops that batch without isolating rows from legacy diagnostics, then delivery continues with later batches. Local mapping failures still affect individual records.
+* Upgrade the ScopeDB Go SDK to v0.8.0. Client timeouts after connection acquisition are no longer replayed, even with `ambiguous_retry` enabled. Malformed HTTP 429 responses are ambiguous and no longer qualify for safe automatic retry.
+
+### Bug fixes
+
+* Honor explicit server retry refusal during ambiguous replay. A later rejection cannot resolve an earlier ambiguous write; final accounting keeps those records separate from confirmed failures.
+* Send the CLI query timeout using the server's supported `timeout_seconds` field so `telescope query --timeout` limits remote execution as well as local waiting.
+
 ### Improvements
 
+* Retain each pending batch's mapped bytes across ordinary retries and ambiguous replay, and advance past settled records without rebuilding OTLP subsets. Collector owns persistence and backoff; the SDK performs and classifies each append attempt.
 * Custom Go builds now require Go 1.27.3 or later.
 
 ## v0.3.0 (2026-10-26)

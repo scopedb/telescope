@@ -119,20 +119,21 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 		if throttled.Load() {
 			w.Header().Set("Retry-After", "3600")
 			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 			return
 		}
 		switch attempt {
 		case 1:
 			w.WriteHeader(503)
-			_, _ = io.WriteString(w, `{"code":"commit_unknown","message":"unknown","details":{"status":"unknown"}}`)
+			_, _ = io.WriteString(w, `{"error":{"code":"service_unavailable","message":"acknowledgement unavailable"}}`)
 		case 2:
 			w.WriteHeader(400)
-			_, _ = io.WriteString(w, `{"message":"rejected","details":{"status":"rejected"}}`)
+			_, _ = io.WriteString(w, `{"error":{"code":"bad_request","message":"rejected"}}`)
 		case 3:
 			w.WriteHeader(400)
-			_, _ = io.WriteString(w, `{"details":{"status":"rejected"}}`)
+			_, _ = io.WriteString(w, `{"error":{"code":"bad_request","message":"rejected"}}`)
 		default:
-			_, _ = io.WriteString(w, `{"status":"committed","num_rows_inserted":1}`)
+			_, _ = io.WriteString(w, `{"num_rows_inserted":1}`)
 		}
 	}))
 	t.Cleanup(backend.Close)
@@ -147,7 +148,7 @@ receivers:
   http_addr: %q
 http_addr: %q
 delivery:
-  unknown_retry:
+  ambiguous_retry:
     enabled: true
   retry:
     initial_interval: 10ms
@@ -223,15 +224,15 @@ signals:
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return observed["telescope_ingestion_unknown_total"] == 1 &&
-			observed["telescope_ingestion_dropped_total/permanent_rejected"] == 1 &&
+		return observed["telescope_ingestion_ambiguous_total"] == 1 &&
+			observed["telescope_ingestion_dropped_total/permanent_failed"] == 1 &&
 			observed["telescope_ingestion_written_total"] == 1 &&
 			observed["otelcol_exporter_queue_size"] == 1 &&
 			observed["otelcol_receiver_accepted_log_records"] == 3
 	}, 5*time.Second, 10*time.Millisecond)
 	mu.Lock()
-	require.Equal(t, int64(1), observed["telescope_ingestion_unknown_replay_attempts_total"])
-	require.Equal(t, int64(1), observed["telescope_ingestion_unknown_replayed_records_total"])
+	require.Equal(t, int64(1), observed["telescope_ingestion_ambiguous_replay_attempts_total"])
+	require.Equal(t, int64(1), observed["telescope_ingestion_ambiguous_replayed_records_total"])
 	mu.Unlock()
 	require.Equal(t, int64(4), calls.Load())
 	for _, path := range []string{"/metrics", "/v1/ingestion/status"} {
@@ -242,9 +243,9 @@ signals:
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 200, response.StatusCode)
 		if path == "/metrics" {
-			require.Contains(t, string(body), `telescope_ingestion_unknown_replay_attempts_total{signal="logs",table="logs"} 1`)
-			require.Contains(t, string(body), `telescope_ingestion_unknown_total{signal="logs",table="logs"} 1`)
-			require.Contains(t, string(body), `telescope_ingestion_dropped_total{signal="logs",table="logs",reason="permanent_rejected"} 1`)
+			require.Contains(t, string(body), `telescope_ingestion_ambiguous_replay_attempts_total{signal="logs",table="logs"} 1`)
+			require.Contains(t, string(body), `telescope_ingestion_ambiguous_total{signal="logs",table="logs"} 1`)
+			require.Contains(t, string(body), `telescope_ingestion_dropped_total{signal="logs",table="logs",reason="permanent_failed"} 1`)
 		} else {
 			require.Contains(t, string(body), httpAddress)
 			require.Contains(t, string(body), `"type":"memory"`)
@@ -273,7 +274,7 @@ signals:
 	defer mu.Unlock()
 	require.Equal(t, int64(3), observed["telescope_ingestion_dropped_total/retry_exhausted"])
 	require.Equal(t, int64(1), observed["telescope_ingestion_written_total"])
-	require.Equal(t, int64(1), observed["telescope_ingestion_unknown_total"])
+	require.Equal(t, int64(1), observed["telescope_ingestion_ambiguous_total"])
 }
 
 func TestRunShutdownTimeout(t *testing.T) {

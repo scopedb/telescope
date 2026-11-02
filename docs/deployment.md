@@ -29,21 +29,21 @@ Use the [StatefulSet guide](../deploy/kubernetes/README.md). Each replica gets a
 
 `telescope.yaml` contains [signal mappings](table-management.md) and runtime settings. `telescope validate --offline` checks both, resolves environment references, and prints effective runtime values and their sources. API keys and OTLP headers are redacted. Runtime settings do not change the ingestion contract digest.
 
-| YAML settings | Defaults and meaning |
-| --- | --- |
-| `destination.endpoint`, `destination.api_key` | ScopeDB connection; required for delivery and online validation. |
-| `receivers.grpc_addr`, `receivers.http_addr` | `0.0.0.0:4317`, `0.0.0.0:4318`. |
-| `http_addr` | `127.0.0.1:8080`; [operational endpoints](operations.md#status-and-metrics-reference). |
-| `shutdown_timeout` | `30s`; positive limit on how long `run` waits for shutdown, including all signals, storage cleanup, and the final metrics push. |
-| `resources.memory_limit_mib`, `resources.memory_spike_mib` | `512`, `128`; the spike allowance must be smaller than the limit. |
-| `batch.size`, `batch.max_size`, `batch.timeout` | `2000`, `2000`, `30s`; flush by count or time. |
-| `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes` | `30s`, `8000`, `4194304`; timeout per HTTP append and uncompressed NDJSON chunk limits. A zero timeout disables the deadline. |
-| `delivery.queue.type`, `directory`, `max_bytes`, `consumers` | `file`, `~/.telescope/queue`, 512 MiB per signal, `1`. Memory queue capacity is derived as described below. |
+| YAML settings                                                         | Defaults and meaning                                                                                                                                                   |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `destination.endpoint`, `destination.api_key`                         | ScopeDB connection; required for delivery and online validation.                                                                                                       |
+| `receivers.grpc_addr`, `receivers.http_addr`                          | `0.0.0.0:4317`, `0.0.0.0:4318`.                                                                                                                                        |
+| `http_addr`                                                           | `127.0.0.1:8080`; [operational endpoints](operations.md#status-and-metrics-reference).                                                                                 |
+| `shutdown_timeout`                                                    | `30s`; positive limit on how long `run` waits for shutdown, including all signals, storage cleanup, and the final metrics push.                                        |
+| `resources.memory_limit_mib`, `resources.memory_spike_mib`            | `512`, `128`; the spike allowance must be smaller than the limit.                                                                                                      |
+| `batch.size`, `batch.max_size`, `batch.timeout`                       | `2000`, `2000`, `30s`; flush by count or time.                                                                                                                         |
+| `delivery.timeout`, `delivery.max_rows`, `delivery.max_bytes`         | `30s`, `8000`, `4194304`; timeout per HTTP append and uncompressed NDJSON chunk limits. A zero timeout disables the deadline.                                          |
+| `delivery.queue.type`, `directory`, `max_bytes`, `consumers`          | `file`, `~/.telescope/queue`, 512 MiB per signal, `1`. Memory queue capacity is derived as described below.                                                            |
 | `delivery.retry.initial_interval`, `max_interval`, `max_elapsed_time` | `5s`, `60s`, `0s`; zero elapsed time permits unlimited retries. A finite elapsed limit must be at least `max_interval`; it expires known-unwritten records as dropped. |
-| `delivery.unknown_retry` | Disabled by default; opt-in replay requires finite count and elapsed budgets. See [delivery semantics](exporter.md#append-and-retry-semantics). |
-| `telemetry.metrics_addr`, `telemetry.level` | `127.0.0.1:8888`, `normal`. Level also accepts `detailed`; lower levels lack observations required by status. |
-| `telemetry.log_level` | `warn`; set `info` to include normal startup and shutdown summaries, or `debug` for detailed diagnostics. |
-| `telemetry.resource`, `telemetry.otlp` | Resource attributes and optional [OTLP self-metrics](operations.md#export-self-metrics). |
+| `delivery.ambiguous_retry`                                            | Disabled by default; opt-in replay requires finite count and elapsed budgets. See [delivery semantics](exporter.md#append-and-retry-semantics).                        |
+| `telemetry.metrics_addr`, `telemetry.level`                           | `127.0.0.1:8888`, `normal`. Level also accepts `detailed`; lower levels lack observations required by status.                                                          |
+| `telemetry.log_level`                                                 | `warn`; set `info` to include normal startup and shutdown summaries, or `debug` for detailed diagnostics.                                                              |
+| `telemetry.resource`, `telemetry.otlp`                                | Resource attributes and optional [OTLP self-metrics](operations.md#export-self-metrics).                                                                               |
 
 Precedence is command flags, nonempty Telescope environment variables, YAML, then defaults. Connection settings also accept `SCOPEDB_ENDPOINT` / `SCOPEDB_API_KEY` as environment fallbacks before YAML. `--env-file` fills unset values from literal `KEY=VALUE` lines with optional matching quotes; shell expansion and inline comments are unsupported. The [environment example](../deploy/.env.example) lists the overrides forwarded by Compose. `validate` and `run` warn when an override replaces an explicit YAML field; remove obsolete overrides when moving settings into YAML.
 

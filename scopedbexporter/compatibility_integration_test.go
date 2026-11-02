@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/config/configopaque"
-	"go.uber.org/zap"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -72,7 +71,7 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 			case signalMetrics:
 				exporterConfig.Tables.Metrics, exporterConfig.Mappings.Metrics = table.Name, configured.Mapping
 			}
-			exporter, err := newClient(exporterConfig, zap.NewNop())
+			exporter, err := newClient(exporterConfig)
 			require.NoError(t, err)
 			defer exporter.Close()
 			plan := exporter.plans[signal]
@@ -80,9 +79,11 @@ func TestV02CompatibleAppendIntegration(t *testing.T) {
 			require.NoError(t, validationErr)
 			payload, err := mapOTLPSample(signal, readGoldenFile(t, signal+".otlp.json"))
 			require.NoError(t, err)
-			outcome := exporter.send(ctx, signal, payload, nil)
+			delivery, err := exporter.newDelivery(signal, payload, AmbiguousRetryConfig{})
+			require.NoError(t, err)
+			outcome := delivery.send(ctx)
 			require.NoError(t, outcome.err)
-			require.Len(t, outcome.committed, len(payload.Records))
+			require.Len(t, outcome.succeeded, len(payload.Records))
 			result, err := client.Query(ctx, "FROM "+table.Identifier())
 			require.NoError(t, err)
 			objects, err := result.ToObjects()

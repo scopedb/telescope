@@ -85,7 +85,7 @@ func TestGetIngestionStatus(t *testing.T) {
 				PermanentFailedRecords:  2,
 				RetryExhaustedRecords:   2,
 				EnqueueFailedRecords:    1,
-				UnknownRecords:          3,
+				AmbiguousRecords:        3,
 			},
 			"traces": {
 				Signal:              "traces",
@@ -126,10 +126,10 @@ func TestGetIngestionStatus(t *testing.T) {
 	assert.True(t, response.Signals[0].DestinationVerified)
 	assert.Equal(t, []string{"probe-1", "probe-2"}, response.Signals[0].LastProbeIDs)
 	assert.Equal(t, uint64(10), response.Signals[0].Written)
-	assert.Equal(t, uint64(3), response.Signals[0].Unknown)
+	assert.Equal(t, uint64(3), response.Signals[0].Ambiguous)
 	assert.Equal(t, uint64(5), response.Signals[0].Dropped)
 	assert.Equal(t, uint64(2), response.Signals[0].RetryExhausted)
-	assert.Equal(t, uint64(2), response.Signals[0].PermanentRejected)
+	assert.Equal(t, uint64(2), response.Signals[0].PermanentFailed)
 	assert.Equal(t, "ready", response.Signals[1].State)
 	assert.True(t, response.Signals[1].Queue.Observed)
 	assert.Equal(t, int64(2), response.Signals[1].Queue.Size)
