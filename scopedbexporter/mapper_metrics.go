@@ -344,3 +344,20 @@ func summaryDataPointToMap(point pmetric.SummaryDataPoint) map[string]any {
 	out["quantile_values"] = values
 	return out
 }
+
+func metricDataPointCount(metric pmetric.Metric) int {
+	switch metric.Type() {
+	case pmetric.MetricTypeGauge:
+		return metric.Gauge().DataPoints().Len()
+	case pmetric.MetricTypeSum:
+		return metric.Sum().DataPoints().Len()
+	case pmetric.MetricTypeHistogram:
+		return metric.Histogram().DataPoints().Len()
+	case pmetric.MetricTypeExponentialHistogram:
+		return metric.ExponentialHistogram().DataPoints().Len()
+	case pmetric.MetricTypeSummary:
+		return metric.Summary().DataPoints().Len()
+	default:
+		return 0
+	}
+}

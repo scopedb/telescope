@@ -30,8 +30,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"go.opentelemetry.io/collector/exporter/exportertest"
 )
 
 func TestClientValidateDestination(t *testing.T) {
@@ -52,7 +50,7 @@ func TestClientValidateDestination(t *testing.T) {
 
 	cfg := testClientConfig(server.URL)
 	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+	client, err := newClient(cfg)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -65,7 +63,7 @@ func TestClientValidateDestination(t *testing.T) {
 	assert.Equal(t, "string", validation.Columns[0].TargetType)
 	assert.Equal(t, MappingCompatible, validation.Columns[0].Compatibility)
 	cfg.Mappings.Logs["service"] = MappingRule{Source: `resource.attributes["service.name"]`}
-	client, err = newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+	client, err = newClient(cfg)
 	require.NoError(t, err)
 	defer client.Close()
 	_, err = client.plans[signalLogs].inspectDestination(context.Background(), client.Client)
@@ -95,7 +93,7 @@ func TestClientValidateDestinationRejectsKnownTypeMismatch(t *testing.T) {
 		"severity": "log.severity_number",
 		"tenant":   `resource.attributes["tenant.id"]`,
 	})
-	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+	client, err := newClient(cfg)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -118,7 +116,7 @@ func TestClientValidateDestinationUsesCastOutputType(t *testing.T) {
 	cfg.Mappings.Logs = MappingConfig{
 		"severity": {Source: "log.severity_number", Cast: "string"},
 	}
-	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+	client, err := newClient(cfg)
 	require.NoError(t, err)
 	defer client.Close()
 

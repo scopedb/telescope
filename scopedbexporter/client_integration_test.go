@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/config/configopaque"
-	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -113,7 +112,7 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 			},
 		},
 	}))
-	client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+	client, err := newClient(cfg)
 	require.NoError(t, err)
 	defer client.Close()
 	_, validationErr := client.plans[signalLogs].inspectDestination(ctx, client.Client)
@@ -130,9 +129,11 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 
 	payload, err := mapLogs(logs)
 	require.NoError(t, err)
-	outcome := client.send(ctx, signalLogs, payload, nil)
+	delivery, err := client.newDelivery(signalLogs, payload, AmbiguousRetryConfig{})
+	require.NoError(t, err)
+	outcome := delivery.send(ctx)
 	require.NoError(t, outcome.err)
-	require.Len(t, outcome.committed, len(payload.Records))
+	require.Len(t, outcome.succeeded, len(payload.Records))
 
 	result, err := sdkClient.Query(ctx, fmt.Sprintf("FROM %s", table.Identifier()))
 	require.NoError(t, err)
@@ -144,29 +145,29 @@ func TestScopeDBAppendIntegration(t *testing.T) {
 	assert.Equal(t, "01020300000000000000000000000000", objects[0]["trace_id"])
 	assert.Len(t, objects[0], 4)
 
-	outcome = client.send(ctx, signalLogs, &ingestPayload{Records: []telemetryRecord{
+	delivery, err = client.newDelivery(signalLogs, &ingestPayload{Records: []telemetryRecord{
 		{"message": "before invalid row"},
 		{"message": 42},
 		{"message": "after invalid row"},
-	}}, nil)
-	require.NoError(t, outcome.err)
-	assert.Equal(t, []int{0, 2}, outcome.committed)
-	require.Len(t, outcome.rejected, 1)
-	assert.Equal(t, 1, outcome.rejected[0].index)
+	}}, AmbiguousRetryConfig{})
+	require.NoError(t, err)
+	outcome = delivery.send(ctx)
+	require.Error(t, outcome.err)
+	require.Empty(t, outcome.succeeded)
+	require.Len(t, outcome.failed, 1)
+	require.Equal(t, 3, outcome.failed[0].records)
 
 	result, err = sdkClient.Query(ctx, fmt.Sprintf("FROM %s", table.Identifier()))
 	require.NoError(t, err)
 	objects, err = result.ToObjects()
 	require.NoError(t, err)
-	require.Len(t, objects, 3)
+	require.Len(t, objects, 1)
 	messages := make([]string, 0, len(objects))
 	for _, object := range objects {
 		messages = append(messages, object["message"].(string))
 	}
 	assert.ElementsMatch(t, []string{
 		"telescope append integration",
-		"before invalid row",
-		"after invalid row",
 	}, messages)
 }
 
@@ -219,14 +220,16 @@ func TestScopeDBTraceAndMetricAppendIntegration(t *testing.T) {
 				_, err := table.Catalog().Delete(ctx, scopedb.CatalogOptions{AllowDestructive: true})
 				assert.NoError(t, err)
 			})
-			client, err := newClient(cfg, exportertest.NewNopSettings(typeStr).Logger)
+			client, err := newClient(cfg)
 			require.NoError(t, err)
 			defer client.Close()
 			_, validationErr := client.plans[signal].inspectDestination(ctx, client.Client)
 			require.NoError(t, validationErr)
-			outcome := client.send(ctx, signal, payload, nil)
+			delivery, err := client.newDelivery(signal, payload, AmbiguousRetryConfig{})
+			require.NoError(t, err)
+			outcome := delivery.send(ctx)
 			require.NoError(t, outcome.err)
-			require.Len(t, outcome.committed, len(payload.Records))
+			require.Len(t, outcome.succeeded, len(payload.Records))
 
 			query := "FROM " + table.Identifier()
 			if signal == signalTraces {

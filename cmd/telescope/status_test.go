@@ -77,12 +77,15 @@ func TestWriteStatus(t *testing.T) {
 			AllocatedBytes: 8192,
 		},
 		Signals: []statusapi.IngestionSignalStatus{{
-			Signal:   "traces",
-			State:    "degraded",
-			Table:    "app.spans",
-			Received: 12,
-			Written:  10,
-			Dropped:  2,
+			Signal:                   "traces",
+			State:                    "degraded",
+			Table:                    "app.spans",
+			Received:                 15,
+			Ambiguous:                3,
+			AmbiguousReplayAttempts:  2,
+			AmbiguousReplayedRecords: 3,
+			Written:                  10,
+			Dropped:                  2,
 			InvalidItemsByReason: map[string]uint64{
 				"mapped_row_too_large": 1,
 				"mapping_cast_failed":  2,
@@ -103,6 +106,8 @@ func TestWriteStatus(t *testing.T) {
 	assert.Contains(t, output.String(), "config digest: sha256:test")
 	assert.Contains(t, output.String(), "traces")
 	assert.Contains(t, output.String(), "DROPPED")
+	assert.Contains(t, output.String(), "AMBIGUOUS")
+	assert.Contains(t, output.String(), "traces ambiguous replay: 2 attempts, 3 records (duplicates possible)")
 	assert.Contains(t, output.String(), "256 B/1 KiB")
 	assert.Contains(t, output.String(), "queue storage: 8 KiB allocated")
 	assert.Contains(t, output.String(), "traces invalid: mapped_row_too_large=1, mapping_cast_failed=2")

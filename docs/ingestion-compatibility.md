@@ -82,7 +82,7 @@ Metric name, description, unit, metadata, resource, and scope context are availa
 
 Telescope removes an invalid metric before the exporter queue and continues with the valid metrics in the same Collector batch. The invalid metric is dropped as a unit: if one gauge or sum point has no value, the other points belonging to that metric are not written. Telescope does not attempt per-data-point repair.
 
-After dequeue, a projection, encoding, or row-size failure rejects only that log record, span, or metric point. See [delivery semantics](exporter.md#append-and-retry-semantics) for ScopeDB row rejection and partial retries.
+After dequeue, a projection, encoding, or row-size failure rejects only that log record, span, or metric point. See [delivery semantics](exporter.md#append-and-retry-semantics) for whole-batch ScopeDB rejection and retry boundaries.
 
 Reported reasons are:
 

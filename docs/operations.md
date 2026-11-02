@@ -11,16 +11,16 @@ telescope query --env-file deploy/.env \
   "FROM scopedb.otel.traces SELECT start_timestamp, service, trace_id LIMIT 5"
 ```
 
-| Observation | Check |
-| --- | --- |
-| `received` does not increase | Application instrumentation, OTLP endpoint/protocol, network access, and enabled signals. |
-| Queue grows and `last_error` is set | Destination credentials, table schema, rate limits, or ScopeDB availability. |
-| Queue is empty but accepted items have no final outcome | Allow for Collector batching and an in-flight export; the queue does not include either. |
-| `dropped` increases | Inspect permanent rejection, enqueue failure, and exhausted retry counts. Preview a sample for mapping failures. |
-| `unknown` increases | Inspect append errors and the [unknown replay policy](exporter.md#append-and-retry-semantics); ambiguous outcomes are counted separately. |
-| Internal telemetry is unavailable | Check Collector health and its private metrics endpoint. |
+| Observation                                             | Check                                                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `received` does not increase                            | Application instrumentation, OTLP endpoint/protocol, network access, and enabled signals.                                                   |
+| Queue grows and `last_error` is set                     | Destination credentials, table schema, rate limits, or ScopeDB availability.                                                                |
+| Queue is empty but accepted items have no final outcome | Allow for Collector batching and an in-flight export; the queue does not include either.                                                    |
+| `dropped` increases                                     | Inspect permanent rejection, enqueue failure, and exhausted retry counts. Preview a sample for mapping failures.                            |
+| `ambiguous` increases                                   | Inspect append errors and the [ambiguous replay policy](exporter.md#append-and-retry-semantics); ambiguous outcomes are counted separately. |
+| Internal telemetry is unavailable                       | Check Collector health and its private metrics endpoint.                                                                                    |
 
-`verify` waits for an exact append acknowledgement, normally within its 45-second timeout, and prints `ScopeDB append committed synthetic probe` on success. It does not test application-specific values or query stored columns. `query` executes one ScopeQL statement from an argument, stdin, or `--file`; `--format json` and `--format jsonl` provide machine-readable results. It uses Telescope's ScopeDB connection and attempts cancellation after timeout or interruption.
+`verify` waits for an exact append acknowledgement, normally within its 45-second timeout, and prints `ScopeDB append succeeded for synthetic probe` on success. It does not test application-specific values or query stored columns. `query` executes one ScopeQL statement from an argument, stdin, or `--file`; `--format json` and `--format jsonl` provide machine-readable results. It uses Telescope's ScopeDB connection and attempts cancellation after timeout or interruption.
 
 ## Capture and preview
 
@@ -56,32 +56,32 @@ telescope preview --offline --strict \
 
 Native operational HTTP defaults to `127.0.0.1:8080`. `--http-addr` overrides `TELESCOPE_HTTP_ADDR`. These endpoints have no authentication; keep them on a trusted network or behind an authenticated proxy. Compose publishes them on host loopback, and the Kubernetes Service exposes only OTLP.
 
-| Endpoint | Contract |
-| --- | --- |
-| `/healthz` | Process liveness; independent of ScopeDB availability. |
-| `/readyz` | Receivers are running and internal telemetry is available; does not wait for ScopeDB. |
-| `/v1/ingestion/status` | Delivery counters, queues, configured tables, destination verification, latest writes/errors, and successful probe IDs. |
-| `/v1/ingestion/capture` | Bounded OTLP sample from the running exporter input. |
-| `/metrics` | Prometheus delivery and queue metrics; returns HTTP 503 when Collector metrics are unavailable. |
+| Endpoint                | Contract                                                                                                                |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `/healthz`              | Process liveness; independent of ScopeDB availability.                                                                  |
+| `/readyz`               | Receivers are running and internal telemetry is available; does not wait for ScopeDB.                                   |
+| `/v1/ingestion/status`  | Delivery counters, queues, configured tables, destination verification, latest writes/errors, and successful probe IDs. |
+| `/v1/ingestion/capture` | Bounded OTLP sample from the running exporter input.                                                                    |
+| `/metrics`              | Prometheus delivery and queue metrics; returns HTTP 503 when Collector metrics are unavailable.                         |
 
 Status lists only configured signals. Counts use each signal's native unit: log records, spans, or metric points.
 
-| Status field | Meaning |
-| --- | --- |
-| `received` | Items accepted by the OTLP receiver. Receiver failures/refusals are also reported. |
-| `written` | Items in an append confirmed `committed` with the expected row count. Partial successes remain counted. |
-| `unknown` | Ambiguous append outcomes, excluded from both `written` and `dropped`. |
-| `unknown_replay_attempts` / `unknown_replayed_records` | Replay attempts and records exposed to potential duplication. These overlap final outcomes and reset on restart. |
-| `dropped` | Final permanent rejections, exhausted retries, and queue enqueue failures. |
-| `retry_exhausted` | Retryable items with a final failure. Normally zero with unlimited retries; memory-queue shutdown or a custom finite retry horizon can increase it. |
-| `permanent_rejected` | Locally invalid items and permanent ScopeDB rejections. |
-| `invalid_items_by_reason` | Locally identifiable mapping failures by [reason](ingestion-compatibility.md#rejection-behavior). A metric with no data type counts as an invalid item but has zero metric points. |
-| `queue.size` / `queue.capacity` | Collector queue usage in its configured unit. With `bytes`, these are logical serialized bytes. |
-| `queue_storage.allocated_bytes` | Filesystem blocks allocated to queue files, distinct from logical queue bytes or file length. |
+| Status field                                               | Meaning                                                                                                                                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `received`                                                 | Items accepted by the OTLP receiver. Receiver failures/refusals are also reported.                                                                                                 |
+| `written`                                                  | Items in an append confirmed `Succeeded` with the expected row count. Successful batches remain counted even if another batch fails.                                               |
+| `ambiguous`                                                | Ambiguous append outcomes, excluded from both `written` and `dropped`.                                                                                                             |
+| `ambiguous_replay_attempts` / `ambiguous_replayed_records` | Replay attempts and records exposed to potential duplication. These overlap final outcomes and reset on restart.                                                                   |
+| `dropped`                                                  | Final permanent rejections, exhausted retries, and queue enqueue failures.                                                                                                         |
+| `retry_exhausted`                                          | Retryable items with a final failure. Normally zero with unlimited retries; memory-queue shutdown or a custom finite retry horizon can increase it.                                |
+| `permanent_failed`                                         | Locally invalid items and permanent ScopeDB rejections.                                                                                                                            |
+| `invalid_items_by_reason`                                  | Locally identifiable mapping failures by [reason](ingestion-compatibility.md#rejection-behavior). A metric with no data type counts as an invalid item but has zero metric points. |
+| `queue.size` / `queue.capacity`                            | Collector queue usage in its configured unit. With `bytes`, these are logical serialized bytes.                                                                                    |
+| `queue_storage.allocated_bytes`                            | Filesystem blocks allocated to queue files, distinct from logical queue bytes or file length.                                                                                      |
 
-An empty queue with `received > written + unknown + dropped` can reflect batching or an export in flight. `status` calls out these unsettled items; persistent entries retained at shutdown are not counted as dropped. Counters reset on restart and do not establish table queryability or resolve missing crash acknowledgements.
+An empty queue with `received > written + ambiguous + dropped` can reflect batching or an export in flight. `status` calls out these unsettled items; persistent entries retained at shutdown are not counted as dropped. Counters reset on restart and do not establish table queryability or resolve missing crash acknowledgements.
 
-Scrape operational `/metrics` and load the [Prometheus rules](../deploy/prometheus-rules.yaml) for queue saturation, final drops, stalled delivery, unverified destinations, and disk high-water history. Also monitor Prometheus `up`, `telescope_ingestion_unknown_total`, and Collector `otelcol_receiver_refused_*`. Receiver refusals are excluded from final drops because the sender may retry. Byte metrics apply only to byte queues; utilization applies to every queue sizer.
+Scrape operational `/metrics` and load the [Prometheus rules](../deploy/prometheus-rules.yaml) for queue saturation, final drops, stalled delivery, unverified destinations, and disk high-water history. Also monitor Prometheus `up`, `telescope_ingestion_ambiguous_total`, and Collector `otelcol_receiver_refused_*`. Receiver refusals are excluded from final drops because the sender may retry. Byte metrics apply only to byte queues; utilization applies to every queue sizer.
 
 Telescope reads Collector metrics at the resolved `telemetry.metrics_addr`, defaulting to `http://127.0.0.1:8888/metrics`. This private endpoint is not the stable Telescope metrics API. If it fails, status reports `internal_telemetry.available: false` and a degraded state. Signal states (`starting`, `ready`, `degraded`, `refusing`) describe component health rather than traffic flow. `TELESCOPE_INTERNAL_METRICS_URL` does not override `run` configuration.
 
@@ -99,15 +99,15 @@ telemetry:
       Authorization: ${env:METRICS_AUTHORIZATION}
 ```
 
-| Setting under `telemetry` | Contract |
-| --- | --- |
-| `resource` | String attributes, with `${env:NAME}` support. `service.name` defaults to `telescope`; Collector supplies the version and a process instance ID. |
-| `otlp.endpoint` | Empty disables push. HTTP(S) selects transport security. For HTTP, omit the path to use `/v1/metrics` or provide the complete metrics path. |
-| `otlp.protocol`, `otlp.compression` | `http/protobuf` or `grpc`; `none` or `gzip`. Defaults are `http/protobuf` and `none`. |
-| `otlp.interval`, `otlp.timeout` | Defaults `60s` and `10s`. |
-| `otlp.headers` | Request headers; values support `${env:NAME}` and are redacted in diagnostics. |
+| Setting under `telemetry`           | Contract                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `resource`                          | String attributes, with `${env:NAME}` support. `service.name` defaults to `telescope`; Collector supplies the version and a process instance ID. |
+| `otlp.endpoint`                     | Empty disables push. HTTP(S) selects transport security. For HTTP, omit the path to use `/v1/metrics` or provide the complete metrics path.      |
+| `otlp.protocol`, `otlp.compression` | `http/protobuf` or `grpc`; `none` or `gzip`. Defaults are `http/protobuf` and `none`.                                                            |
+| `otlp.interval`, `otlp.timeout`     | Defaults `60s` and `10s`.                                                                                                                        |
+| `otlp.headers`                      | Request headers; values support `${env:NAME}` and are redacted in diagnostics.                                                                   |
 
-Push includes Collector receiver, exporter, and queue metrics plus Telescope's written, unknown, dropped, invalid-item, and unknown-replay counters. It also includes the latest successful append timestamp and destination verification gauge. The delivery counters come from the same registry as status; dropped records are partitioned by `permanent_rejected`, `retry_exhausted`, and `enqueue_failed`. Pushed queue metrics use `otelcol_exporter_queue_size` and `otelcol_exporter_queue_capacity`; filesystem allocation is available only through operational status and Prometheus.
+Push includes Collector receiver, exporter, and queue metrics plus Telescope's written, ambiguous, dropped, invalid-item, and ambiguous-replay counters. It also includes the latest successful append timestamp and destination verification gauge. The delivery counters come from the same registry as status; dropped records are partitioned by `permanent_failed`, `retry_exhausted`, and `enqueue_failed`. Pushed queue metrics use `otelcol_exporter_queue_size` and `otelcol_exporter_queue_capacity`; filesystem allocation is available only through operational status and Prometheus.
 
 The local reader remains enabled for readiness, status, and `/metrics`. The OTLP reader has its own timeout and no persistent queue; gateway outages do not block ingestion or change readiness. Graceful shutdown includes final delivery counters in the last OTLP export, including memory-queue drain failures. A forced exit or unavailable gateway can still prevent that export. Counters reset on restart. Prometheus readers may translate metric names and add unit or counter suffixes, so check OTLP names when migrating gateway queries. Custom Collector distributions configure readers through `service.telemetry` and register the [ScopeDB exporter](exporter.md).
 

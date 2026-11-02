@@ -30,7 +30,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	scopedb "github.com/scopedb/goscopedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
@@ -90,7 +89,7 @@ func TestUnconfirmedAppendsAreTerminalByDefault(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, int32(1), attempts.Load())
 			state := statuses.Snapshot().Signals[signalLogs]
-			require.Equal(t, uint64(1), state.UnknownRecords)
+			require.Equal(t, uint64(1), state.AmbiguousRecords)
 			require.Zero(t, state.ConfirmedWrittenRecords)
 			require.Zero(t, state.PermanentFailedRecords)
 		})
@@ -197,7 +196,7 @@ func TestMemoryQueueDrainsAtShutdownWithoutRetrying(t *testing.T) {
 			} else {
 				require.Equal(t, uint64(3), state.RetryExhaustedRecords)
 			}
-			require.Zero(t, state.UnknownRecords)
+			require.Zero(t, state.AmbiguousRecords)
 		})
 	}
 }
@@ -233,14 +232,14 @@ func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { ret
 func TestPartialDeliveryFinalOutcomes(t *testing.T) {
 	for _, queued := range []bool{false, true} {
 		for _, tc := range []struct {
-			name                                  string
-			status                                int
-			written, unknown, rejected, exhausted uint64
+			name                                    string
+			status                                  int
+			written, ambiguous, rejected, exhausted uint64
 		}{
-			{"committed", 200, 3, 1, 1, 0},
-			{"rejected", 400, 1, 1, 3, 0},
+			{"succeeded", 200, 3, 1, 1, 0},
+			{"failed", 400, 2, 1, 2, 0},
 			{"exhausted", 429, 1, 1, 1, 2},
-			{"unknown", 503, 2, 2, 1, 0},
+			{"ambiguous", 503, 2, 2, 1, 0},
 		} {
 			t.Run(fmt.Sprintf("%s/queued=%v", tc.name, queued), func(t *testing.T) {
 				var mu sync.Mutex
@@ -299,7 +298,7 @@ func TestPartialDeliveryFinalOutcomes(t *testing.T) {
 				require.EventuallyWithT(t, func(c *assert.CollectT) {
 					s := statuses.Snapshot().Signals[signalLogs]
 					assert.Equal(c, tc.written, s.ConfirmedWrittenRecords)
-					assert.Equal(c, tc.unknown, s.UnknownRecords)
+					assert.Equal(c, tc.ambiguous, s.AmbiguousRecords)
 					assert.Equal(c, tc.rejected, s.PermanentFailedRecords)
 					assert.Equal(c, tc.exhausted, s.RetryExhaustedRecords)
 					assert.Equal(c, uint64(1), s.InvalidItemsByReason[mappingReasonCastFailed])
@@ -309,90 +308,89 @@ func TestPartialDeliveryFinalOutcomes(t *testing.T) {
 				require.Equal(t, 1, attempts[1])
 				require.Equal(t, 1, attempts[2])
 				require.Equal(t, 2, attempts[3])
-				require.LessOrEqual(t, attempts[4], 1)
+				if tc.status == 429 {
+					require.Zero(t, attempts[4])
+				} else {
+					require.Equal(t, 1, attempts[4])
+				}
 			})
 		}
 	}
 }
 
-func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		indexes   []uint64
-		truncated bool
-		permanent bool
-		retryCode int
-		want      []string
-	}{
-		{"one invalid row", []uint64{1}, false, false, 0, []string{"before", "after"}},
-		{"duplicate row errors", []uint64{2, 0, 2}, false, false, 0, []string{"invalid"}},
-		{"retry remaining rows", []uint64{1}, false, false, 429, []string{"before", "after"}},
-		{"replay remaining rows", []uint64{1}, false, false, 503, []string{"before", "after"}},
-		{"all rejected", []uint64{0, 1, 2}, false, false, 0, nil},
-		{"truncated", []uint64{1}, true, true, 0, nil},
-		{"out of range", []uint64{3}, false, true, 0, nil},
-		{"missing", nil, false, true, 0, nil},
+func TestPermanentFailureSettlesWholeBatchAndContinues(t *testing.T) {
+	for name, body := range map[string]string{
+		"current API":            `{"error":{"code":"bad_request","message":"invalid batch"}}`,
+		"legacy row diagnostics": `{"code":"invalid_request","message":"invalid batch","details":{"status":"rejected","row_errors":[{"row_index":1,"message":"invalid row"}]}}`,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var calls int
-			var accepted []string
-			var retriedBody []byte
-			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				if calls == 1 {
-					details := scopedb.AppendErrorDetails{Status: scopedb.AppendOutcomeFailed, RowErrorsTruncated: tc.truncated}
-					for _, index := range tc.indexes {
-						details.RowErrors = append(details.RowErrors, scopedb.AppendRowError{RowIndex: index, Column: "message", Message: "wrong type"})
-					}
-					w.WriteHeader(422)
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"code": "invalid_request", "message": "invalid rows", "details": details}))
-					return
-				}
-				body, err := decodeSDKRequestBody(r)
+		t.Run(name, func(t *testing.T) {
+			var batches []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				request, err := decodeSDKRequestBody(r)
 				require.NoError(t, err)
-				if calls == 2 && tc.retryCode != 0 {
-					retriedBody = body
-					if tc.retryCode == 429 {
-						w.WriteHeader(429)
-						fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
-					} else {
-						http.Error(w, "unavailable", tc.retryCode)
-					}
+				batches = append(batches, string(request))
+				if len(batches) == 1 {
+					w.WriteHeader(400)
+					fmt.Fprint(w, body)
 					return
 				}
-				if retriedBody != nil {
-					require.Equal(t, retriedBody, body)
-				}
-				for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
-					var row map[string]string
-					require.NoError(t, json.Unmarshal([]byte(line), &row))
-					accepted = append(accepted, row["message"])
-				}
-				writeAppendCommitted(t, w, int64(len(accepted)))
+				writeAppendCommitted(t, w, 2)
 			}))
-			t.Cleanup(backend.Close)
-			exp, statuses := startTestLogsExporter(t, replayTestConfig(backend.URL))
-			err := exp.ConsumeLogs(t.Context(), testLogs("before", "invalid", "after"))
-			if tc.permanent {
-				require.True(t, consumererror.IsPermanent(err), "%v", err)
-			} else {
-				require.NoError(t, err)
-			}
-			backend.Close()
-			require.Equal(t, tc.want, accepted)
-			if tc.retryCode != 0 {
-				require.Equal(t, 3, calls)
-			} else if len(tc.want) > 0 {
-				require.Equal(t, 2, calls)
-			} else {
-				require.Equal(t, 1, calls)
-			}
+			t.Cleanup(server.Close)
+			cfg := replayTestConfig(server.URL)
+			cfg.AppendBatch.MaxRows = 2
+			exp, statuses := startTestLogsExporter(t, cfg)
+			err := exp.ConsumeLogs(t.Context(), testLogs("first", "invalid", "later", "last"))
+			require.True(t, consumererror.IsPermanent(err), "%v", err)
+			server.Close()
+			require.Equal(t, []string{"{\"message\":\"first\"}\n{\"message\":\"invalid\"}\n", "{\"message\":\"later\"}\n{\"message\":\"last\"}\n"}, batches)
 			s := statuses.Snapshot().Signals[signalLogs]
-			require.Equal(t, uint64(len(tc.want)), s.ConfirmedWrittenRecords)
-			require.Equal(t, uint64(3-len(tc.want)), s.PermanentFailedRecords)
-			require.Zero(t, s.UnknownRecords)
+			require.Equal(t, uint64(2), s.ConfirmedWrittenRecords)
+			require.Equal(t, uint64(2), s.PermanentFailedRecords)
+			require.Zero(t, s.AmbiguousRecords)
+			require.Zero(t, s.AmbiguousReplayAttempts)
 		})
 	}
+}
+
+func TestDeliveryRetainsBatchAcrossSafeAndAmbiguousRetries(t *testing.T) {
+	var batches []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := decodeSDKRequestBody(r)
+		require.NoError(t, err)
+		batches = append(batches, string(body))
+		switch len(batches) {
+		case 1, 3:
+			w.WriteHeader(429)
+			fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
+		case 2:
+			http.Error(w, "lost acknowledgement", http.StatusServiceUnavailable)
+		case 4:
+			writeAppendCommitted(t, w, 2)
+		default:
+			writeAppendCommitted(t, w, 1)
+		}
+	}))
+	t.Cleanup(server.Close)
+	cfg := replayTestConfig(server.URL)
+	cfg.AppendBatch.MaxRows = 2
+	cfg.Mappings.Logs = MappingConfig{"value": {Source: "log.message", Cast: "int"}}
+	exp, statuses := startTestLogsExporter(t, cfg)
+	require.NoError(t, exp.ConsumeLogs(t.Context(), testLogs("1", "invalid", "2", "3")))
+	server.Close()
+	require.Len(t, batches, 5)
+	for _, body := range batches[:4] {
+		require.Equal(t, "{\"value\":1}\n{\"value\":2}\n", body)
+	}
+	require.Equal(t, "{\"value\":3}\n", batches[4])
+	s := statuses.Snapshot().Signals[signalLogs]
+	require.Equal(t, uint64(3), s.ConfirmedWrittenRecords)
+	require.Equal(t, uint64(1), s.PermanentFailedRecords)
+	require.Equal(t, uint64(1), s.InvalidItemsByReason[mappingReasonCastFailed])
+	require.Equal(t, uint64(2), s.AmbiguousReplayAttempts)
+	require.Equal(t, uint64(2), s.AmbiguousReplayedRecords)
+	require.Zero(t, s.AmbiguousRecords)
+	require.Zero(t, s.RetryExhaustedRecords)
 }
 
 func TestAppendBatchBoundsMappedPayload(t *testing.T) {

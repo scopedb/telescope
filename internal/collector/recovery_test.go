@@ -423,7 +423,7 @@ func TestConnectionRefusalKeepsPersistentQueueUntilRecovery(t *testing.T) {
 	require.NoError(t, sendRecoverySignal(receiverAddress, "logs", "retained during connection outage"))
 	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].LastError != "" }, 5*time.Second, 10*time.Millisecond)
 	state := statuses.Snapshot().Signals["logs"]
-	require.Zero(t, state.UnknownRecords, state.LastError)
+	require.Zero(t, state.AmbiguousRecords, state.LastError)
 	require.Zero(t, state.PermanentFailedRecords)
 	require.Zero(t, state.RetryExhaustedRecords)
 
@@ -447,10 +447,10 @@ func TestConnectionRefusalKeepsPersistentQueueUntilRecovery(t *testing.T) {
 		t.Fatal("connection recovery did not deliver the retained record")
 	}
 	require.Eventually(t, func() bool { return statuses.Snapshot().Signals["logs"].ConfirmedWrittenRecords == 1 }, time.Second, 10*time.Millisecond)
-	require.Zero(t, statuses.Snapshot().Signals["logs"].UnknownRecords)
+	require.Zero(t, statuses.Snapshot().Signals["logs"].AmbiguousRecords)
 }
 
-func TestPersistentUnknownRetryRecovery(t *testing.T) {
+func TestPersistentAmbiguousRetryRecovery(t *testing.T) {
 	for _, signal := range []string{"logs", "traces", "metrics"} {
 		t.Run(signal, func(t *testing.T) {
 			var recovered atomic.Bool
@@ -459,7 +459,7 @@ func TestPersistentUnknownRetryRecovery(t *testing.T) {
 				if recovered.Load() && recoveredCalls.Add(1) > 1 {
 					body, err := decodeRecoveryAppendBody(r)
 					require.NoError(t, err)
-					require.Contains(t, string(body), "unknown survives restart")
+					require.Contains(t, string(body), "ambiguous survives restart")
 					writeRecoveryAppendCommitted(t, w)
 					return
 				}
@@ -469,16 +469,16 @@ func TestPersistentUnknownRetryRecovery(t *testing.T) {
 			defer backend.Close()
 			address := freeTCPAddress(t)
 			config := recoveryCollectorConfig(backend.URL, address, t.TempDir(), signal)
-			config = strings.Replace(config, "    retry_on_failure:", "    unknown_retry: {enabled: true, max_retries: 2, max_elapsed_time: 5m}\n    retry_on_failure:", 1)
+			config = strings.Replace(config, "    retry_on_failure:", "    ambiguous_retry: {enabled: true, max_retries: 2, max_elapsed_time: 5m}\n    retry_on_failure:", 1)
 			config = strings.Replace(config, "initial_interval: 1s", "initial_interval: 1h", 1)
 			config = strings.Replace(config, "max_interval: 1s", "max_interval: 1h", 1)
 			firstStatus := scopedbexporter.NewStatusRegistry()
 			first := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, firstStatus, scopedbexporter.NewCaptureRegistry()))
 			defer first.stop(t)
-			require.NoError(t, sendRecoverySignal(address, signal, "unknown survives restart"))
+			require.NoError(t, sendRecoverySignal(address, signal, "ambiguous survives restart"))
 			require.Eventually(t, func() bool { return firstStatus.Snapshot().Signals[signal].LastError != "" }, 5*time.Second, time.Millisecond)
 			first.stop(t)
-			require.Zero(t, firstStatus.Snapshot().Signals[signal].UnknownRecords)
+			require.Zero(t, firstStatus.Snapshot().Signals[signal].AmbiguousRecords)
 			require.Zero(t, firstStatus.Snapshot().Signals[signal].RetryExhaustedRecords)
 			recovered.Store(true)
 			config = strings.ReplaceAll(config, "interval: 1h", "interval: 1ms")
@@ -486,9 +486,9 @@ func TestPersistentUnknownRetryRecovery(t *testing.T) {
 			second := startCollectorWithSettings(t, newSettings("yaml:"+config, "test", true, secondStatus, scopedbexporter.NewCaptureRegistry()))
 			defer second.stop(t)
 			require.Eventually(t, func() bool { return secondStatus.Snapshot().Signals[signal].ConfirmedWrittenRecords == 1 }, 5*time.Second, time.Millisecond)
-			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].UnknownReplayAttempts)
-			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].UnknownReplayedRecords)
-			require.Zero(t, secondStatus.Snapshot().Signals[signal].UnknownRecords)
+			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].AmbiguousReplayAttempts)
+			require.Equal(t, uint64(1), secondStatus.Snapshot().Signals[signal].AmbiguousReplayedRecords)
+			require.Zero(t, secondStatus.Snapshot().Signals[signal].AmbiguousRecords)
 		})
 	}
 }

@@ -44,16 +44,16 @@ func writePrometheusMetrics(w io.Writer, snapshot IngestionStatusResponse) error
 		labels := []*dto.LabelPair{{Name: new("signal"), Value: new(signal.Signal)}, {Name: new("table"), Value: new(signal.Table)}}
 		add("telescope_ingestion_received_total", "Telemetry items accepted by Telescope, in each signal's native unit.", prometheusCounter(float64(signal.Received), labels...))
 		add("telescope_ingestion_written_total", "Telemetry items confirmed written to ScopeDB, in each signal's native unit.", prometheusCounter(float64(signal.Written), labels...))
-		add("telescope_ingestion_unknown_total", "Telemetry items with an unknown append outcome, excluded from written and dropped items.", prometheusCounter(float64(signal.Unknown), labels...))
-		add("telescope_ingestion_unknown_replay_attempts_total", "Append attempts replaying a chunk with a previous unknown outcome.", prometheusCounter(float64(signal.UnknownReplayAttempts), labels...))
-		add("telescope_ingestion_unknown_replayed_records_total", "Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery.", prometheusCounter(float64(signal.UnknownReplayedRecords), labels...))
+		add("telescope_ingestion_ambiguous_total", "Telemetry items with an ambiguous append outcome, excluded from written and dropped items.", prometheusCounter(float64(signal.Ambiguous), labels...))
+		add("telescope_ingestion_ambiguous_replay_attempts_total", "Append attempts replaying a chunk with a previous ambiguous outcome.", prometheusCounter(float64(signal.AmbiguousReplayAttempts), labels...))
+		add("telescope_ingestion_ambiguous_replayed_records_total", "Telemetry items replayed after an ambiguous outcome, counted once per chunk in each queue delivery.", prometheusCounter(float64(signal.AmbiguousReplayedRecords), labels...))
 		for _, drop := range []struct {
 			reason string
 			count  uint64
 		}{
 			{"retry_exhausted", signal.RetryExhausted},
 			{"enqueue_failed", signal.EnqueueFailed},
-			{"permanent_rejected", signal.PermanentRejected},
+			{"permanent_failed", signal.PermanentFailed},
 		} {
 			add("telescope_ingestion_dropped_total", "Telemetry items ultimately dropped, partitioned by final reason.",
 				prometheusCounter(float64(drop.count), append(labels, &dto.LabelPair{Name: new("reason"), Value: new(drop.reason)})...))

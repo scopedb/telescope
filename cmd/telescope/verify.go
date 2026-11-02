@@ -188,7 +188,7 @@ func verifySignal(
 			}
 			lastStatus = current
 			if slices.Contains(current.LastProbeIDs, probeID) {
-				fmt.Fprintf(stdout, "%s: ScopeDB append committed synthetic probe (%s)\n", signal, probeID)
+				fmt.Fprintf(stdout, "%s: ScopeDB append succeeded for synthetic probe (%s)\n", signal, probeID)
 				return nil
 			}
 		}

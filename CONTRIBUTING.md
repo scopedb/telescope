@@ -49,7 +49,7 @@ export TELESCOPE_SCOPEDB_INTEGRATION_API_KEY=...
 mise run test-integration
 ```
 
-Use a non-production workspace. The tests create uniquely named temporary tables and delete them through cleanup hooks. `TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID` is available for a test server that requires tenant routing. Tests verify HTTP and gRPC ingestion, typed Append readback, row isolation, and v0.2-compatible schemas. The explicit integration target fails when credentials are absent instead of reporting a skipped run as success.
+Use a non-production workspace. The tests create uniquely named temporary tables and delete them through cleanup hooks. `TELESCOPE_SCOPEDB_INTEGRATION_TENANT_ID` is available for a test server that requires tenant routing. Tests verify HTTP and gRPC ingestion, typed Append readback, whole-batch rejection, and v0.2-compatible schemas. The explicit integration target fails when credentials are absent instead of reporting a skipped run as success.
 
 ## Build and release
 

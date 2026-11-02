@@ -33,11 +33,11 @@ func (e *dbExporter) registerDeliveryMetrics() error {
 		instrument  metric.Int64ObservableCounter
 	}{
 		{name: "telescope_ingestion_written_total", description: "Telemetry items confirmed written to ScopeDB."},
-		{name: "telescope_ingestion_unknown_total", description: "Telemetry items with unknown append outcomes, excluded from written and dropped."},
+		{name: "telescope_ingestion_ambiguous_total", description: "Telemetry items with ambiguous append outcomes, excluded from written and dropped."},
 		{name: "telescope_ingestion_dropped_total", description: "Telemetry items ultimately dropped, partitioned by final reason."},
 		{name: "telescope_ingestion_invalid_items_total", description: "Invalid OpenTelemetry items rejected locally, partitioned by reason."},
-		{name: "telescope_ingestion_unknown_replay_attempts_total", description: "Append attempts replaying a chunk with a previous unknown outcome."},
-		{name: "telescope_ingestion_unknown_replayed_records_total", description: "Telemetry items replayed after an unknown outcome, counted once per chunk in each queue delivery."},
+		{name: "telescope_ingestion_ambiguous_replay_attempts_total", description: "Append attempts replaying a chunk with a previous ambiguous outcome."},
+		{name: "telescope_ingestion_ambiguous_replayed_records_total", description: "Telemetry items replayed after an ambiguous outcome, counted once per chunk in each queue delivery."},
 	}
 	instruments := make([]metric.Observable, 0, len(counters))
 	for i := range counters {
@@ -64,9 +64,9 @@ func (e *dbExporter) registerDeliveryMetrics() error {
 		s := statuses.Snapshot().Signals[signal]
 		attributes := metric.WithAttributes(attribute.String("signal", signal), attribute.String("table", s.Table), attribute.String("exporter", exporterID))
 		observer.ObserveInt64(counters[0].instrument, int64(s.ConfirmedWrittenRecords), attributes)
-		observer.ObserveInt64(counters[1].instrument, int64(s.UnknownRecords), attributes)
-		observer.ObserveInt64(counters[4].instrument, int64(s.UnknownReplayAttempts), attributes)
-		observer.ObserveInt64(counters[5].instrument, int64(s.UnknownReplayedRecords), attributes)
+		observer.ObserveInt64(counters[1].instrument, int64(s.AmbiguousRecords), attributes)
+		observer.ObserveInt64(counters[4].instrument, int64(s.AmbiguousReplayAttempts), attributes)
+		observer.ObserveInt64(counters[5].instrument, int64(s.AmbiguousReplayedRecords), attributes)
 		timestamp := float64(0)
 		if !s.LastWriteSuccess.IsZero() {
 			timestamp = float64(s.LastWriteSuccess.UnixNano()) / 1e9
@@ -78,9 +78,9 @@ func (e *dbExporter) registerDeliveryMetrics() error {
 		}
 		observer.ObserveInt64(verified, destinationVerified, attributes)
 		for reason, value := range map[string]uint64{
-			"permanent_rejected": s.PermanentFailedRecords,
-			"retry_exhausted":    s.RetryExhaustedRecords,
-			"enqueue_failed":     s.EnqueueFailedRecords,
+			"permanent_failed": s.PermanentFailedRecords,
+			"retry_exhausted":  s.RetryExhaustedRecords,
+			"enqueue_failed":   s.EnqueueFailedRecords,
 		} {
 			observer.ObserveInt64(counters[2].instrument, int64(value), attributes, metric.WithAttributes(attribute.String("reason", reason)))
 		}

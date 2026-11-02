@@ -70,7 +70,7 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		fmt.Fprintf(w, "config digest: %s\n", status.ConfigDigest)
 	}
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tUNKNOWN\tDROPPED\tQUEUED\tDESTINATION")
+	fmt.Fprintln(table, "SIGNAL\tSTATE\tRECEIVED\tWRITTEN\tAMBIGUOUS\tDROPPED\tQUEUED\tDESTINATION")
 	for _, signal := range status.Signals {
 		fmt.Fprintf(
 			table,
@@ -79,7 +79,7 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 			signal.State,
 			signal.Received,
 			signal.Written,
-			signal.Unknown,
+			signal.Ambiguous,
 			signal.Dropped,
 			formatQueue(signal.Queue),
 			signal.Table,
@@ -98,8 +98,8 @@ func writeStatus(w io.Writer, status statusapi.IngestionStatusResponse) {
 		if reasons := formatInvalidReasons(signal.InvalidItemsByReason); reasons != "" {
 			fmt.Fprintf(w, "%s invalid: %s\n", signal.Signal, reasons)
 		}
-		if signal.UnknownReplayAttempts > 0 {
-			fmt.Fprintf(w, "%s unknown replay: %d attempts, %d records (duplicates possible)\n", signal.Signal, signal.UnknownReplayAttempts, signal.UnknownReplayedRecords)
+		if signal.AmbiguousReplayAttempts > 0 {
+			fmt.Fprintf(w, "%s ambiguous replay: %d attempts, %d records (duplicates possible)\n", signal.Signal, signal.AmbiguousReplayAttempts, signal.AmbiguousReplayedRecords)
 		}
 		if unsettled := unsettledRecords(signal); unsettled > 0 {
 			fmt.Fprintf(
@@ -127,7 +127,7 @@ func formatInvalidReasons(counts map[string]uint64) string {
 }
 
 func unsettledRecords(signal statusapi.IngestionSignalStatus) uint64 {
-	final := signal.Written + signal.Unknown + signal.Dropped
+	final := signal.Written + signal.Ambiguous + signal.Dropped
 	if !signal.Queue.Observed || signal.Queue.Size > 0 || signal.Received <= final {
 		return 0
 	}

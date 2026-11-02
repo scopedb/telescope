@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
@@ -46,7 +45,7 @@ func newDBExporter(cfg *Config, set exporter.Settings, signal string, statuses *
 	if _, enabled := cfg.signal(signal); !enabled {
 		return nil, fmt.Errorf("%s signal is not configured for the scopedb exporter", signal)
 	}
-	client, err := newClient(cfg, set.Logger)
+	client, err := newClient(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -97,80 +96,49 @@ func (e *dbExporter) shutdown(_ context.Context) error {
 	e.client.Close()
 	s := e.statuses.Snapshot().Signals[e.signal]
 	log := e.logger.Info
-	if s.UnknownRecords+s.PermanentFailedRecords+s.RetryExhaustedRecords+s.EnqueueFailedRecords > 0 {
+	if s.AmbiguousRecords+s.PermanentFailedRecords+s.RetryExhaustedRecords+s.EnqueueFailedRecords > 0 {
 		log = e.logger.Warn
 	}
 	log("ScopeDB delivery summary",
 		zap.String("signal", e.signal), zap.Uint64("written_records", s.ConfirmedWrittenRecords),
-		zap.Uint64("unknown_records", s.UnknownRecords), zap.Uint64("permanent_rejected_records", s.PermanentFailedRecords),
+		zap.Uint64("ambiguous_records", s.AmbiguousRecords), zap.Uint64("permanent_failed_records", s.PermanentFailedRecords),
 		zap.Uint64("retry_exhausted_records", s.RetryExhaustedRecords), zap.Uint64("enqueue_failed_records", s.EnqueueFailedRecords),
 		zap.Bool("persistent_queue", e.persistent))
 	return nil
 }
 
-func (e *dbExporter) recordUnknown(records int, started time.Time, err error) {
-	e.statuses.recordUnknown(e.signal, records, started, err)
+func (e *dbExporter) recordAmbiguous(records int, started time.Time, err error) {
+	e.statuses.recordAmbiguous(e.signal, records, started, err)
 	if e.logger != nil {
-		e.logger.Warn("ScopeDB append outcome is unknown; these records will not be retried",
-			zap.String("signal", e.signal), zap.Int("unknown_records", records), zap.Error(err))
+		e.logger.Warn("ScopeDB append outcome is ambiguous; these records will not be retried",
+			zap.String("signal", e.signal), zap.Int("ambiguous_records", records), zap.Error(err))
 	}
 }
 
-func pushSignal[T any](
-	request *deliveryRequest,
-	ctx context.Context,
-	data T,
-	records int,
-	mapData func(T) (*ingestPayload, error),
-	wrapSubset func(error, []int) error,
-) error {
-	exporter := request.exporter
-	signal := exporter.signal
-	started := time.Now().UTC()
-	payload, err := mapData(data)
-	if err != nil {
-		permanentErr := consumererror.NewPermanent(err)
-		exporter.statuses.recordWrite(signal, records, started, permanentErr, true)
-		return wrapSubset(permanentErr, recordIndexes(0, records))
+func (e *dbExporter) recordDelivery(payload *ingestPayload, result deliveryResult, started time.Time) {
+	if len(result.succeeded) > 0 {
+		e.statuses.recordWrite(e.signal, len(result.succeeded), started, nil, false)
+		e.statuses.recordProbeSuccess(e.signal, probeIDsFromRecords(payload, result.succeeded))
 	}
-	outcome := exporter.client.send(ctx, signal, payload, &request.replay)
-	if len(outcome.committed) > 0 {
-		exporter.statuses.recordWrite(signal, len(outcome.committed), started, nil, false)
-		exporter.statuses.recordProbeSuccess(signal, probeIDsFromRecords(payload, outcome.committed))
+	failedRecords := 0
+	for _, failure := range result.failed {
+		e.statuses.recordWrite(e.signal, failure.records, started, failure.err, true)
+		failedRecords += failure.records
 	}
-	if len(outcome.rejected) > 0 {
-		for _, failure := range outcome.rejected {
-			exporter.statuses.recordWrite(
-				signal,
-				1,
-				started,
-				consumererror.NewPermanent(failure.err),
-				true,
-			)
-		}
-		if exporter.logger != nil {
-			exporter.logger.Warn(
-				"Dropped invalid records while preserving the rest of the batch",
-				zap.String("signal", signal),
-				zap.Int("rejected_records", len(outcome.rejected)),
-				zap.Error(outcome.rejected[0].err),
-			)
-		}
+	if len(result.failed) > 0 {
+		e.logger.Warn("Telemetry records failed delivery",
+			zap.String("signal", e.signal), zap.Int("failed_records", failedRecords), zap.Error(result.failed[0].err))
 	}
-	if len(outcome.unknown) > 0 {
-		exporter.recordUnknown(len(outcome.unknown), started, outcome.unknown[0].err)
+	for _, failure := range result.ambiguous {
+		e.recordAmbiguous(failure.records, started, failure.err)
 	}
-	if outcome.err == nil {
-		if len(outcome.unknown) > 0 {
-			indexes := make([]int, 0, len(outcome.unknown))
-			for _, failure := range outcome.unknown {
-				indexes = append(indexes, failure.index)
-			}
-			return wrapSubset(consumererror.NewPermanent(outcome.unknown[0].err), indexes)
-		}
-		return nil
+	if result.replayAttempts > 0 {
+		e.statuses.update(e.signal, func(s *SignalRuntimeStatus) {
+			s.AmbiguousReplayAttempts += uint64(result.replayAttempts)
+			s.AmbiguousReplayedRecords += uint64(result.replayedRecords)
+		})
 	}
-	err = wrapSubset(outcome.err, outcome.uncommitted)
-	exporter.statuses.recordWrite(signal, len(outcome.uncommitted), started, err, consumererror.IsPermanent(err))
-	return err
+	if result.err != nil {
+		e.statuses.recordWrite(e.signal, 0, started, result.err, false)
+	}
 }
