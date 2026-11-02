@@ -111,9 +111,10 @@ func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal strin
 			default:
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusTooManyRequests)
 			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-				"message":   "test outage",
+				"code":      "too_many_requests",
+				"message":   "test capacity limit",
 				"details":   map[string]any{"status": "rejected"},
 				"retryable": true,
 			}))
@@ -129,7 +130,6 @@ func testPersistentQueueRecoversAfterCollectorRestart(t *testing.T, signal strin
 		}
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"status":            "committed",
 			"num_rows_inserted": 1,
 		}))
 	}))
@@ -368,7 +368,6 @@ func writeRecoveryAppendCommitted(t *testing.T, w http.ResponseWriter) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"status":            "committed",
 		"num_rows_inserted": 1,
 	}))
 }

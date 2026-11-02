@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+* Upgrade the ScopeDB Go SDK to v0.8.0. Client timeouts after connection acquisition are no longer replayed, even with `unknown_retry` enabled. Malformed HTTP 429 responses now count as unknown instead of safely retryable rejections; valid throttling errors still retry through Collector. See the [delivery contract](docs/exporter.md#append-and-retry-semantics).
+
+### Bug fixes
+
+* Honor explicit server retry refusal during opt-in unknown replay, including after an earlier ambiguous attempt. Unconfirmed records remain counted as unknown.
+* Send the CLI query timeout using the server's supported `timeout_seconds` field so `telescope query --timeout` limits remote execution as well as local waiting.
+
 ### Improvements
 
 * Custom Go builds now require Go 1.27.3 or later.

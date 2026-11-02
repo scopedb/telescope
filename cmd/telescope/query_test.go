@@ -46,13 +46,12 @@ func TestRunQueryCommandWritesTypedJSON(t *testing.T) {
 		body := decodeQueryRequestBody(t, r)
 		var request struct {
 			Statement  string  `json:"statement"`
-			MaxElapsed float64 `json:"max_elapsed_seconds"`
-			Format     string  `json:"format"`
+			MaxElapsed float64 `json:"timeout_seconds"`
 		}
 		require.NoError(t, json.Unmarshal(body, &request))
 		require.Equal(t, "FROM scopedb.otel.traces LIMIT 1", request.Statement)
 		require.Equal(t, float64(2), request.MaxElapsed)
-		require.Equal(t, "json", request.Format)
+		require.Equal(t, "json", r.URL.Query().Get("format"))
 
 		writeQueryTestJSON(t, w, `{
 			"statement_id":"`+queryTestStatementID+`",
@@ -144,7 +143,7 @@ func TestRunQueryCommandReportsStructuredFailure(t *testing.T) {
 			"progress":{},
 			"message":"query preparation failed",
 			"error":{
-				"code":"prepare_error",
+				"code":"bad_request",
 				"message":"unknown table scopedb.missing",
 				"details":{"line":1,"column":6}
 			}
@@ -159,7 +158,7 @@ func TestRunQueryCommandReportsStructuredFailure(t *testing.T) {
 		io.Discard,
 		io.Discard,
 	)
-	require.EqualError(t, err, "statement "+queryTestStatementID+" failed [prepare_error]: unknown table scopedb.missing; details={\"line\":1,\"column\":6}")
+	require.EqualError(t, err, "statement "+queryTestStatementID+" failed [bad_request]: unknown table scopedb.missing; details={\"line\":1,\"column\":6}")
 }
 
 func TestRunQueryCommandReadsFileAndWritesJSONL(t *testing.T) {

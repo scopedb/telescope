@@ -234,7 +234,6 @@ func writeAppendCommitted(t *testing.T, w http.ResponseWriter, rows int64) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-		"status":            "committed",
 		"num_rows_inserted": rows,
 	}))
 }

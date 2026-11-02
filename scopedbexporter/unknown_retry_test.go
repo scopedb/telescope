@@ -52,11 +52,13 @@ func TestUnknownReplayPreservesFinalOutcome(t *testing.T) {
 		calls                      int32
 		written, unknown, replayed uint64
 	}{
-		{"recover", []int{503, 200}, []string{"unavailable", `{"status":"committed","num_rows_inserted":1}`}, 2, 1, 0, 1},
-		{"reject after unknown", []int{503, 400}, []string{"unavailable", `{"details":{"status":"rejected","row_errors":[{"row_index":0,"message":"invalid"}]}}`}, 2, 0, 1, 1},
+		{"recover", []int{503, 200}, []string{"unavailable", `{"num_rows_inserted":1}`}, 2, 1, 0, 1},
+		{"explicit server refusal", []int{503, 200}, []string{`{"error":{"code":"service_unavailable","message":"do not retry","retryable":false}}`, `{"num_rows_inserted":1}`}, 1, 0, 1, 0},
+		{"refusal after unknown", []int{503, 503, 200}, []string{"unavailable", `{"error":{"code":"service_unavailable","message":"do not retry","retryable":false}}`, `{"num_rows_inserted":1}`}, 2, 0, 1, 1},
+		{"reject after unknown", []int{503, 400}, []string{"unavailable", `{"error":{"code":"bad_request","message":"rejected"}}`}, 2, 0, 1, 1},
 		{"exhausted", []int{503}, []string{"unavailable"}, 3, 0, 1, 1},
-		{"malformed acknowledgement", []int{200, 200}, []string{"{}", `{"status":"committed","num_rows_inserted":1}`}, 2, 1, 0, 1},
-		{"attempt timeout", []int{0, 200}, []string{"", `{"status":"committed","num_rows_inserted":1}`}, 2, 1, 0, 1},
+		{"malformed acknowledgement", []int{200, 200}, []string{"{}", `{"num_rows_inserted":1}`}, 2, 1, 0, 1},
+		{"attempt timeout", []int{0, 200}, []string{"", `{"num_rows_inserted":1}`}, 1, 0, 1, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -122,7 +124,7 @@ func TestUnknownReplayKeepsCommittedChunksOutOfLaterRetries(t *testing.T) {
 			_, _ = io.WriteString(w, "unavailable")
 		case value == "suffix" && attempts[value] == 1:
 			w.WriteHeader(429)
-			_, _ = io.WriteString(w, "busy")
+			_, _ = io.WriteString(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 		default:
 			writeAppendCommitted(t, w, 1)
 		}

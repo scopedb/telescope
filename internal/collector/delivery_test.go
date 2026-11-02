@@ -67,8 +67,8 @@ func TestPersistentQueueRecoversUnderRateLimit(t *testing.T) {
 			default:
 			}
 			w.Header().Set("Retry-After", "1")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"message":"temporary outage","retryable":true,"details":{"status":"rejected"}}`)
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 			return
 		}
 		if now.Sub(window) >= time.Second {
@@ -80,7 +80,7 @@ func TestPersistentQueueRecoversUnderRateLimit(t *testing.T) {
 			notBefore = now.Add(time.Second)
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprint(w, `{"message":"shared rate limit","retryable":true,"details":{"status":"rejected"}}`)
+			fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 			return
 		}
 		used++

@@ -42,7 +42,7 @@ import (
 )
 
 func TestUnconfirmedAppendsAreTerminalByDefault(t *testing.T) {
-	for _, mode := range []string{"timeout", "disconnect", "unstructured_503", "missing_acknowledgement", "wrong_row_count"} {
+	for _, mode := range []string{"timeout", "disconnect", "unstructured_503", "unstructured_429", "missing_acknowledgement", "wrong_row_count"} {
 		t.Run(mode, func(t *testing.T) {
 			var attempts atomic.Int32
 			release := make(chan struct{})
@@ -63,6 +63,8 @@ func TestUnconfirmedAppendsAreTerminalByDefault(t *testing.T) {
 					conn.Close()
 				case "unstructured_503":
 					http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
+				case "unstructured_429":
+					http.Error(w, "busy", http.StatusTooManyRequests)
 				case "missing_acknowledgement":
 					fmt.Fprint(w, "{}")
 				case "wrong_row_count":
@@ -97,8 +99,8 @@ func TestUnconfirmedAppendsAreTerminalByDefault(t *testing.T) {
 
 func TestCollectorRespectsRetryAfter(t *testing.T) {
 	for name, responseBody := range map[string]string{
-		"structured":   `{"message":"busy","retryable":true,"details":{"status":"rejected"}}`,
-		"unstructured": "too many requests",
+		"structured": `{"code":"too_many_requests","message":"busy","retryable":true,"details":{"status":"rejected"}}`,
+		"modern":     `{"error":{"code":"too_many_requests","message":"busy"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 
@@ -152,8 +154,8 @@ func TestMemoryQueueDrainsAtShutdownWithoutRetrying(t *testing.T) {
 					writeAppendCommitted(t, w, 1)
 					return
 				}
-				w.WriteHeader(503)
-				_, _ = io.WriteString(w, `{"details":{"status":"rejected"}}`)
+				w.WriteHeader(429)
+				_, _ = io.WriteString(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 			}))
 			defer func() { once.Do(func() { close(release) }); backend.Close() }()
 			cfg := testExporterConfig(backend.URL)
@@ -259,14 +261,17 @@ func TestPartialDeliveryFinalOutcomes(t *testing.T) {
 						return
 					case 3:
 						if attempts[3] == 1 {
-							http.Error(w, "busy", http.StatusTooManyRequests)
+							w.WriteHeader(http.StatusTooManyRequests)
+							fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 							return
 						}
 						if tc.status != 200 {
 							w.Header().Set("Retry-After", "10")
 							w.WriteHeader(tc.status)
 							if tc.status == 400 {
-								fmt.Fprint(w, `{"details":{"status":"rejected"}}`)
+								fmt.Fprint(w, `{"error":{"code":"bad_request","message":"rejected"}}`)
+							} else if tc.status == 429 {
+								fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 							}
 							return
 						}
@@ -335,19 +340,24 @@ func TestRejectedRowsAreIsolatedOnlyWithCompleteDetails(t *testing.T) {
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				if calls == 1 {
-					details := scopedb.AppendErrorDetails{Status: scopedb.AppendStateRejected, RowErrorsTruncated: tc.truncated}
+					details := scopedb.AppendErrorDetails{Status: scopedb.AppendOutcomeFailed, RowErrorsTruncated: tc.truncated}
 					for _, index := range tc.indexes {
 						details.RowErrors = append(details.RowErrors, scopedb.AppendRowError{RowIndex: index, Column: "message", Message: "wrong type"})
 					}
 					w.WriteHeader(422)
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"details": details}))
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"code": "invalid_request", "message": "invalid rows", "details": details}))
 					return
 				}
 				body, err := decodeSDKRequestBody(r)
 				require.NoError(t, err)
 				if calls == 2 && tc.retryCode != 0 {
 					retriedBody = body
-					http.Error(w, "unavailable", tc.retryCode)
+					if tc.retryCode == 429 {
+						w.WriteHeader(429)
+						fmt.Fprint(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
+					} else {
+						http.Error(w, "unavailable", tc.retryCode)
+					}
 					return
 				}
 				if retriedBody != nil {

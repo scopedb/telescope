@@ -245,7 +245,7 @@ func completeRejectedRows(err error, rowCount int) []scopedb.AppendRowError {
 		return nil
 	}
 	details := scopeErr.AppendDetails
-	if details.Status != scopedb.AppendStateRejected || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
+	if details.Status != scopedb.AppendOutcomeFailed || details.RowErrorsTruncated || len(details.RowErrors) == 0 {
 		return nil
 	}
 	rows := slices.Clone(details.RowErrors)
@@ -306,7 +306,7 @@ func classifyAppendError(err error) error {
 		return consumererror.NewRetryableError(err)
 	}
 	formatted := formatAppendError(scopeErr)
-	if scopeErr.AppendDetails == nil || scopeErr.AppendDetails.Status != scopedb.AppendStateRejected || !scopeErr.Retryable {
+	if scopeErr.AppendDetails == nil || scopeErr.AppendDetails.Status != scopedb.AppendOutcomeFailed || !scopeErr.Retryable {
 		return consumererror.NewPermanent(formatted)
 	}
 
@@ -319,7 +319,7 @@ func classifyAppendError(err error) error {
 
 func isUnknownAppend(err error) bool {
 	scopeErr, ok := errors.AsType[*scopedb.Error](err)
-	return ok && scopeErr.AppendDetails != nil && scopeErr.AppendDetails.Status == scopedb.AppendStateUnknown
+	return ok && scopeErr.AppendDetails != nil && scopeErr.AppendDetails.Status == scopedb.AppendOutcomeAmbiguous
 }
 
 func formatAppendError(err *scopedb.Error) error {

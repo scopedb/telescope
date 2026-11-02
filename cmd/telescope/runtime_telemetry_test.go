@@ -119,6 +119,7 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 		if throttled.Load() {
 			w.Header().Set("Retry-After", "3600")
 			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":{"code":"too_many_requests","message":"busy"}}`)
 			return
 		}
 		switch attempt {
@@ -127,12 +128,12 @@ func TestRunPushesDeliveryMetricsAndKeepsOperationsAvailable(t *testing.T) {
 			_, _ = io.WriteString(w, `{"code":"commit_unknown","message":"unknown","details":{"status":"unknown"}}`)
 		case 2:
 			w.WriteHeader(400)
-			_, _ = io.WriteString(w, `{"message":"rejected","details":{"status":"rejected"}}`)
+			_, _ = io.WriteString(w, `{"error":{"code":"bad_request","message":"rejected"}}`)
 		case 3:
 			w.WriteHeader(400)
-			_, _ = io.WriteString(w, `{"details":{"status":"rejected"}}`)
+			_, _ = io.WriteString(w, `{"error":{"code":"bad_request","message":"rejected"}}`)
 		default:
-			_, _ = io.WriteString(w, `{"status":"committed","num_rows_inserted":1}`)
+			_, _ = io.WriteString(w, `{"num_rows_inserted":1}`)
 		}
 	}))
 	t.Cleanup(backend.Close)

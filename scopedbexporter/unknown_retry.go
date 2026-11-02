@@ -90,14 +90,16 @@ func (s *unknownRetryState) retain(ctx context.Context, body []byte, rows int, e
 	return true
 }
 
-// Request timeouts may be replayed, but cancellation remains terminal. The
-// delivery context and replay budget are checked separately from this error.
+// Match the SDK's ambiguous replay policy; Collector owns scheduling and budgets.
 func replayableUnknown(err error) bool {
 	e, ok := errors.AsType[*scopedb.Error](err)
-	if !ok || e.AppendDetails == nil || e.AppendDetails.Status != scopedb.AppendStateUnknown {
+	if !ok || e.AppendDetails == nil || e.AppendDetails.Status != scopedb.AppendOutcomeAmbiguous {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || (e.WriteDetails != nil && e.WriteDetails.Reason != scopedb.WriteErrorReasonTimeout) {
+	if e.ServerRetryable != nil && !*e.ServerRetryable {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || e.WriteDetails != nil {
 		return false
 	}
 	return e.HTTPStatus == 0 || (e.HTTPStatus >= 200 && e.HTTPStatus < 300) || e.HTTPStatus == 408 || e.HTTPStatus == 429 || e.HTTPStatus >= 500
@@ -105,7 +107,7 @@ func replayableUnknown(err error) bool {
 
 func retryableAfterUnknown(err error) bool {
 	e, ok := errors.AsType[*scopedb.Error](err)
-	return replayableUnknown(err) || (ok && e.AppendDetails != nil && e.AppendDetails.Status == scopedb.AppendStateRejected && e.Retryable)
+	return replayableUnknown(err) || (ok && e.AppendDetails != nil && e.AppendDetails.Status == scopedb.AppendOutcomeFailed && e.Retryable)
 }
 
 func unknownRetryError(err error) error {
@@ -120,7 +122,7 @@ func unresolvedUnknown(err error) error {
 	return &scopedb.Error{
 		Kind:          scopedb.ErrorKindAppendRowsFailed,
 		Message:       fmt.Sprintf("an earlier append may have committed; final attempt: %s", err),
-		AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendStateUnknown},
+		AppendDetails: &scopedb.AppendErrorDetails{Status: scopedb.AppendOutcomeAmbiguous},
 	}
 }
 

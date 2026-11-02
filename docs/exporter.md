@@ -49,14 +49,14 @@ Use the [mapping contract](table-management.md#mapping-model) for rule syntax, c
 
 Each synchronous `Table.AppendNDJSON` call sends one mapped chunk. `append_batch.max_rows` and `max_bytes` cap rows and uncompressed NDJSON bytes, including newlines. Zero uses the protocol limits of 200,000 rows and 8 MiB; `telescope run` defaults to 8,000 rows and 4 MiB. Use the upstream batch processor to combine input; `sending_queue.batch` is unsupported because a queued request must retain one completion boundary across partial retries.
 
-| Append result | Delivery behavior |
-| --- | --- |
-| `committed` with the expected inserted count | Count as written. |
-| Retryable `rejected` | Retry through Collector. Includes failures proven to precede dispatch and HTTP 429 without structured ingest details. |
-| Permanent rejection | Count as dropped. Local projection, encoding, and oversized-row failures affect only that record. |
-| `unknown` | Count separately from written and dropped; terminal unless eligible for the opt-in policy below. Includes connection loss after acquisition, unstructured HTTP 503, and malformed or mismatched acknowledgements. |
+| Append result                                | Delivery behavior                                                                                                                                                                                                 |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `committed` with the expected inserted count | Count as written.                                                                                                                                                                                                 |
+| Retryable `rejected`                         | Retry through Collector. Includes temporary failures proven to precede dispatch and HTTP 429 with a valid error envelope and no explicit server retry refusal.                                                    |
+| Permanent rejection                          | Count as dropped. Local projection, encoding, and oversized-row failures affect only that record.                                                                                                                 |
+| `unknown`                                    | Count separately from written and dropped; terminal unless eligible for the opt-in policy below. Includes connection loss after acquisition, unstructured HTTP 503, and malformed or mismatched acknowledgements. |
 
-A complete, non-truncated row-error list in a permanent ScopeDB rejection allows one isolation pass: remove the rejected rows and attempt the remainder once. Incomplete details fail the uncommitted chunk. During a running export, retries exclude confirmed, permanently rejected, and terminal unknown records; unsent rows remain eligible for delivery.
+A complete, non-truncated row-error list in a valid legacy ScopeDB rejection allows one isolation pass: remove the rejected rows and attempt the remainder once. Modern error envelopes describe the whole request; a permanent rejection without row diagnostics fails the uncommitted chunk. Malformed error envelopes, including bodyless or plain-text HTTP 429 responses, are unknown rather than safe rejections. During a running export, retries exclude confirmed, permanently rejected, and terminal unknown records; unsent rows remain eligible for delivery.
 
 Collector's sending queue owns persistence and retry scheduling. It honors `Retry-After` as a minimum delay, even above the configured backoff interval. The default is one consumer per signal and unlimited elapsed retries; set `retry_on_failure.max_elapsed_time` to expire safely retryable records. A full queue reports enqueue failures. Consumers and replicas share the destination's request quota, so added concurrency can increase throttling.
 
@@ -73,7 +73,7 @@ unknown_retry:
   max_elapsed_time: 5m
 ```
 
-This defaults to disabled, with limits of 20 retries and five minutes when enabled. Eligible outcomes include unstructured HTTP 5xx, connection loss, request timeouts, and malformed success acknowledgements. Cancellation and permanent HTTP errors remain terminal. The policy preserves the SDK classification and certificate verification.
+This defaults to disabled, with limits of 20 retries and five minutes when enabled. Eligible outcomes include HTTP 5xx, connection loss, malformed success acknowledgements, and malformed HTTP 429 responses. Explicit server retry refusal, client timeouts after connection acquisition, cancellation, and permanent HTTP errors remain terminal even with this option enabled. Failures proven to precede dispatch still follow the SDK's safe-retry classification. Telescope follows the SDK's ambiguous replay policy while Collector owns scheduling and budgets.
 
 Telescope retains the pending chunk's exact mapped bytes while Collector schedules retries. Both limits must be positive: `max_retries` counts additional attempts for previously unknown chunks, including safe rejections during replay; elapsed time starts at the first replayable unknown. Both budgets are shared across one dequeued request's chunks, and the first exhausted limit stops replay. Waiting in the queue consumes neither budget. With one consumer, queued requests wait behind the request being retried.
 
