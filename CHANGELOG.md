@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.4.0 (2026-11-03)
+
 ### Breaking changes
 
 * Rename delivery configuration `unknown_retry` to `ambiguous_retry`, status fields and metrics from `unknown` to `ambiguous`, and the permanent-drop reason `permanent_rejected` to `permanent_failed`. Old configuration keys are rejected. See the [v0.3 migration guide](docs/migration-v0.3.md) for Go APIs, JSON fields, metrics, and rollout steps.
@@ -17,7 +19,8 @@ All notable changes to this project will be documented in this file.
 
 ### Improvements
 
-* Retain each pending batch's mapped bytes across ordinary retries and ambiguous replay, and advance past settled records without rebuilding OTLP subsets. Collector owns persistence and backoff; the SDK performs and classifies each append attempt.
+* Reuse mapped batches across retries and advance past settled records without rebuilding OTLP requests.
+* Include a Prometheus alert for terminal ambiguous outcomes, which are excluded from confirmed writes and drops and may leave the queue empty.
 * Custom Go builds now require Go 1.27.3 or later.
 
 ## v0.3.0 (2026-10-26)

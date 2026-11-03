@@ -35,6 +35,14 @@ groups:
           summary: Telescope dropped telemetry
           description: '{{ $labels.signal }} delivery to {{ $labels.table }} dropped telemetry because of {{ $labels.reason }}.'
 
+      - alert: TelescopeAmbiguousDelivery
+        expr: increase(telescope_ingestion_ambiguous_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Telescope could not confirm delivery
+          description: '{{ $labels.signal }} delivery to {{ $labels.table }} ended with an ambiguous append outcome. Records may have been written; check destination data before replaying them.'
+
       - alert: TelescopeDeliveryStalled
         expr: |
           (telescope_ingestion_queue_utilization > 0)

@@ -6,18 +6,18 @@ Use [GitHub Issues](https://github.com/scopedb/telescope/issues) for bugs and de
 
 This repository is one Go module, `github.com/scopedb/telescope`.
 
-| Path | Responsibility |
-| --- | --- |
-| `cmd/telescope/` | Process entrypoint, CLI parsing and presentation, runtime lifecycle, and operational HTTP client |
-| `internal/collector/` | Embedded Collector profile, environment defaults, component factories, and persistent queue integration |
-| `internal/status/` | Health, readiness, captures, status, and Prometheus HTTP handlers; combines exporter observations with Collector metrics |
-| `internal/httpclient/` | Owned SDK HTTP transports and redirect policy |
-| `scopedbexporter/` | Public Collector factory and configuration, shared mapping contract and diagnostics; private append and partial-delivery implementation |
-| `deploy/` | User-editable deployment examples, OTLP samples, and Prometheus rules |
-| `docs/` | Mapping, compatibility, exporter, operations, migration, and release documentation |
-| `mise.toml` | Development tools and task entrypoints |
-| `scripts/` | Deployment and distribution checks invoked by mise |
-| `.github/workflows/` | Pull request checks and release build/publish orchestration |
+| Path                   | Responsibility                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/telescope/`       | Process entrypoint, CLI parsing and presentation, runtime lifecycle, and operational HTTP client                           |
+| `internal/collector/`  | Embedded Collector profile, environment defaults, component factories, and persistent queue integration                    |
+| `internal/status/`     | Health, readiness, captures, status, and Prometheus HTTP handlers; combines exporter observations with Collector metrics   |
+| `internal/httpclient/` | Owned SDK HTTP transports and redirect policy                                                                              |
+| `scopedbexporter/`     | Public Collector factory and configuration, shared mapping contract and diagnostics; private batch delivery implementation |
+| `deploy/`              | User-editable deployment examples, OTLP samples, and Prometheus rules                                                      |
+| `docs/`                | Mapping, compatibility, exporter, operations, migration, and release documentation                                         |
+| `mise.toml`            | Development tools and task entrypoints                                                                                     |
+| `scripts/`             | Deployment and distribution checks invoked by mise                                                                         |
+| `.github/workflows/`   | Pull request checks and release build/publish orchestration                                                                |
 
 The command composes Collector and status; both depend on the exporter. The exporter does not depend on the command, Collector assembly, or operational HTTP server. Mapping inspection, preview, destination validation, and table planning stay alongside the production mapper so all callers use the same rules. Intermediate records and append outcomes are private; custom distributions consume telemetry through the Collector factory.
 
@@ -53,7 +53,7 @@ Use a non-production workspace. The tests create uniquely named temporary tables
 
 ## Build and release
 
-`mise run build` produces `bin/telescope`. `VERSION=v0.3.0 mise run artifacts` builds macOS arm64 and Linux amd64/arm64 archives plus `dist/SHA256SUMS`; it does not publish them. Task settings are environment variables: use `PLATFORMS` to restrict a local build and `DIST_DIR` to choose its output directory. Without `VERSION`, builds use `git describe --tags --always`.
+`mise run build` produces `bin/telescope`. `VERSION=v0.4.0 mise run artifacts` builds macOS arm64 and Linux amd64/arm64 archives plus `dist/SHA256SUMS`; it does not publish them. Task settings are environment variables: use `PLATFORMS` to restrict a local build and `DIST_DIR` to choose its output directory. Without `VERSION`, builds use `git describe --tags --always`.
 
 Pull requests run Go and runtime checks. Changes to release inputs also run the multi-platform image dry run. The release workflow publishes only on version tags; manual dispatch validates builds without publishing.
 

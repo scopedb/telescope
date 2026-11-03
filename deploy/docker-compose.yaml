@@ -14,7 +14,7 @@
 
 services:
   telescope:
-    image: ${IMAGE:-ghcr.io/scopedb/telescope:v0.3.0}
+    image: ${IMAGE:-ghcr.io/scopedb/telescope:v0.4.0}
     command: ["run", "/etc/telescope/telescope.yaml"]
     restart: unless-stopped
     stop_grace_period: 60s
