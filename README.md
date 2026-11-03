@@ -12,10 +12,10 @@ Telescope is an OpenTelemetry Collector distribution for sending logs, traces, a
 
 ## Try it
 
-Download a binary archive from the [v0.3.0 release](https://github.com/scopedb/telescope/releases/tag/v0.3.0), or build from source with [mise](https://mise.jdx.dev/). Previewing the bundled trace needs no ScopeDB connection:
+Download a binary archive from the [v0.4.0 release](https://github.com/scopedb/telescope/releases/tag/v0.4.0), or build from source with [mise](https://mise.jdx.dev/). Previewing the bundled trace needs no ScopeDB connection:
 
 ```bash
-git clone --branch v0.3.0 --depth 1 https://github.com/scopedb/telescope.git
+git clone --branch v0.4.0 --depth 1 https://github.com/scopedb/telescope.git
 cd telescope
 mise install
 mise run build
@@ -27,7 +27,7 @@ In an extracted archive, run the preview command with `./telescope` instead of `
 
 **[Send your first trace →](docs/quickstart.md)** Connect a ScopeDB workspace, prepare the table, start Telescope, and verify a write.
 
-> v0.3 changes configuration and delivery behavior. Read the [changelog](CHANGELOG.md) and follow the [migration guide](docs/migration-v0.2.md) when upgrading from v0.2.
+> v0.4 changes delivery configuration, status fields, metrics, and retry behavior. Read the [changelog](CHANGELOG.md) and follow the migration guide for [v0.3](docs/migration-v0.3.md) or [v0.2](docs/migration-v0.2.md).
 
 ## How it fits
 
@@ -37,13 +37,13 @@ Have a Collector, Alloy, or another OTLP sender already? Keep it and [forward it
 
 ## Guides
 
-| I want to… | Start here |
-| --- | --- |
-| Get a trace into ScopeDB | [Quickstart](docs/quickstart.md) |
-| Connect an SDK or existing Collector | [Integrations](docs/integrations.md) |
-| Choose columns and prepare tables | [Mappings](docs/table-management.md) · [Supported fields](docs/ingestion-compatibility.md) |
-| Deploy and monitor Telescope | [Deployment](docs/deployment.md) · [Operations](docs/operations.md) |
-| Embed the exporter in my own distribution | [Exporter](docs/exporter.md) |
+| I want to…                                | Start here                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Get a trace into ScopeDB                  | [Quickstart](docs/quickstart.md)                                                           |
+| Connect an SDK or existing Collector      | [Integrations](docs/integrations.md)                                                       |
+| Choose columns and prepare tables         | [Mappings](docs/table-management.md) · [Supported fields](docs/ingestion-compatibility.md) |
+| Deploy and monitor Telescope              | [Deployment](docs/deployment.md) · [Operations](docs/operations.md)                        |
+| Embed the exporter in my own distribution | [Exporter](docs/exporter.md)                                                               |
 
 Run `telescope <command> --help` for command options. See [CONTRIBUTING.md](CONTRIBUTING.md) for the code layout, checks, and release process.
 

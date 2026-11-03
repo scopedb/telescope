@@ -1,6 +1,6 @@
-# Upgrade from v0.3
+# Upgrade from v0.3 to v0.4
 
-The next release uses ScopeDB Go SDK v0.8.0 and a batch-oriented delivery model. Upgrade custom Go builds to Go 1.27.3 or later. Review delivery policy and update configuration, status clients, dashboards, and alerts together.
+Telescope v0.4 uses ScopeDB Go SDK v0.8.0 and a batch-oriented delivery model. Upgrade custom Go builds to Go 1.27.3 or later. Review delivery policy and update configuration, status clients, dashboards, and alerts together.
 
 ## Configuration and terminology
 
@@ -36,7 +36,7 @@ Metric names change for both the operational Prometheus endpoint and pushed OTLP
 Collector owns the queue and retry schedule. Each dequeued request has a cursor and one pending NDJSON batch. The SDK sends one attempt and supplies `Succeeded`, `Failed`, or `Ambiguous`; Telescope records final outcomes and decides whether to ask Collector for another attempt.
 
 * A successful batch is counted once and never resent during the running delivery. Ordinary retries and ambiguous replay retain the pending batch's exact mapped bytes.
-* A permanent ScopeDB rejection fails the whole batch. Telescope no longer removes individual rows using legacy server row diagnostics and resends their neighbors. It continues with later batches; tune `append_batch` to control the batch failure boundary. Local mapping and encoding failures still reject only the invalid record.
+* A permanent ScopeDB rejection fails the whole batch. Telescope no longer removes individual rows using legacy server row diagnostics and resends their neighbors. It continues with later batches; tune `delivery.max_rows` and `delivery.max_bytes` (`append_batch` in custom Collector distributions) to control the batch failure boundary. Local mapping and encoding failures still reject only the invalid record.
 * Only valid HTTP 429 refusals and temporary failures proven to precede dispatch qualify for safe automatic retry. Bodyless, plain-text, or malformed 429 responses are ambiguous. With replay disabled, those batches stop and count as ambiguous.
 * Client timeouts after connection acquisition and explicit server retry refusal stop replay, even when `ambiguous_retry` is enabled. A rejection after an ambiguous attempt does not prove the earlier attempt failed; unresolved records remain ambiguous.
 * Final outcomes are written, dropped, or ambiguous. Pending batches are unsettled. Replay counters overlap these outcomes and must not be added to them.

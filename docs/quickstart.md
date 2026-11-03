@@ -1,6 +1,6 @@
 # Send your first trace
 
-This walkthrough uses the binary built in the [README](../README.md), a ScopeDB workspace, and its endpoint and API key. Run the commands from the repository root. In an extracted v0.3 release archive, use `./telescope` in place of `./bin/telescope`.
+This walkthrough uses the binary built in the [README](../README.md), a ScopeDB workspace, and its endpoint and API key. Run the commands from the repository root. In an extracted release archive, use `./telescope` in place of `./bin/telescope`.
 
 ## 1. Choose the destination
 
@@ -44,7 +44,7 @@ In a second terminal, from the same directory:
 This sends a synthetic trace through OTLP and waits for its ScopeDB append acknowledgement. With the default batch timeout it can take about 30 seconds. Success ends with:
 
 ```text
-traces: ScopeDB append committed synthetic probe (probe-...)
+traces: ScopeDB append succeeded for synthetic probe (probe-...)
 ```
 
 Read stored rows using the same connection:

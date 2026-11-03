@@ -1,6 +1,6 @@
 # Migrate from v0.2
 
-The v0.3 configuration uses explicit tables and mappings. Start from [`deploy/telescope.v0.2-compatible.yaml`](../deploy/telescope.v0.2-compatible.yaml) when existing queries depend on the v0.2 `otel.logs`, `otel.traces`, and `otel.metrics` columns. The template retains those column names and types, including the nested `record` object. Change the table routes if your database or schema differs.
+Telescope v0.3 and later use explicit tables and mappings. This guide upgrades v0.2 directly to v0.4; review the [v0.4 delivery and terminology changes](migration-v0.3.md) as well. Start from [`deploy/telescope.v0.2-compatible.yaml`](../deploy/telescope.v0.2-compatible.yaml) when existing queries depend on the v0.2 `otel.logs`, `otel.traces`, and `otel.metrics` columns. The template retains those column names and types, including the nested `record` object. Change the table routes if your database or schema differs.
 
 ## Stored data
 
@@ -17,7 +17,7 @@ The compatibility tests compare all mapped columns with rows produced by the v0.
 
 ## Prepare and switch traffic
 
-1. Install the `v0.3.0` release or build from an exact commit. Run offline validation and preview in CI; neither command needs a ScopeDB connection:
+1. Install the `v0.4.0` release or build from an exact commit. Run offline validation and preview in CI; neither command needs a ScopeDB connection:
 
    ```bash
    telescope validate --offline deploy/telescope.v0.2-compatible.yaml
@@ -29,7 +29,7 @@ The compatibility tests compare all mapped columns with rows produced by the v0.
 2. Run `telescope validate` against the intended destination before deployment. Existing v0.2 tables need no DDL for this template. For new tables, review `telescope plan` output and apply it separately. Telescope never applies DDL at runtime.
 3. Start a parallel service with a separate discovery name and a new persistent queue. Give each replica its own stable queue directory. Keep the old service receiving traffic while checking the new service's `/readyz` and sending representative synthetic telemetry through each enabled signal. Verify both append acknowledgement and stored values.
 4. Switch the OTLP discovery name or sender endpoints to the new service. Allow for DNS caches and long-lived gRPC connections; keep the old service reachable until existing senders have reconnected. Avoid deliberate dual delivery unless duplicate telemetry is acceptable.
-5. Stop new traffic to the old service, let its batch processor and in-flight exports finish, and check its queue and final-outcome counters before stopping it. A v0.2 memory queue cannot be recovered after termination: allow it to empty while the process remains alive. A v0.2 persistent queue must drain under the original binary and configuration. Do not mount it into v0.3.
+5. Stop new traffic to the old service, let its batch processor and in-flight exports finish, and check its queue and final-outcome counters before stopping it. A v0.2 memory queue cannot be recovered after termination: allow it to empty while the process remains alive. A v0.2 persistent queue must drain under the original binary and configuration. Do not mount it into the new service.
 6. Compare event-time row counts and continuity by signal and relevant resource dimensions. Monitor ambiguous outcomes, final drops, queue saturation, and the last confirmed append. Retain the old configuration for rollback. A rollback must also preserve and drain the new service's queue under its original mapping.
 
 ## Runtime settings
