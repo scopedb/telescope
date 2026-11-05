@@ -35,12 +35,11 @@ import (
 func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 	tests := []struct {
 		signal  string
-		observe func(*CaptureRegistry) (int, []byte)
-		count   func(t *testing.T, payload []byte) int
+		observe func(*CaptureRegistry) []byte
 	}{
 		{
 			signal: signalLogs,
-			observe: func(registry *CaptureRegistry) (int, []byte) {
+			observe: func(registry *CaptureRegistry) []byte {
 				request := plogotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "logs.otlp.json")))
 				logs := request.Logs()
@@ -56,21 +55,15 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 				after, err := request.MarshalJSON()
 				require.NoError(t, err)
 				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
-				count := logs.LogRecordCount()
 				records.RemoveIf(func(record plog.LogRecord) bool { return record.Body().Str() == "third" })
 				expected, err := request.MarshalJSON()
 				require.NoError(t, err)
-				return count, expected
-			},
-			count: func(t *testing.T, payload []byte) int {
-				request := plogotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(payload))
-				return request.Logs().LogRecordCount()
+				return expected
 			},
 		},
 		{
 			signal: signalTraces,
-			observe: func(registry *CaptureRegistry) (int, []byte) {
+			observe: func(registry *CaptureRegistry) []byte {
 				request := ptraceotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "traces.otlp.json")))
 				traces := request.Traces()
@@ -86,21 +79,15 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 				after, err := request.MarshalJSON()
 				require.NoError(t, err)
 				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
-				count := traces.SpanCount()
 				spans.RemoveIf(func(span ptrace.Span) bool { return span.Name() == "third" })
 				expected, err := request.MarshalJSON()
 				require.NoError(t, err)
-				return count, expected
-			},
-			count: func(t *testing.T, payload []byte) int {
-				request := ptraceotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(payload))
-				return request.Traces().SpanCount()
+				return expected
 			},
 		},
 		{
 			signal: signalMetrics,
-			observe: func(registry *CaptureRegistry) (int, []byte) {
+			observe: func(registry *CaptureRegistry) []byte {
 				request := pmetricotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "metrics.otlp.json")))
 				metrics := request.Metrics()
@@ -110,18 +97,12 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 				after, err := request.MarshalJSON()
 				require.NoError(t, err)
 				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
-				count := metrics.DataPointCount()
 				metrics.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().RemoveIf(func(metric pmetric.Metric) bool {
 					return metric.Name() != "system.load" && metric.Name() != "http.requests"
 				})
 				expected, err := request.MarshalJSON()
 				require.NoError(t, err)
-				return count, expected
-			},
-			count: func(t *testing.T, payload []byte) int {
-				request := pmetricotlp.NewExportRequest()
-				require.NoError(t, request.UnmarshalJSON(payload))
-				return request.Metrics().DataPointCount()
+				return expected
 			},
 		},
 	}
@@ -137,14 +118,12 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 			}()
 			waitCaptureReady(t, ready)
 
-			inputRecords, expected := tt.observe(registry)
+			expected := tt.observe(registry)
 			captured := <-result
 			require.NoError(t, captured.err)
 			require.JSONEq(t, string(expected), string(captured.sample.Payload))
 			assert.Equal(t, tt.signal, captured.sample.Signal)
 			assert.Equal(t, 2, captured.sample.Records)
-			assert.Equal(t, 2, tt.count(t, captured.sample.Payload))
-			assert.Greater(t, inputRecords, captured.sample.Records, "capture must not truncate its input")
 		})
 	}
 }
