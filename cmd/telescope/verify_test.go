@@ -50,12 +50,20 @@ func TestMarshalIngestionProbeSupportsEverySignal(t *testing.T) {
 func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 	var mu sync.RWMutex
 	lastProbeIDs := []string{"different-probe"}
+	var submittedProbe string
+	postSubmissionReads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/status":
-			mu.RLock()
+			mu.Lock()
+			if submittedProbe != "" {
+				postSubmissionReads++
+				if postSubmissionReads == 2 {
+					lastProbeIDs = []string{submittedProbe, "batched-probe"}
+				}
+			}
 			probeIDs := append([]string(nil), lastProbeIDs...)
-			mu.RUnlock()
+			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			require.NoError(t, json.NewEncoder(w).Encode(statusapi.IngestionStatusResponse{
 				Signals: []statusapi.IngestionSignalStatus{{
@@ -70,7 +78,7 @@ func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 			require.NoError(t, err)
 			probeID := probeIDFromOTLP(t, "traces", payload)
 			mu.Lock()
-			lastProbeIDs = []string{probeID, "batched-probe"}
+			submittedProbe = probeID
 			mu.Unlock()
 			response, err := ptraceotlp.NewExportResponse().MarshalProto()
 			require.NoError(t, err)
@@ -91,7 +99,9 @@ func TestRunVerifyWaitsForExactProbe(t *testing.T) {
 	require.NoError(t, err)
 	mu.RLock()
 	defer mu.RUnlock()
+	require.Equal(t, 2, postSubmissionReads)
 	require.NotEmpty(t, lastProbeIDs)
+	require.Equal(t, submittedProbe, lastProbeIDs[0])
 	assert.True(t, strings.HasPrefix(lastProbeIDs[0], "probe-"))
 }
 

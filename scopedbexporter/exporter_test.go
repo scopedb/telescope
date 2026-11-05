@@ -92,17 +92,44 @@ func TestExporterConsumesLogsThroughAppend(t *testing.T) {
 }
 
 func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var enteredOnce, releaseOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			writeTableDescription(t, w, "vendor_otel_logs_test", []string{"message"})
 			return
 		}
+		enteredOnce.Do(func() { close(entered) })
+		<-release
 		writeAppendCommitted(t, w, 1)
 	}))
-	defer server.Close()
+	defer func() { releaseOnce.Do(func() { close(release) }); server.Close() }()
 
 	captures := NewCaptureRegistry()
-	statuses := NewStatusRegistry()
+	cfg := testExporterConfig(server.URL)
+	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
+	queue := exporterhelper.NewDefaultQueueConfig()
+	queue.NumConsumers = 1
+	queue.QueueSize = 2
+	cfg.SendingQueue = configoptional.Some(queue)
+	exp, err := NewFactoryWithRegistries(NewStatusRegistry(), captures).CreateLogs(
+		context.Background(), exportertest.NewNopSettings(typeStr), cfg,
+	)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() {
+		releaseOnce.Do(func() { close(release) })
+		require.NoError(t, exp.Shutdown(context.Background()))
+	}()
+	logs := func(body string) plog.Logs {
+		data := plog.NewLogs()
+		data.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr(body)
+		return data
+	}
+	require.NoError(t, exp.ConsumeLogs(context.Background(), logs("in flight")))
+	waitCaptureReady(t, entered)
+	require.NoError(t, exp.ConsumeLogs(context.Background(), logs("queued")))
+
 	captured := make(chan captureResult, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -110,27 +137,13 @@ func TestExporterCapturesLogsBeforeTheSendingQueue(t *testing.T) {
 		captured <- captureResult{sample: sample, err: err}
 	}()
 	waitCaptureReady(t, ready)
-
-	cfg := testExporterConfig(server.URL)
-	cfg.Mappings.Logs = shorthandMapping(map[string]string{"message": "log.message"})
-	exp, err := NewFactoryWithRegistries(statuses, captures).CreateLogs(
-		context.Background(),
-		exportertest.NewNopSettings(typeStr),
-		cfg,
-	)
-	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), componenttest.NewNopHost()))
-	defer exp.Shutdown(context.Background())
-
-	logs := plog.NewLogs()
-	logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("hello")
-	require.NoError(t, exp.ConsumeLogs(context.Background(), logs))
-
+	require.ErrorContains(t, exp.ConsumeLogs(context.Background(), logs("rejected")), "queue is full")
 	result := <-captured
 	require.NoError(t, result.err)
 	request := plogotlp.NewExportRequest()
 	require.NoError(t, request.UnmarshalJSON(result.sample.Payload))
-	assert.Equal(t, 1, request.Logs().LogRecordCount())
+	require.Equal(t, 1, request.Logs().LogRecordCount())
+	require.Equal(t, "rejected", request.Logs().ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Str())
 }
 
 func TestExporterStartsWithoutContactingDestination(t *testing.T) {

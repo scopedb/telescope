@@ -24,28 +24,43 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 	tests := []struct {
 		signal  string
-		observe func(*CaptureRegistry) int
+		observe func(*CaptureRegistry) (int, []byte)
 		count   func(t *testing.T, payload []byte) int
 	}{
 		{
 			signal: signalLogs,
-			observe: func(registry *CaptureRegistry) int {
+			observe: func(registry *CaptureRegistry) (int, []byte) {
 				request := plogotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "logs.otlp.json")))
 				logs := request.Logs()
 				records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 				records.At(0).CopyTo(records.AppendEmpty())
 				records.At(0).CopyTo(records.AppendEmpty())
+				for i, name := range []string{"first", "second", "third"} {
+					records.At(i).Body().SetStr(name)
+				}
+				before, err := request.MarshalJSON()
+				require.NoError(t, err)
 				registry.ObserveLogs(logs)
-				return logs.LogRecordCount()
+				after, err := request.MarshalJSON()
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
+				count := logs.LogRecordCount()
+				records.RemoveIf(func(record plog.LogRecord) bool { return record.Body().Str() == "third" })
+				expected, err := request.MarshalJSON()
+				require.NoError(t, err)
+				return count, expected
 			},
 			count: func(t *testing.T, payload []byte) int {
 				request := plogotlp.NewExportRequest()
@@ -55,15 +70,27 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 		},
 		{
 			signal: signalTraces,
-			observe: func(registry *CaptureRegistry) int {
+			observe: func(registry *CaptureRegistry) (int, []byte) {
 				request := ptraceotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "traces.otlp.json")))
 				traces := request.Traces()
 				spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 				spans.At(0).CopyTo(spans.AppendEmpty())
 				spans.At(0).CopyTo(spans.AppendEmpty())
+				for i, name := range []string{"first", "second", "third"} {
+					spans.At(i).SetName(name)
+				}
+				before, err := request.MarshalJSON()
+				require.NoError(t, err)
 				registry.ObserveTraces(traces)
-				return traces.SpanCount()
+				after, err := request.MarshalJSON()
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
+				count := traces.SpanCount()
+				spans.RemoveIf(func(span ptrace.Span) bool { return span.Name() == "third" })
+				expected, err := request.MarshalJSON()
+				require.NoError(t, err)
+				return count, expected
 			},
 			count: func(t *testing.T, payload []byte) int {
 				request := ptraceotlp.NewExportRequest()
@@ -73,12 +100,23 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 		},
 		{
 			signal: signalMetrics,
-			observe: func(registry *CaptureRegistry) int {
+			observe: func(registry *CaptureRegistry) (int, []byte) {
 				request := pmetricotlp.NewExportRequest()
 				require.NoError(t, request.UnmarshalJSON(readGoldenFile(t, "metrics.otlp.json")))
 				metrics := request.Metrics()
+				before, err := request.MarshalJSON()
+				require.NoError(t, err)
 				registry.ObserveMetrics(metrics)
-				return metrics.DataPointCount()
+				after, err := request.MarshalJSON()
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after), "capture must not mutate its input")
+				count := metrics.DataPointCount()
+				metrics.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().RemoveIf(func(metric pmetric.Metric) bool {
+					return metric.Name() != "system.load" && metric.Name() != "http.requests"
+				})
+				expected, err := request.MarshalJSON()
+				require.NoError(t, err)
+				return count, expected
 			},
 			count: func(t *testing.T, payload []byte) int {
 				request := pmetricotlp.NewExportRequest()
@@ -99,9 +137,10 @@ func TestCaptureRegistryCapturesAnExactPrefixForEverySignal(t *testing.T) {
 			}()
 			waitCaptureReady(t, ready)
 
-			inputRecords := tt.observe(registry)
+			inputRecords, expected := tt.observe(registry)
 			captured := <-result
 			require.NoError(t, captured.err)
+			require.JSONEq(t, string(expected), string(captured.sample.Payload))
 			assert.Equal(t, tt.signal, captured.sample.Signal)
 			assert.Equal(t, 2, captured.sample.Records)
 			assert.Equal(t, 2, tt.count(t, captured.sample.Payload))
